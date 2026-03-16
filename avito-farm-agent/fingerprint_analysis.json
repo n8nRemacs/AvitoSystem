@@ -1,0 +1,985 @@
+{
+  "apk_info": {
+    "total_permissions": 55,
+    "fingerprint_relevant": [
+      "android.permission.CAMERA",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+      "android.permission.USE_BIOMETRIC",
+      "android.permission.BLUETOOTH",
+      "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+      "android.permission.BLUETOOTH_CONNECT",
+      "android.permission.FOREGROUND_SERVICE_CAMERA",
+      "android.permission.NFC",
+      "android.permission.INTERNET",
+      "android.permission.ACCESS_WIFI_STATE",
+      "android.permission.ACCESS_MEDIA_LOCATION",
+      "android.permission.CALL_PHONE",
+      "android.permission.USE_FINGERPRINT",
+      "android.permission.READ_PHONE_STATE"
+    ],
+    "all_permissions": [
+      "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+      "android.permission.CAMERA",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.FOREGROUND_SERVICE",
+      "ru.sberbank.mobile.sberid.BIND_PERSONALIZATION_SERVICE",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.RECEIVE_BOOT_COMPLETED",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.ENFORCE_UPDATE_OWNERSHIP",
+      "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+      "android.permission.POST_NOTIFICATIONS",
+      "android.permission.MANAGE_ACCOUNTS",
+      "android.permission.GET_ACCOUNTS",
+      "com.google.android.c2dm.permission.RECEIVE",
+      "android.permission.WRITE_SETTINGS",
+      "android.permission.USE_BIOMETRIC",
+      "android.permission.BLUETOOTH",
+      "android.permission.USE_CREDENTIALS",
+      "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+      "com.google.android.gms.permission.AD_ID",
+      "android.permission.READ_MEDIA_VIDEO",
+      "android.permission.BLUETOOTH_CONNECT",
+      "android.permission.MODIFY_AUDIO_SETTINGS",
+      "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+      "com.avito.android.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+      "android.permission.FOREGROUND_SERVICE_CAMERA",
+      "android.permission.NFC",
+      "com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+      "android.permission.INTERNET",
+      "android.permission.VIBRATE",
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.ACCESS_WIFI_STATE",
+      "android.permission.ACCESS_MEDIA_LOCATION",
+      "android.permission.REQUEST_INSTALL_PACKAGES",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.WAKE_LOCK",
+      "com.huawei.appmarket.service.commondata.permission.GET_COMMON_DATA",
+      "android.permission.USE_FULL_SCREEN_INTENT",
+      "android.permission.AUTHENTICATE_ACCOUNTS",
+      "android.permission.CALL_PHONE",
+      "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION",
+      "android.permission.WRITE_EXTERNAL_STORAGE",
+      "android.permission.MANAGE_OWN_CALLS",
+      "android.permission.ACCESS_ADSERVICES_ATTRIBUTION",
+      "android.permission.USE_FINGERPRINT",
+      "android.permission.READ_CONTACTS",
+      "com.avito.android.permission.PROCESS_PUSH_MSG",
+      "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+      "android.permission.READ_PHONE_STATE",
+      "android.permission.WRITE_CONTACTS",
+      "com.avito.android.permission.PUSH_PROVIDER",
+      "android.permission.ACCESS_ADSERVICES_AD_ID",
+      "android.permission.READ_MEDIA_IMAGES",
+      "android.permission.SYSTEM_ALERT_WINDOW"
+    ],
+    "package": "com.avito.android",
+    "version": "217.2",
+    "target_sdk": "35",
+    "min_sdk": "27"
+  },
+  "fingerprint_apis": {
+    "android_id": {
+      "description": "android_id string literal",
+      "found_in": [
+        "classes10.dex",
+        "classes17.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "androidId..androidLogLevel..androidPlatform..android_asset..android_id..android_shortcuts..android_uuid..android_view_system.0andr",
+        "t.extra.CHOSEN_COMPONENT. android.permission.READ_CONTACTS..android_id.9androidx/core/animation/AnimatorKt$addListener$listener$1.",
+        "ADD COLUMN admob_app_id TEXT;./ALTER TABLE apps ADD COLUMN android_id INTEGER;.+ALTER TABLE apps ADD COLUMN app_store TEXT;.-ALTE",
+        "rawableItem_android_drawable.(AnimatedStateListDrawableItem_android_id.#AnimatedStateListDrawableTransition.4AnimatedStateListDraw",
+        "droid_alpha..ConstraintSet_android_elevation..ConstraintSet_android_id.#ConstraintSet_android_layout_height.)ConstraintSet_android",
+        "oidApiLevel..androidAppInfo..androidVersion..android_asset..android_id..android_version..androidhwext:style/Theme.Emui..androidid.",
+        "rawableItem_android_drawable.(AnimatedStateListDrawableItem_android_id.#AnimatedStateListDrawableTransition.4AnimatedStateListDraw",
+        "oid_checkableBehavior..MenuGroup_android_enabled..MenuGroup_android_id..MenuGroup_android_menuCategory.!MenuGroup_android_orderInC",
+        "..MenuItem_android_enabled..MenuItem_android_icon..MenuItem_android_id..MenuItem_android_menuCategory. MenuItem_android_numericSho",
+        "Toggle..androidTablet..androidVersionSignal..android_4.0.0..android_id..android_tetxt_cap_words..android_v127..android_version./an"
+      ]
+    },
+    "getDeviceId": {
+      "description": "TelephonyManager.getDeviceId (IMEI pre-Q)",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes13.dex",
+        "classes14.dex",
+        "classes6.dex",
+        "classes7.dex"
+      ],
+      "context": [
+        "redChildRectWithoutConstraints..getDesiredWidth..getDevice..getDeviceId..getDeviceInfo..getDevices..getDiagnosticInfo..getDialog..g",
+        "AdviceAfterIcebreakers()Lcom/avito/android/toggle/Feature;..getDeviceId./getDeviceId()Lcom/avito/android/toggle/Feature;..getDevice",
+        "ebreakers()Lcom/avito/android/toggle/Feature;..getDeviceId./getDeviceId()Lcom/avito/android/toggle/Feature;..getDeviceInfo..getDevi",
+        "tDevelopmentId..getDevelopments..getDeviceByCameraPosition..getDeviceId..getDeviceIdHash..getDeviceNames..getDialog..getDialogInfo.",
+        "d..getDevelopments..getDeviceByCameraPosition..getDeviceId..getDeviceIdHash..getDeviceNames..getDialog..getDialogInfo..getDimension",
+        "t..getDesiredWidth..getDetails..getDetailsTitle..getDevice..getDeviceId..getDevices..getDialog..getDidUserGenerateDescription..getD",
+        "Dependents..getDescription..getDescriptor..getDevelopments..getDeviceId failed..getDiagnosticInfo..getDialog..getDialogShowListener",
+        "ss$getClientSecret$p..access$getCustomTabsSession$p..access$getDeviceIdProvider$p..access$getDispatchers$p..access$getEventCounter$",
+        "etDetailId_..getDetailedState..getDevType_..getDeviceClass..getDeviceId..getDeviceId$vkid_release..getDeviceIdStorage..getDeviceInf",
+        "getDetailedState..getDevType_..getDeviceClass..getDeviceId..getDeviceId$vkid_release..getDeviceIdStorage..getDeviceInfo..getDeviceM"
+      ]
+    },
+    "getImei": {
+      "description": "TelephonyManager.getImei",
+      "found_in": [
+        "classes10.dex",
+        "classes16.dex",
+        "classes17.dex"
+      ],
+      "context": [
+        "ito/android/toggle/Feature;..getImageWasDeleted..getImages..getImeiParameters..getImportantForAccessibility..getImv.:getImvSlot",
+        "ion..getImageWithText..getImages..getImagesGroupsParameter..getImeiFieldId..getImeiFieldValue..getImgRatio..getInactive..getInc",
+        "hText..getImages..getImagesGroupsParameter..getImeiFieldId..getImeiFieldValue..getImgRatio..getInactive..getIncludingFeeData..g",
+        "Text..getImages..getImagesGroups..getImagesGroupsParameter..getImeiFieldId..getImeiFieldValue..getImgRatio..getImgWithText..get",
+        ".getImagesGroups..getImagesGroupsParameter..getImeiFieldId..getImeiFieldValue..getImgRatio..getImgWithText..getImmutable..getIm"
+      ]
+    },
+    "getSSID": {
+      "description": "WifiInfo.getSSID",
+      "found_in": [
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "..getRuggedRoads..getRunningAppProcesses..getRuntime..getS..getSSID..getSafeGame_..getSafeInsets..getSalt..getSaltLength..getSa",
+        "Processes..getRuntime..getRuntimeMXBean..getRuntimeManager..getSSID..getSSLParameters..getSampleRate..getSaveCount..getScaledTo",
+        "etRunningServices..getRuntime..getRuntimeMXBean..getSFrame..getSSID..getSSLCertificateVerifier..getSSLParameters..getSTATIC_HEA"
+      ]
+    },
+    "getBSSID": {
+      "description": "WifiInfo.getBSSID",
+      "found_in": [
+        "classes7.dex",
+        "classes8.dex"
+      ],
+      "context": [
+        "Flags..getAxleWeight..getAxleWeightLimit..getAzimuth..getB..getBSSID..getBackground..getBalloonPoint..getBalloonPoint__Native..g",
+        "ksLong..getAvailableLocales..getAvailableSpaceOnFilesystem..getBSSID..getBackground..getBackgroundColor..getBackgroundStarColor."
+      ]
+    },
+    "Build.MANUFACTURER": {
+      "description": "manufacturer",
+      "found_in": [
+        "classes9.dex"
+      ],
+      "context": [
+        "==============...AdvanceDayOfWeek: ...Analysis duration: ...Build.MANUFACTURER: ...DayOfMonth: ...DayOfWeek: ...Description: ...Heap dump",
+        ".kt..BufferItemType.kt..BufferedSink.kt..BufferedSource.kt..Build.MANUFACTURER..Build.VERSION.SDK_INT..BuildConfig.java..BuildInfoProvider"
+      ]
+    },
+    "VERSION.SDK_INT": {
+      "description": "Android SDK version",
+      "found_in": [
+        "classes4.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "_Factory.java..BreaksValidationResult.kt..Bricks-Env..Build.VERSION.SDK_INT ..Building..BulletsItem(text=..Bundles.kt..BusinessToolClic",
+        "====..F====================================.METADATA..Build.VERSION.SDK_INT: .p====================================.METADATA..Please in",
+        "fferedSink.kt..BufferedSource.kt..Build.MANUFACTURER..Build.VERSION.SDK_INT..BuildConfig.java..BuildInfoProvider.kt..Builder.2Builder h"
+      ]
+    },
+    "getprop": {
+      "description": "system property access",
+      "found_in": [
+        "classes7.dex"
+      ],
+      "context": [
+        "/system/bin/failsafe/../system/bin/failsafe/su../system/bin/getprop../system/bin/su../system/bin/which su../system/sbin../syste",
+        ".getenv..getmConnetctPostList..getmContext..getmContextRef..getprop..gif..gifUrl..gif_url.$given key managers must be non-null."
+      ]
+    },
+    "SystemProperties": {
+      "description": "SystemProperties access",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes14.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex"
+      ],
+      "context": [
+        "StyleUser.$android.net.conn.CONNECTIVITY_CHANGE..android.os.SystemProperties.)android.os.action.POWER_SAVE_MODE_CHANGED.)android.permiss",
+        "iaSession.$android.net.conn.CONNECTIVITY_CHANGE..android.os.SystemProperties..android.os.action.CHARGING..android.os.action.DISCHARGING.",
+        "TATE_UPDATED.!android.media.RINGER_MODE_CHANGED..android.os.SystemProperties.*android.os.action.DEVICE_IDLE_MODE_CHANGED.0android.os.act",
+        "va..CornerSize.java..CornerTreatment.java.'Could not access SystemProperties.get()..Could not access creator..+Could not access the fiel",
+        ".)Could not find JsonDeserializer for type .%Could not find SystemProperties class.,Could not find SystemProperties.get() method. Could",
+        "ype .%Could not find SystemProperties class.,Could not find SystemProperties.get() method. Could not find constructor with .KCould not f",
+        "ding: EMUI_SDK_INT.9An exception occurred while reading: getSystemProperties:.8An exception occurred while reading: onApplyWindowInsets.",
+        "ggingHandler: case 2 failure.=LoggingHandler: debug data in SystemProperties has been found.4LoggingHandler: debug mode is enabled by de",
+        "already been initialized.1LoggingHandler: no debug data in SystemProperties.0LoggingHandler: tracing has already been enabled..LoggingI",
+        "io/sentry/android/replay/u;.9Lio/sentry/android/replay/util/SystemProperties$Property;.2Lio/sentry/android/replay/util/SystemProperties$",
+        "/SystemProperties$Property;.2Lio/sentry/android/replay/util/SystemProperties$a;.0Lio/sentry/android/replay/util/SystemProperties;.!Lio/s",
+        "ay/util/SystemProperties$a;.0Lio/sentry/android/replay/util/SystemProperties;.!Lio/sentry/android/replay/util/a;.!Lio/sentry/android/rep"
+      ]
+    },
+    "ro.build": {
+      "description": "build system property",
+      "found_in": [
+        "classes.dex",
+        "classes6.dex",
+        "classes7.dex"
+      ],
+      "context": [
+        "eAlpha..rk..rl..rmx1941..rmx3231..rmx3511..rmx3710..rn..ro..ro.build.date.utc..robolectric..role..role flags..root..root is null",
+        "r..ripple_material_dark..ripple_material_light..rk..rl..ro..ro.build.freeme.label..ro.build.version.emui..ro.build.version.oneui",
+        "..ripple_material_light..rk..rl..ro..ro.build.freeme.label..ro.build.version.emui..ro.build.version.oneui..ro.build.version.oppo",
+        "..rk..rl..ro..ro.build.freeme.label..ro.build.version.emui..ro.build.version.oneui..ro.build.version.opporom..ro.miui.ui.version",
+        "..right_eye_closed..ring..ro..ro.appsflyer.preinstall.path..ro.build.characteristics..ro.build.hw_emui_api_level..ro.build.versi",
+        "ro..ro.appsflyer.preinstall.path..ro.build.characteristics..ro.build.hw_emui_api_level..ro.build.version.ark..ro.build.version.e",
+        "path..ro.build.characteristics..ro.build.hw_emui_api_level..ro.build.version.ark..ro.build.version.emui..ro.debuggable..ro.huawe"
+      ]
+    },
+    "ro.product": {
+      "description": "product system property",
+      "found_in": [
+        "classes7.dex"
+      ],
+      "context": [
+        "MPTY_USER_HASH.NEMUI 9.0 lower System, get countryCode form ro.product.locale.region or locale.LEMUI 9.0 upper System, get country",
+        "Iso is: .!countryCode by ro.hw.country is: .$countryCode by ro.product.locale is:.+countryCode by ro.product.locale.region is:.+co",
+        "is: .$countryCode by ro.product.locale is:.+countryCode by ro.product.locale.region is:.+countryCode by system's region setting i"
+      ]
+    },
+    "MessageDigest": {
+      "description": "hashing (MD5/SHA)",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes11.dex",
+        "classes15.dex",
+        "classes4.dex",
+        "classes5.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "eyStore;.!Ljava/security/KeyStoreException;..Ljava/security/MessageDigest;.(Ljava/security/NoSuchAlgorithmException;.'Ljava/security/",
+        "eyStore;.!Ljava/security/KeyStoreException;..Ljava/security/MessageDigest;.(Ljava/security/NoSuchAlgorithmException;..Ljava/security/",
+        "va/nio/charset/UnsupportedCharsetException;..Ljava/security/MessageDigest;..Ljava/text/DateFormat;..Ljava/text/DateFormatSymbols;..Lj",
+        "a/security/Key;..Ljava/security/KeyFactory;..Ljava/security/MessageDigest;.(Ljava/security/NoSuchAlgorithmException;..Ljava/security/",
+        ".([Ljava/nio/file/attribute/FileAttribute;..[Ljava/security/MessageDigest;.%[Ljava/security/cert/X509Certificate;..[Lkotlin/Q;.![Lkot",
+        "net/URLDecoder;..Ljava/nio/charset/Charset;..Ljava/security/MessageDigest;..Ljava/text/DateFormat;..Ljava/text/DateFormatSymbols;..Lj",
+        "adStoreParameter;..Ljava/security/KeyStore;..Ljava/security/MessageDigest;.(Ljava/security/NoSuchAlgorithmException;..Ljava/security/",
+        ".java..MenuItems.kt..Menus.kt..Merge.kt..MessageChannel.kt..MessageDigestHashFunction.java..MessageEvent.kt..MessagePayload..MessageP",
+        "adStoreParameter;..Ljava/security/KeyStore;..Ljava/security/MessageDigest;.(Ljava/security/NoSuchAlgorithmException;. Ljava/security/",
+        "rapper$TMac;.<Lcom/google/crypto/tink/subtle/EngineWrapper$TMessageDigest;.8Lcom/google/crypto/tink/subtle/EngineWrapper$TSignature;.",
+        "eyStore;.!Ljava/security/KeyStoreException;..Ljava/security/MessageDigest;.(Ljava/security/NoSuchAlgorithmException;.'Ljava/security/",
+        "TIATION_INFO_SCSV..TLS_RSA..TLSv1.2..TLSv1.3..TM;>;..TMac..TMessageDigest..TMessageType;..TMessageType;*>;)TBuilderType;..TMessageTyp",
+        "eyStore;.!Ljava/security/KeyStoreException;..Ljava/security/MessageDigest;.(Ljava/security/NoSuchAlgorithmException;.'Ljava/security/",
+        "ld not determine which fields were missing)...Message.java..MessageDigest.SHA-256..MessageLite.java..MessageLiteOrBuilder.java..Messa",
+        "eyStore;.!Ljava/security/KeyStoreException;..Ljava/security/MessageDigest;.(Ljava/security/NoSuchAlgorithmException;..Ljava/security/"
+      ]
+    },
+    "GLES20": {
+      "description": "OpenGL ES 2.0",
+      "found_in": [
+        "classes.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "pengl/EGLExt;..Landroid/opengl/EGLSurface;..Landroid/opengl/GLES20;.'Landroid/opengl/GLSurfaceView$Renderer;..Landroid/opengl/",
+        "l/EGLDisplay;..Landroid/opengl/EGLSurface;..Landroid/opengl/GLES20;.'Landroid/opengl/GLSurfaceView$Renderer;..Landroid/opengl/",
+        "pengl/EGLExt;..Landroid/opengl/EGLSurface;..Landroid/opengl/GLES20;./Landroid/opengl/GLSurfaceView$EGLConfigChooser;.0Landroid",
+        "l/EGLDisplay;..Landroid/opengl/EGLSurface;..Landroid/opengl/GLES20;./Landroid/opengl/GLSurfaceView$EGLConfigChooser;.0Landroid",
+        "ce741100a171-refs/branch-heads/4758@{#1144}..:..: ..: 0x..: GLES20 error: .C: Using application TF Lite runtime client from or",
+        "ObjectHandle;..Landroid/opengl/EGLSurface;..Landroid/opengl/GLES20;..Landroid/opengl/GLException;..Landroid/opengl/Matrix;..La",
+        "glCompileShader..glCreateProgram.(glCreateProgram() failed. GLES20 error: ..glCreateShader.'glCreateShader() failed. GLES20 er"
+      ]
+    },
+    "SensorManager": {
+      "description": "sensor access",
+      "found_in": [
+        "classes.dex",
+        "classes15.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        ".&Landroid/hardware/SensorEventListener;. Landroid/hardware/SensorManager;..Landroid/hardware/biometrics/BiometricManager;.DLandroid/",
+        ".&Landroid/hardware/SensorEventListener;. Landroid/hardware/SensorManager;..Landroid/location/Location;.\"Landroid/location/LocationMa",
+        ".&Landroid/hardware/SensorEventListener;. Landroid/hardware/SensorManager;.4Landroid/hardware/camera2/CameraCharacteristics$Key;.0Lan",
+        ".&Landroid/hardware/SensorEventListener;. Landroid/hardware/SensorManager;.4Landroid/hardware/camera2/CameraCharacteristics$Key;.0Lan",
+        "d.-Can't get LocationManager. Missed permission?..Can't get SensorManager...Can't parse VAST response...Can't parse VMAP response.%Ca",
+        ".&Landroid/hardware/SensorEventListener;. Landroid/hardware/SensorManager;.9Landroid/hardware/display/DisplayManager$DisplayListener;",
+        "y()Z..getSeconds.%getSegmentTimestamp()Ljava/util/Date;..getSensorManager..getSentryClientName..getSerializable..getSerializedSize..g",
+        "()Landroid/graphics/drawable/Drawable;.\"()Landroid/hardware/SensorManager;.'()Landroid/hardware/input/InputManager;. ()Landroid/media",
+        ";I)V.!(Landroid/hardware/SensorEvent;)V.#(Landroid/hardware/SensorManager;)V.((Landroid/hardware/input/InputManager;)V..(Landroid/loc",
+        ".&Landroid/hardware/SensorEventListener;. Landroid/hardware/SensorManager;.0Landroid/hardware/camera2/CameraAccessException;.?Landroi"
+      ]
+    },
+    "getSensorList": {
+      "description": "enumerate sensors",
+      "found_in": [
+        "classes9.dex"
+      ],
+      "context": [
+        "ngs..getSender..getSenders..getSendingEnd..getSendingStart..getSensorList..getSentByteCount..getSentRequestAtMillis$okhttp..getSequen"
+      ]
+    },
+    "NetworkInterface": {
+      "description": "network interfaces",
+      "found_in": [
+        "classes5.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "t/InetAddress;. Ljava/net/MalformedURLException;..Ljava/net/NetworkInterface;..Ljava/net/SocketException;..Ljava/net/URI;..Ljava/net/URI",
+        "lformedURLException;..Ljava/net/MulticastSocket;..Ljava/net/NetworkInterface;.!Ljava/net/NoRouteToHostException;.!Ljava/net/PasswordAuth",
+        "ies..getNetworkCountryIso..getNetworkId..getNetworkInfo..getNetworkInterfaces..getNetworkOperator..getNetworkOperatorName..getNetworkTyp",
+        "SocketAddress;. Ljava/net/MalformedURLException;..Ljava/net/NetworkInterface;.!Ljava/net/PasswordAuthentication;..Ljava/net/ProtocolExce",
+        "noreMask..getNetworkInfo..getNetworkInterceptors$okhttp..getNetworkInterfaces..getNetworkPreference..getNetworkPriority..getNetworkReque"
+      ]
+    },
+    "getNetworkInterfaces": {
+      "description": "enumerate network interfaces",
+      "found_in": [
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "lities..getNetworkCountryIso..getNetworkId..getNetworkInfo..getNetworkInterfaces..getNetworkOperator..getNetworkOperatorName..getNetworkType",
+        "kIgnoreMask..getNetworkInfo..getNetworkInterceptors$okhttp..getNetworkInterfaces..getNetworkPreference..getNetworkPriority..getNetworkReques"
+      ]
+    },
+    "getUserAgent": {
+      "description": "WebView user agent",
+      "found_in": [
+        "classes13.dex",
+        "classes14.dex",
+        "classes15.dex",
+        "classes7.dex"
+      ],
+      "context": [
+        "AdvertsUseHostRenderer()Lcom/avito/android/toggle/Feature;.MgetUserAgentAndFingerprintHeadersInFresco()Lcom/avito/android/toggle/Fea",
+        "/android/toggle/Feature;. getUseMaxImageSizeForCalculation..getUserAgentString..getUserHashId..getUserIconResId..getUserId..getUserT",
+        "sionalLanding()Lcom/avito/android/toggle/Feature;..getUser..getUserAgentString..getUserDialog..getUserHashId..getUserId.$getUserIdsT",
+        "sible.*getUseOAuthProviderIfPossible$vkid_release..getUser..getUserAgent$network_release..getUserAgent() ..getUserData..getUserDataF",
+        "ssible$vkid_release..getUser..getUserAgent$network_release..getUserAgent() ..getUserData..getUserDataFetcher..getUserID..getUserId.."
+      ]
+    },
+    "getInstalledPackages": {
+      "description": "list installed packages",
+      "found_in": [
+        "classes7.dex"
+      ],
+      "context": [
+        "erRepository error: exception at InstalledPackagesProvider::getInstalledPackages().HMyTrackerRepository error: failed to create MyTrackerRep",
+        "tream..getInstallBeginTimestampSeconds..getInstallReferrer..getInstalledPackages..getInstallerPackageName..getInstance..getInstanceByTag..ge"
+      ]
+    },
+    "getInstalledApplications": {
+      "description": "list installed apps",
+      "found_in": [
+        "classes9.dex"
+      ],
+      "context": [
+        "nputTensorFromSignature..getInputTensorIndex..getInputType..getInstalledApplications..getInstance..getInstant.2getInstructionsHandler$cyberity_m"
+      ]
+    },
+    "TimeZone": {
+      "description": "timezone",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes12.dex",
+        "classes13.dex",
+        "classes14.dex",
+        "classes15.dex",
+        "classes16.dex",
+        "classes17.dex",
+        "classes3.dex",
+        "classes4.dex",
+        "classes5.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "<..Ljava/util/SortedMap;..Ljava/util/SortedMap<..Ljava/util/TimeZone;..Ljava/util/TreeMap;..Ljava/util/TreeMap<..Ljava/util/Tree",
+        "umbTintList..getThumbTintMode..getTime..getTimeInMillis..getTimeZone..getTimestamp..getTimestampMillis..getTitle..getTitleConden",
+        "eX..setTime..setTimeInMillis..setTimeSinceCreatedMillis..setTimeZone..setTimeoutAfter..setTint..setTintList..setTintMode..setTit",
+        "erviceLoader;..Ljava/util/Set;..Ljava/util/Set<..Ljava/util/TimeZone;..Ljava/util/TreeMap;..Ljava/util/TreeMap<..Ljava/util/Tree",
+        "ead..getThreadGroup..getTiles..getTime..getTimeInMillis..getTimeZone..getTimer..getTimerInterval..getTimerStart..getTimestamp..g",
+        "..setThreadPriority..setThreadStatsTag..setTimeInMillis..setTimeZone..setTimerInterval..setTimerStart..setTint..setTintBlendMode",
+        "erviceLoader;..Ljava/util/Set;..Ljava/util/Set<..Ljava/util/TimeZone;..Ljava/util/TreeMap;..Ljava/util/UUID;..Ljava/util/concurr",
+        "..getThumbColor..getThumbnail..getTime..getTimeInMillis..getTimeZone..getTimes..getTimestamp..getTintColor..getTipIconParameters",
+        "rches..sb..sber_auto_calculator_tag..sc..scaleX..scaledToUtcTimeZone..scenario..scheme..schemeLinkTitle..scopeOfWork..score..scr",
+        "util/Set<..Ljava/util/Stack;..Ljava/util/Stack<..Ljava/util/TimeZone;..Ljava/util/UUID;..Ljava/util/WeakHashMap;..Ljava/util/Wea",
+        "erviceLoader<..Ljava/util/Set;..Ljava/util/Set<..Ljava/util/TimeZone;..Ljava/util/Timer;..Ljava/util/TimerTask;..Ljava/util/Tree",
+        "lValue..getThousandsSeparator..getTime..getTimeInMillis..getTimeZone..getTimer..getTintColor..getTitle.#getTitle()Landroid/widge",
+        "eadPriority..setThumbDrawable..setTime..setTimeInMillis..setTimeZone..setTint..setTintColor..setTintList..setTitle..setTitleAcce",
+        ";..Ljava/util/SortedSet;..Ljava/util/SortedSet<..Ljava/util/TimeZone;..Ljava/util/TreeMap;..Ljava/util/TreeSet;..Ljava/util/UUID",
+        "ttonWrapper;..getTimeDiff..getTimeInMillis..getTimeLeft..getTimeZone..getTimer..getTimerTitle..getTimestampOfTheOldestAmongTheLa",
+        "extIsSelectable..setTextSize..setTheme..setTimeInMillis..setTimeZone..setTimeoutAfter..setTint..setTintList..setTitle..setTitleT",
+        "Rendered..FirstQuicHostRequestEvent.kt..FisAuth..FixedOffsetTimeZone..FixedRatioImageView.kt.(FixedVisibleItemsCountWidthCalcula",
+        "/util/Random;..Ljava/util/Set;..Ljava/util/Set<..Ljava/util/TimeZone;..Ljava/util/TreeMap;..Ljava/util/UUID;..Ljava/util/WeakHas",
+        "datetime/E;..Lkotlinx/datetime/F;.+Lkotlinx/datetime/IllegalTimeZoneException;..Lkotlinx/datetime/Month;..Lkotlinx/datetime/a$a;",
+        "el/category_parameters/DateTimeRangeParameterKt$scaleToLocalTimeZone$convertToLocalTime$1;.sLcom/avito/android/remote/model/cate",
+        "odel/category_parameters/DateTimeRangeParameterKt$scaleToUtcTimeZone$convertToUtcTime$1;.MLcom/avito/android/remote/model/catego",
+        "entException;..Ljava/util/Set;..Ljava/util/Set<..Ljava/util/TimeZone;..Ljava/util/UUID;..Ljava/util/concurrent/Callable;..Ljava/",
+        "<..Ljava/util/SortedSet;..Ljava/util/SortedSet<..Ljava/util/TimeZone;..Ljava/util/TreeSet;..Ljava/util/UUID;..Ljava/util/WeakHas",
+        ".getTime..getTimeDiff()J..getTimeInMillis..getTimeOfDay..getTimeZone..getTimer..getTimerStyle..getTimestamp..getTipIconParameter",
+        "<..Ljava/util/SortedSet;..Ljava/util/SortedSet<..Ljava/util/TimeZone;..Ljava/util/Timer;..Ljava/util/TimerTask;..Ljava/util/Tree",
+        "etThursday..getTicketQuantity..getTime..getTimeInMillis..getTimeZone..getTimestamp.@getTimestampStorageMigration()Lcom/avito/and",
+        "ava/util/Spliterator<..Ljava/util/Spliterators;..Ljava/util/TimeZone;..Ljava/util/TreeMap;..Ljava/util/TreeSet;..Ljava/util/UUID",
+        "..TimePickerDialog.kt..TimeToLive..TimeToLive(description=..TimeZoneProvider.kt..TimeZoneProviderImpl.kt..TimeZoneProviderImpl_F",
+        "..TimeToLive..TimeToLive(description=..TimeZoneProvider.kt..TimeZoneProviderImpl.kt..TimeZoneProviderImpl_Factory.kt..TimeZonePr",
+        ".C) not a `SimpleDateFormat`; cannot configure `Locale` or `TimeZone`.$) not compatible with managed type (.2) not numeric, can",
+        "rmat;.!Landroid/icu/text/DisplayContext;..Landroid/icu/util/TimeZone;..Landroid/location/Location;.'Landroid/media/AudioAttribut",
+        "eParsingException;.1Lcom/avito/beduin/v2/datetime/api/model/TimeZone;.<Lcom/avito/beduin/v2/dsl/annotation/BeduinPlatform$Platfo",
+        "Loader;..Ljava/util/Set;..Ljava/util/Set<..Ljava/util/SimpleTimeZone;..Ljava/util/SortedMap;..Ljava/util/SortedMap<..Ljava/util/",
+        ".Ljava/util/Stack;..Ljava/util/StringTokenizer;..Ljava/util/TimeZone;..Ljava/util/Timer;..Ljava/util/TimerTask;..Ljava/util/Tree",
+        "etTimeRanges..getTimeRanges__Native..getTimeWithTraffic..getTimeZone..getTime__Native..getTime_with_traffic..getTimestamp..getTi",
+        "or when deserializing SentryLevel.!Error when deserializing TimeZone.1Error when deserializing millis timestamp format...Error w",
+        "ormat...Error when serializing Date..Error when serializing TimeZone.(Error when trying to check if SU exists..2Error when tryin",
+        "ortedSet<..Ljava/util/Stack;..Ljava/util/Stack<..Ljava/util/TimeZone;..Ljava/util/Timer;..Ljava/util/TimerTask;..Ljava/util/Tree",
+        "istered after defining the type initializer for ..CachedDateTimeZone.java..CachingMatcher.java..Calculation overflows an int: ..",
+        "TextProvider.java..DateTimeUtils.java..DateTimeView.kt..DateTimeZone must not be null..DateTimeZone.java..DateTimeZoneBuilder.ja",
+        "s.java..DateTimeView.kt..DateTimeZone must not be null..DateTimeZone.java..DateTimeZoneBuilder.java..DateVIew.kt.JDay of month i"
+      ]
+    },
+    "Locale": {
+      "description": "locale info",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes11.dex",
+        "classes12.dex",
+        "classes13.dex",
+        "classes14.dex",
+        "classes15.dex",
+        "classes16.dex",
+        "classes17.dex",
+        "classes3.dex",
+        "classes4.dex",
+        "classes5.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "Lkotlin/ranges/l;ILandroidx/compose/material3/Ce;Ljava/util/Locale;Lkotlin/jvm/internal/w;)V.}(Ljava/lang/Long;Ljava/lang/Long",
+        "Lkotlin/ranges/l;ILandroidx/compose/material3/Ce;Ljava/util/Locale;Lkotlin/jvm/internal/w;)V..(Ljava/lang/Object;)J..(Ljava/la",
+        "lineSmall=.., height=.., highSpeedValue=.., highest=.., hintLocales=.., historical=.., hold=.., horizontalAlignment=.., horizo",
+        "amesFactory.java.<AdvertDetailsHotelOfferModule_ProvideHotelLocaleFactory.java.EAdvertDetailsHotelOfferModule_ProvideHotelPara",
+        "DefaultItemAnimator.java..DefaultItemListBuilder.kt..DefaultLocale..DefaultLottieFetchResult.java. DefaultLottieNetworkFetcher",
+        ".Landroid/os/IBinder;..Landroid/os/IInterface;..Landroid/os/LocaleList;..Landroid/os/Looper;..Landroid/os/Message;..Landroid/o",
+        "edText;)V.#(Ljava/util/List;Z)Ljava/util/List;.&(Ljava/util/Locale;)Ljava/lang/String;./(Ljava/util/Map$Entry;)Ljava/lang/Char",
+        "agmentNavigationHost.kt..DefaultImpls..DefaultLarge..DefaultLocale.!DefaultTabPageFragmentDelegate.kt..DegradeAb..DegradeScree",
+        "sk/SerpDbDeleteTask;.1Lcom/avito/android/app/task/SetDefaultLocaleTask;.*Lcom/avito/android/app/task/ShortcutsTask;.0Lcom/avit",
+        "pSignatureSha1=673ea7523e1e54c9f4e00743e941916affd0d90f, appLocales=ru, buildType=releaseRuStore, isRelease=true, isDebuggable",
+        "st;..Ljava/util/List<..Ljava/util/ListIterator;..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/util/Map$Entry<..Ljava/util/",
+        "reModule_ProvideContextFactory.kt.)CoreModule_ProvideDefaultLocaleFactory.kt.4CoreModule_ProvideDefaultSharedPreferencesFactor",
+        "nthNamesFactory.java.8HotelAvailableRoomsModule_ProvideHotelLocaleFactory.java.AHotelAvailableRoomsModule_ProvideHotelParamsFo",
+        ".Landroid/os/IBinder;..Landroid/os/IInterface;..Landroid/os/LocaleList;..Landroid/os/Looper;..Landroid/os/Message;..Landroid/o",
+        "tator failed..ConnectTimeout..ConnectionQuality.kt..ConstantLocale..ConstraintLayout.kt..Consts.kt..ContactAccessApi.kt..Conta",
+        "st;..Ljava/util/List<..Ljava/util/ListIterator;..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/util/Map$Entry<..Ljava/util/",
+        "id.language_selector.domain.LanguageSelectUseCaseImpl$setAppLocale$2.Mcom.avito.android.language_selector.domain.LanguageSetUp",
+        ".Landroid/os/IBinder;..Landroid/os/IInterface;..Landroid/os/LocaleList;..Landroid/os/Looper;..Landroid/os/Parcel;.6Landroid/os",
+        "st;..Ljava/util/List<..Ljava/util/ListIterator;..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/util/Map$Entry<..Ljava/util/",
+        "tLineStart..getLines..getLink..getLocalId..getLocalPath..getLocales..getLocality..getLocalizedMessage..getLocation..getLocatio",
+        "st;..Ljava/util/List<..Ljava/util/ListIterator;..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/util/Map$Entry<..Ljava/util/",
+        "kedHashSet;..Ljava/util/List;..Ljava/util/List<..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/util/Map$Entry<..Ljava/util/",
+        "eger;..()Ljava/util/Date;..()Ljava/util/List;..()Ljava/util/Locale;..()Ljava/util/Map;..()Ljava/util/Set;..()Ljava/util/Sorted",
+        "va/util/ListIterator;..Ljava/util/ListIterator<..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/util/Map$Entry<..Ljava/util/",
+        "..getListViewType..getLng..getLocalId..getLocalPriority..getLocale..getLocale$annotations..getLocality..getLocalizedMessage..g",
+        "st;..Ljava/util/List<..Ljava/util/ListIterator;..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/util/Map;..Ljava/util/Map<.\"",
+        "kt..Local and server time diff is ..LocalDateExtensions.kt..LocaleUtils.kt..LocalizedStatus..LocalizedStatus(status=..Location",
+        ".row..rq_key..ru..ru.avito..ru.avito://1/social_redirect..ruLocale..rules..rulesTextView..run..runFinalization..s..s0..s1..s2.",
+        "va/util/ListIterator;..Ljava/util/ListIterator<..Ljava/util/Locale$Builder;..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/",
+        "/util/ListIterator<..Ljava/util/Locale$Builder;..Ljava/util/Locale;..Ljava/util/Map$Entry;..Ljava/util/Map$Entry<..Ljava/util/",
+        "ss as binary.C) not a `SimpleDateFormat`; cannot configure `Locale` or `TimeZone`.$) not compatible with managed type (.2) not",
+        "eight..AppCompatTextView_textAllCaps..AppCompatTextView_textLocale..AppCompatTheme..AppCompatTheme_actionBarDivider.&AppCompat",
+        ".Landroid/os/IBinder;..Landroid/os/IInterface;..Landroid/os/LocaleList;..Landroid/os/Looper;..Landroid/os/MemoryFile;..Landroi",
+        "()Lcom/vk/id/auth/Prompt;.(()Lcom/vk/id/auth/VKIDAuthParams$Locale;.'()Lcom/vk/id/auth/VKIDAuthParams$Theme;.!()Lcom/vk/id/aut",
+        "uation;)Ljava/lang/Object;.:(Lcom/vk/id/auth/VKIDAuthParams$Locale;)Ljava/lang/String;.)(Lcom/vk/id/auth/VKIDAuthParams$Locale",
+        "Locale;)Ljava/lang/String;.)(Lcom/vk/id/auth/VKIDAuthParams$Locale;)V..(Lcom/vk/id/auth/VKIDAuthParams$Locale;Lcom/vk/id/auth/",
+        "allReferrerSource='..', mIsBold=..', mKitBuildNumber='..', mLocale='..', mNetworkType='..', mOsVersion='..', mPackageName='..'",
+        "eight..AppCompatTextView_textAllCaps..AppCompatTextView_textLocale..AppCompatTheme..AppCompatTheme_actionBarDivider.&AppCompat",
+        ".Landroid/os/IBinder;..Landroid/os/IInterface;..Landroid/os/LocaleList;..Landroid/os/Looper;..Landroid/os/Message;..Landroid/o",
+        "Ljava/util/LinkedHashMap;..()Ljava/util/List;..()Ljava/util/Locale;..()Ljava/util/Map;..()Ljava/util/Random;..()Ljava/util/Set",
+        "List;Ljava/util/List;)V..(Ljava/util/List;ZZ)V.&(Ljava/util/Locale;)Ljava/lang/String;..(Ljava/util/Map;)Lio/reactivex/rxjava3",
+        "va/util/UUID;Ljava/lang/String;Ljava/lang/String;Ljava/util/Locale;ZLjava/lang/String;Ljava/lang/String;ILjava/lang/Integer;)L"
+      ]
+    },
+    "BatteryManager": {
+      "description": "battery info",
+      "found_in": [
+        "classes.dex"
+      ],
+      "context": [
+        "dParcelableException;..Landroid/os/BaseBundle;..Landroid/os/BatteryManager;..Landroid/os/Binder;..Landroid/os/Build$VERSION;..Landroid"
+      ]
+    },
+    "ClipboardManager": {
+      "description": "clipboard access",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes12.dex",
+        "classes13.dex",
+        "classes14.dex",
+        "classes15.dex",
+        "classes4.dex",
+        "classes5.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "droidCanvas.android.kt..AndroidClipboard.android.kt.\"AndroidClipboardManager.android.kt..AndroidColorFilter.android.kt..AndroidColorSpac",
+        "xtensions.android.kt.$ClipboardKeyCommandsHandler(handler=..ClipboardManager.kt..ClipboardUtils.android.kt..ClippingMediaPeriod.java..Cl",
+        "pData;.!Landroid/content/ClipDescription;.\"Landroid/content/ClipboardManager;.%Landroid/content/ComponentCallbacks2;.$Landroid/content/C",
+        "castReceiver;..Landroid/content/ClipData;.\"Landroid/content/ClipboardManager;.%Landroid/content/ComponentCallbacks2;.$Landroid/content/C",
+        "castReceiver;..Landroid/content/ClipData;.\"Landroid/content/ClipboardManager;.$Landroid/content/ComponentCallbacks;..Landroid/content/Co",
+        "ice;.#Landroid/content/BroadcastReceiver;.\"Landroid/content/ClipboardManager;..Landroid/content/ComponentName;.!Landroid/content/Content",
+        "castReceiver;..Landroid/content/ClipData;.\"Landroid/content/ClipboardManager;.%Landroid/content/ComponentCallbacks2;..Landroid/content/C",
+        "castReceiver;..Landroid/content/ClipData;.\"Landroid/content/ClipboardManager;..Landroid/content/ComponentName;.!Landroid/content/Content",
+        "ice;.#Landroid/content/BroadcastReceiver;.\"Landroid/content/ClipboardManager;..Landroid/content/ComponentName;.!Landroid/content/Content",
+        "y.java..ClipDataFactory.kt..ClipDataFactoryImpl_Factory.kt..ClipboardManagerImpl_Factory.kt..ClipboardManagers.kt..ClipboardModule.kt.SC",
+        "ataFactoryImpl_Factory.kt..ClipboardManagerImpl_Factory.kt..ClipboardManagers.kt..ClipboardModule.kt.SClipboardModule_ProvideClipboardMa",
+        "oardManagers.kt..ClipboardModule.kt.SClipboardModule_ProvideClipboardManager$_common_discouraged_utils_androidFactory.kt..Close..Close(c",
+        "castReceiver;..Landroid/content/ClipData;.\"Landroid/content/ClipboardManager;.%Landroid/content/ComponentCallbacks2;.$Landroid/content/C",
+        "lipData$Item;..Landroid/content/ClipData;.\"Landroid/content/ClipboardManager;..Landroid/content/ComponentName;.!Landroid/content/Content",
+        "ting liveness check.\"SelfieRequestAction(pickerRequest=.PSemClipboardManager inner classes are held by native references due to IPC call",
+        "mSceneCallBlocker.;com.samsung.android.content.clipboard.SemClipboardManager$1.;com.samsung.android.content.clipboard.SemClipboardManage",
+        "lipboardManager$1.;com.samsung.android.content.clipboard.SemClipboardManager$3.5com.samsung.android.emergencymode.SemEmergencyManager.*c"
+      ]
+    }
+  },
+  "tracking_sdks": {
+    "AdvertisingIdClient": {
+      "description": "Google Advertising ID client",
+      "found_in": [
+        "classes10.dex",
+        "classes14.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex"
+      ],
+      "context": [
+        "m.google.android.gms.9com.google.android.gms.ads.identifier.AdvertisingIdClient.Dcom.google.android.gms.ads.identifier.internal.IAdvertisin",
+        "exboxLayoutManager;.@Lcom/google/android/gms/ads/identifier/AdvertisingIdClient$Info;.;Lcom/google/android/gms/ads/identifier/AdvertisingId",
+        "isingIdClient$Info;.;Lcom/google/android/gms/ads/identifier/AdvertisingIdClient;.GLcom/google/android/gms/common/GooglePlayServicesNotAvail",
+        "..AdsMediaSource.java..AdtsExtractor.java..AdtsReader.java..AdvertisingIdClient.%AdvertisingIdClient cannot reconnect..%AdvertisingIdClient",
+        "..AdtsExtractor.java..AdtsReader.java..AdvertisingIdClient.%AdvertisingIdClient cannot reconnect..%AdvertisingIdClient is not connected...A",
+        "AdvertisingIdClient.%AdvertisingIdClient cannot reconnect..%AdvertisingIdClient is not connected...Ae..Aes128DataSource.java..AesCipherData",
+        "droid/exoplayer2/v;.@Lcom/google/android/gms/ads/identifier/AdvertisingIdClient$Info;.;Lcom/google/android/gms/ads/identifier/AdvertisingId",
+        "isingIdClient$Info;.;Lcom/google/android/gms/ads/identifier/AdvertisingIdClient;.&Lcom/google/android/gms/appset/AppSet;.)Lcom/google/andro",
+        "s/adapter/ui/UpdateAdapter;.8Lcom/huawei/hms/ads/identifier/AdvertisingIdClient$Info;.3Lcom/huawei/hms/ads/identifier/AdvertisingIdClient;.",
+        "exoplayer2/video/o;.;Lcom/google/android/gms/ads/identifier/AdvertisingIdClient;.0Lcom/google/android/gms/common/ConnectionResult;.'Lcom/go"
+      ]
+    },
+    "getAdvertisingIdInfo": {
+      "description": "get Google GAID",
+      "found_in": [
+        "classes10.dex",
+        "classes14.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex"
+      ],
+      "context": [
+        "AdvertTitle..getAdvertisementStyle..getAdvertisingDisabled..getAdvertisingIdInfo..getAdvertisingInfoObject..getAfter..getAfterWithIcon..getA",
+        "tAddressesCount..getAdminArea..getAdultsCount..getAdvertId..getAdvertisingIdInfo..getAfter..getAfterWitchIcon..getAfterWithIcon..getAgreemen",
+        "getAdViewGroup..getAdapter..getAdapterPosition..getAddress..getAdvertisingIdInfo..getAlertContent..getAlgorithm..getAlignContent..getAlignIt",
+        "getAddress__Native..getAdjustedClock..getAdvertPinsLayerId..getAdvertisingIdInfo..getAdvertisingTextView..getAead..getAeadDem..getAeadId..ge",
+        "pertypeGraph..getAdditionalParams..getAddress..getAdsCount..getAdvertisingIdInfo..getAffineX..getAffineX__Native..getAffineY..getAffineY__Na"
+      ]
+    },
+    "adjustId": {
+      "description": "Adjust tracking ID",
+      "found_in": [
+        "classes11.dex"
+      ],
+      "context": [
+        "Info..address..addressId..address_annotation..adid..adjust..adjustId..adjust_id..adpartner..adslot..advBannerBdui_..advBannerBuz"
+      ]
+    }
+  },
+  "detection_mechanisms": {
+    "Superuser": {
+      "description": "root detection (Superuser)",
+      "found_in": [
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "./stat../status../su/bin/../su/bin/su../system../system/app/Superuser.apk../system/bin../system/bin/../system/bin/.ext/../system/",
+        "../su/bin../su/bin/su../sys/devices/system/cpu../system/app/Superuser.apk.#/system/app/Superuser/Superuser.apk../system/bin/../sy",
+        "/devices/system/cpu../system/app/Superuser.apk.#/system/app/Superuser/Superuser.apk../system/bin/../system/bin/failsafe/../system",
+        "ystem/cpu../system/app/Superuser.apk.#/system/app/Superuser/Superuser.apk../system/bin/../system/bin/failsafe/../system/bin/fails",
+        "./system../system/app../system/app/SuperSU.apk../system/app/Superuser.apk../system/bin../system/bin/.ext../system/bin/failsafe../",
+        "eLoading..SuperTypeMatcher.java..SuperTypesLastSorter.java..Superuser.apk.9Supplied byte array is too short to be a class file wi"
+      ]
+    },
+    "isRooted": {
+      "description": "root detection",
+      "found_in": [
+        "classes7.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "tProcess=.., isEmulator=.., isGroupVerified=.., isMuted=.., isRooted=.., isSubmitted=.., isVariadic=.., isVerified=.., itemCount",
+        "y metrics exception: .9DeviceParamsDataProvider: collecting isRooted exception: .5DeviceParamsDataProvider: collecting lang exce",
+        "etake..isRetransformClassesSupported..isReviewing..isRight..isRooted..isRooted1..isRooted2..isRunning..isSDKPrepared..isSDKPrepa",
+        "etransformClassesSupported..isReviewing..isRight..isRooted..isRooted1..isRooted2..isRunning..isSDKPrepared..isSDKPrepared()Z..is",
+        "lassesSupported..isReviewing..isRight..isRooted..isRooted1..isRooted2..isRunning..isSDKPrepared..isSDKPrepared()Z..isSameH264Pro"
+      ]
+    },
+    "RootBeer": {
+      "description": "RootBeer detection library",
+      "found_in": [
+        "classes7.dex"
+      ],
+      "context": [
+        "ings/y;..Lcom/russhwolf/settings/z;.&Lcom/scottyab/rootbeer/RootBeerNative;..Lcom/scottyab/rootbeer/a;..Lcom/scottyab/rootbeer/b",
+        "olloutAssignments=.&RolloutsState{rolloutAssignments=null}..RootBeer.java..RootBeerNative.java..RootMapObjectCollection.java.#Ro",
+        "ts=.&RolloutsState{rolloutAssignments=null}..RootBeer.java..RootBeerNative.java..RootMapObjectCollection.java.#RootMapObjectColl"
+      ]
+    },
+    "frida": {
+      "description": "Frida detection",
+      "found_in": [
+        "classes.dex",
+        "classes17.dex",
+        "classes4.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "buy|bet|bharti|bible|bid|bike|bing|bingo|bio|biz|black|blackfriday|blockbuster|blog|bloomberg|blue|bms|bmw|bnpparibas|boats|b",
+        "s..fragment_params_buyer..fragment_params_seller..freeForm..friday..from..fromAgeParameter..fromAges..fromBlock..fromHtml..fr",
+        "eCancellationSelectedPeriodID..freeMemory..free_disk_space..friday..from..fromAge..fromJsonTree..fromPage..fromPageLabel..fro",
+        "ramesReceived..framesRendered..frameset..freezePeriodCount..friday..from..fromC..fromCanonicalForm..fromDer..fromFeedbackFiel"
+      ]
+    },
+    "xposed": {
+      "description": "Xposed detection",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes13.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex"
+      ],
+      "context": [
+        "|esq|estate|etisalat|eurovision|eus|events|exchange|expert|exposed|express|extraspace|e[cegrstu])|(?:fage|fail|fairwinds|faith",
+        "AutoFixOff.kt..AutoFlashAEModeDisabler.java..AutoFlashUnderExposedQuirk.java..AutoGraph.kt.%AutoMirrored.Filled.KeyboardArrowL",
+        ".7ExponentialWeightedAverageTimeToFirstByteEstimator.java..ExposedDropdownMenu.android.kt..ExposedDropdownMenu.kt.#ExposedDrop",
+        "..Expires..Explanation..Explanation(button=..Explode.java..ExposedAbTestGroup.kt..ExposureEventVisualizer.kt.&ExposureEventVis",
+        "nt.kt.*MandatoryVerificationComponent_a111c74f.kt..ManuallyExposedAbTestGroup.kt..MapColumn.kt..MapInfo.kt..MapItemVisibilityD",
+        "tworkToggles.kt..NetworkType.kt..NetworkUtility.java..NeverExposedAbTestGroup.kt..NewApi..NewBuyerEvent.kt..NewBuyerRealtyEven",
+        "AppStateCollectorErrorGroup_Factory.java.\"AppStateCollectorExposedAbTests.kt.,AppStateCollectorExposedAbTests_Factory.java..Ap",
+        "java.\"AppStateCollectorExposedAbTests.kt.,AppStateCollectorExposedAbTests_Factory.java..AppStateCollectorFreeMemory.kt.(AppSta",
+        "..aM..aR..aa..ab..abLoadedListener..ab_tests.all..ab_tests.exposed..aboutService..about_v2..about_v2_item_..abs..abtest..ac..a",
+        "t.java.WEditText needs to be an AutoCompleteTextView if an Exposed Dropdown Menu is being used...EditTextUtils.java..Ee..Effec",
+        "re.java.)ScoreBasedEvictionComparatorSupplier.java.:Screen exposed for less than 1000 ms. Event not sent. time..Screen.kt..Scr",
+        "ox_Dense.DWidget_Material3_TextInputLayout_FilledBox_Dense_ExposedDropdownMenu.>Widget_Material3_TextInputLayout_FilledBox_Exp",
+        ".org.conscrypt.Conscrypt..org.creeplays.hack..org.meowcat.edxposed.manager..org.mobilism.android..org.mozilla.firefox..org.rob",
+        "b)},supports:function(e){S=e},exposure:function(e){var t=e.exposedPercentage,n=e.visibleRectangle,r=e.occlusionRectangles;V(_.",
+        "tion_timestamp..expires..exponential_multiplier..exposure:{exposedPercentage:..expression..extension receiver parameter..exten"
+      ]
+    }
+  },
+  "display_info": {
+    "DisplayMetrics": {
+      "description": "screen metrics",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes11.dex",
+        "classes12.dex",
+        "classes13.dex",
+        "classes14.dex",
+        "classes15.dex",
+        "classes16.dex",
+        "classes17.dex",
+        "classes3.dex",
+        "classes4.dex",
+        "classes5.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "roid/util/Base64;..Landroid/util/CloseGuard;..Landroid/util/DisplayMetrics;..Landroid/util/Log;..Landroid/util/LongSparseArray;..Landr",
+        "Cutout..getDisplayId..getDisplayInfo..getDisplayManager..getDisplayMetrics..getDisplayName..getDisplayOrDefault..getDisplays.-getDispo",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Log;..Landroid/util/Pair;..Landroid/util/Pa",
+        "y..getDisplayFeatures..getDisplayHeight..getDisplayInfo..getDisplayMetrics..getDisplayName..getDisplayType..getDisplayWidth..getDispla",
+        "t()Lcom/avito/android/toggle/Feature;..getRealtyUSP..getRearDisplayMetrics..getRearDisplayPresentation..getReasonString..getRecallMeBl",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/LruCache;..Landroid/util/LruCache<..Landroi",
+        "iscountString..getDiscounts..getDismissible..getDisplay..getDisplayMetrics..getDisplayOrDefault..getDisplayTitle..getDisplayType..getD",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/LruCache;..Landroid/util/LruCache<..Landroi",
+        "anticsPropertyReceiver;)I..getDiscountTitle..getDisplay..getDisplayMetrics..getDisplayMode..getDisplayName..getDisplayTitle..getDispla",
+        ".kt.#CoreModule_ProvideDisplayFactory.kt.*CoreModule_ProvideDisplayMetricsFactory.kt.BCoreModule_ProvideMutableApplicationStartupTasks",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Property;..Landroid/util/TypedValue;..Landr",
+        "tIcon..getDiscountPercent..getDismissButton..getDisplay..getDisplayMetrics..getDisplayName..getDisplayType..getDisplaying..getDisplayi",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Log;..Landroid/util/Size;..Landroid/util/Sp",
+        "..getDispatchersFactory..getDisplay..getDisplayLanguage..getDisplayMetrics..getDisplayTitle..getDisplayType..getDisplayWidthPx..getDis",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Log;..Landroid/util/Pair;..Landroid/util/Pr",
+        "Types..getDisclaimer..getDisplayAddress..getDisplayInfo..getDisplayMetrics..getDisplayType..getDisplayedChild..getDistance..getDistanc",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Property;..Landroid/util/Range;..Landroid/u",
+        "ountTitle..getDispatchers..getDisplay..getDisplayHeight..getDisplayMetrics..getDisplayName..getDisplayTitle..getDisplayType..getDispla",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/LruCache;..Landroid/util/LruCache<.%Landroi",
+        "Discounts..getDiscountsV2..getDismissButton..getDisplay..getDisplayMetrics..getDisplayMode..getDisplayName..getDisplayParameter..getDi",
+        "/UnderlineSpan;..Landroid/util/AttributeSet;..Landroid/util/DisplayMetrics;..Landroid/util/SparseArray;..Landroid/util/SparseArray<..L",
+        "missEvents..getDisplay..getDisplayEvent..getDisplayInfo..getDisplayMetrics..getDisplayMode..getDisplayName..getDisplayTitle..getDispla",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Log;..Landroid/util/SparseArray;..Landroid/",
+        "countSelectParameters..getDiscounts..getDisplayLanguage..getDisplayMetrics..getDisplayTitle..getDoubleExtra..getDownload..getDrawable.",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Property;..Landroid/util/Size;..Landroid/ut",
+        "nt..getDiscountDescription..getDisplay..getDisplayEvent..getDisplayMetrics..getDisplayName..getDisplaying..getDisplayingOptions..getDi",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/JsonReader;..Landroid/util/JsonToken;..Land",
+        "ectByteBufferFrameContentSize..getDisplay..getDisplayId..getDisplayMetrics..getDisplayName..getDividerColor..getDividerDrawableHorizon",
+        "l/Base64;.!Landroid/util/Base64OutputStream;..Landroid/util/DisplayMetrics;..Landroid/util/JsonReader;..Landroid/util/JsonToken;..Land",
+        "card..getDisclaimerTextView..getDispatchers..getDisplay..getDisplayMetrics..getDisplayName..getDisplaySideRegion..getDisplaySize..getD",
+        "ng ActivityManager#getProcessesInErrorState...Error getting DisplayMetrics...Error getting MemoryInfo...Error getting Proguard UUIDs..",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Log;..Landroid/util/LruCache;..Landroid/uti",
+        "atchReceiverParameterIfNeeded..getDisplay..getDisplayId..getDisplayMetrics..getDist..getDistinctId..getDistribution..getDistributionCo",
+        "id/util/AttributeSet;..Landroid/util/Base64;..Landroid/util/DisplayMetrics;..Landroid/util/Log;..Landroid/util/Pair;..Landroid/util/Pa",
+        ".android.util.ArrayMap..android.util.ArraySet..android.util.DisplayMetrics..android.util.Property.4android.view.Choreographer$FrameDis",
+        "DismissOnTouchOutside..getDispatcher$okhttp..getDisplay..getDisplayMetrics..getDisplayName..getDisplaySize..getDistrict..getDivider$an"
+      ]
+    },
+    "getMetrics": {
+      "description": "get display metrics",
+      "found_in": [
+        "classes17.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "..getMessages..getMessenger..getMeta..getMethod..getMetric..getMetrics..getMetro..getMetroId..getMetroIds..getMetroMarkers..getMet",
+        "tMetadata..getMethod..getMethodName..getMethods..getMetric..getMetrics..getMimeTypeFromExtension..getMinApkVersion..getMinBufferSi",
+        "tMethodsList..getMethodsOrBuilder..getMethodsOrBuilderList..getMetrics..getMgf1Hash..getMgf1HashValue..getMicrosPrice..getMiddleLi",
+        "tMessages..getMethod..getMethodName..getMethods..getMetric..getMetrics..getMinBufferSize..getMinLines..getMinimalModality..getMino",
+        "getMethod$okhttp..getMethodName..getMethodType..getMethods..getMetrics.+getMetricsScope$cyberity_mobile_sdk_release..getMetro..get",
+        "http..getMethodName..getMethodType..getMethods..getMetrics.+getMetricsScope$cyberity_mobile_sdk_release..getMetro..getMicrocatId.."
+      ]
+    },
+    "densityDpi": {
+      "description": "screen density",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes11.dex",
+        "classes13.dex",
+        "classes15.dex",
+        "classes17.dex",
+        "classes5.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex"
+      ],
+      "context": [
+        "er..deliverSelfNotifications..delta..deltaForDrag..density..densityDpi..dependency_.#deprecatedLegacyJsonFieldConflicts_..deprecat",
+        "k_deep_link_handler..demand16..demand20..demand24..density..densityDpi..dependency..deprecatedIds..deriving.kt..desc..desc для cli",
+        "order_create..delta..demo..denormalizeCoordinates..density..densityDpi..denyRli..depth..descent..describeContents..description..de",
+        "ink..degree..delegate..delete..deleted-account..delimiters..densityDpi..desc..descent..describeContents..description..descriptionV",
+        "th = ..deleted_locally_timestamp..delivery..delta..density..densityDpi..descent..describeContents..description..descriptionAttrNam",
+        ".deliveryType..deliveryUnavailable..delta..deltaX..density..densityDpi..deny..denyButton..departureTo..dependentId..desc..descent.",
+        "RestrictionCollector..delivery_restriction..delta..density..densityDpi..deny..dependent_item_..desc..descendingIterator..descendin",
+        "ltaRelative..demand16..demand20..demand24..denied..density..densityDpi..dep..dependencies..dequeueInputBuffer..dequeueOutputBuffer",
+        "ery_enabled..demHelper..demKeyTypeUrl..demParams_..density..densityDpi..departureTime..dependencies..deps..deps_..dequeueInputBuff",
+        "essor must not be null..delivery..delivery_method..density..densityDpi..dependencies..dependsOnTypeConstructors..dependsOnTypePara"
+      ]
+    },
+    "widthPixels": {
+      "description": "screen width",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes11.dex",
+        "classes12.dex",
+        "classes13.dex",
+        "classes14.dex",
+        "classes15.dex",
+        "classes16.dex",
+        "classes3.dex",
+        "classes4.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "idthDp.\"widthMeasureSpec should be EXACTLY..widthParameter..widthPixels..widthVal..wifi..wifip2p..window..window=..windowAnimations",
+        "9widthEstimation(Lcom/avito/android/remote/model/Size;II)F..widthPixels..wifi..willRetry..window.iwindow.peekDecorView() is null: J",
+        "9widthEstimation(Lcom/avito/android/remote/model/Size;II)F..widthPixels..widthStrategy..widthValue..window.postMessage(..window_ani",
+        "9widthEstimation(Lcom/avito/android/remote/model/Size;II)F..widthPixels..wipe..withBonusesText..withComplementary..withDayOfMonth..",
+        "9widthEstimation(Lcom/avito/android/remote/model/Size;II)F..widthPixels..window..window_scenario..wipe..wipe_local_only..witcher..w",
+        "9widthEstimation(Lcom/avito/android/remote/model/Size;II)F..widthPixels..wifi..window..window.postMessage(..with delay=..withClearB",
+        "9widthEstimation(Lcom/avito/android/remote/model/Size;II)F..widthPixels..window_flags..withBottomNavigation..withCalculation..withE",
+        "9widthEstimation(Lcom/avito/android/remote/model/Size;II)F..widthPixels..window_disabled..window_scenario..with..withAppendedId..wi",
+        "ite_wood..wi..wide..widget..widgetType..widget_type..width..widthPixels..widthRatio..widthStrategy..widthVariants..window_carousel.",
+        "9widthEstimation(Lcom/avito/android/remote/model/Size;II)F..widthPixels..withOrder..withPets..withRedesignTheme..withStartAction..w",
+        "widevine..width..width must be > 0, width is: ..widthFixed..widthPixels..widthStrategy..wifi..willNotDraw..win..window..window=..wi",
+        "idth.(width and height should be positive or 0..widthLimit..widthPixels..wifi..window./window.playerDestroy && window.playerDestroy",
+        "..where..while..white..whitesmoke..wide..widl..wids..width..widthPixels..wifi..wifiManager..wifi_access_config..wifi_access_point..",
+        "title..widgets..width..width must be > 0..widthMeasureSpec..widthPixels..widthScale..wifi..wifiDirectManagerDelegate..wifiInfo..wif"
+      ]
+    },
+    "heightPixels": {
+      "description": "screen height",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes11.dex",
+        "classes12.dex",
+        "classes13.dex",
+        "classes14.dex",
+        "classes15.dex",
+        "classes16.dex",
+        "classes17.dex",
+        "classes3.dex",
+        "classes4.dex",
+        "classes5.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        ":..height:'..heightDp.#heightMeasureSpec should be EXACTLY..heightPixels..heightVal..heroqltetmo..heroqltevzw..hev1..hiddenIntent..h",
+        "aderbuttonArrow..headers..headers_id..headers_id=\"..height..heightPixels..helicopter..help16..help20..help24..helpCenterUrl..helpOut",
+        "r_tooltip_was_shown:..headers..heading..height..heightMode..heightPixels..heightPx..heightStrategy..heightValue..help..helpBbipActio",
+        "itle_skeleton..header_title..header_title_skeleton..height..heightPixels..help..helpButton..heroBannerItemConverted..hf..hg..hh..hid",
+        "Title..header_item..header_item_..headers..heading..height..heightPixels..heroBannerWidget..hero_banner..hf..hg..hh..hi..hidden..hid",
+        "heading..headingLarge..headingSmall..headingXLarge..height..heightPixels..helicopter..help16..help20..help24..helpOutline16..helpOut",
+        "c..header..header$default..headerTypeMeta..headers..height..heightPixels..hi..hide..hideSwipeViews..high_level..highlightedMessage..",
+        "ader2..headerH2..headerH5..header_item_id..headers..height..heightPixels..help20..help_center..hf..hidden..hide..hideBottomBar..hide",
+        "er_item..header_with_description..headers..heading..height..heightPixels..heightTransition:height..helpContent..helpText..hf..hidden",
+        "derTitleButton..headerToolbar..headers..height..heightMode..heightPixels..heightRatio..helpCenter..helpContent..hh..hidden..hiddenIf",
+        "header_title..headers..heap-..heapDumpUptimeMillis..height..heightPixels..helpButton..helpCenter..hideAddressDetails..hideFindMeButt",
+        "heightEstimation(Lcom/avito/android/remote/model/Size;II)F..heightPixels..help..helpAction..helpDeepLink..helpUri..hi..hide..hidePer",
+        "ght must be > 0, height is: ..heightMaxTopInset..heightMin..heightPixels..heix..helicopter..help16..help20..help24..helpOutline16..h",
+        "s..heated..height..heightCalculator..heightDp..heightLimit..heightPixels..hex..hexDigit..hh:mm:ss a..hiAppInfo..hianalytics..hianaly",
+        "ing-level..headingChanged..headingUnavailable..heb..height..heightPixels..held_locks..help_link..hev1..hgroup..hh:mm:ss..hidden..hid",
+        "s..heapObject..heapValue..hecto..height..heightMeasureSpec..heightPixels..heightScale..heldCertificate..helperBrief..helperDetails.."
+      ]
+    }
+  },
+  "other": {
+    "X-Device-Fingerprint": {
+      "description": "custom fingerprint header",
+      "found_in": [
+        "classes9.dex"
+      ],
+      "context": [
+        "ss-Token..X-App-Info..X-Applicant-Id..X-Client-Id..X-Debug..X-Device-Fingerprint..X-Image-Id..X-Mob-App..X-Mob-App-Framework..X-Mob-App-Fram"
+      ]
+    },
+    "device_id": {
+      "description": "device_id field",
+      "found_in": [
+        "classes10.dex",
+        "classes11.dex",
+        "classes13.dex",
+        "classes15.dex",
+        "classes17.dex",
+        "classes3.dex",
+        "classes4.dex",
+        "classes5.dex",
+        "classes6.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "EFAULT x'', `requires_charging` INTEGER NOT NULL, `requires_device_idle` INTEGER NOT NULL, `requires_battery_not_low` INTEGER NOT",
+        "uires_charging` INTEGER NOT NULL,.                `requires_device_idle` INTEGER NOT NULL,.                `requires_battery_not_",
+        "R NOT NULL, `requires_charging` INTEGER NOT NULL, `requires_device_idle` INTEGER NOT NULL, `requires_battery_not_low` INTEGER NOT",
+        "..developments..deviceIdProvider..deviceLocal..device_form..device_id..df..di-inject..di-inject-..diagCodesMask..dialog..dialogIn",
+        "0;..Lcom/avito/android/remote/y;.-Lcom/avito/android/remote_device_id/domain/b;./Lcom/avito/android/remote_device_id/domain/e$a;.",
+        "droid/remote_device_id/domain/b;./Lcom/avito/android/remote_device_id/domain/e$a;.-Lcom/avito/android/remote_device_id/domain/e;.",
+        "oid/remote_device_id/domain/e$a;.-Lcom/avito/android/remote_device_id/domain/e;.]Lcom/avito/android/remote_device_id/task/backgro",
+        "1;..Lcom/avito/android/remote/y;./Lcom/avito/android/remote_device_id/domain/g$a;.JLcom/avito/android/replace_main/exit_onboardin",
+        "Advice..developmentsCount..developmentsCountCard..deviceId..device_id..devices..diagnostic_context..diagnostic_error_id..dialog..",
+        "/deep_linking/links/DeepLink;)V.f(Lcom/avito/android/remote_device_id/domain/g;)Lcom/avito/android/service/short_task/ShortTask$S",
+        "ect;..(Lun0/h;Lun0/i;)V.6(Luo0/d;)Lcom/avito/android/remote_device_id/domain/g;.;(Lvn0/a;Lkotlin/coroutines/Continuation;)Ljava/l",
+        "0;..Lcom/avito/android/remote/y;.-Lcom/avito/android/remote_device_id/domain/a;./Lcom/avito/android/remote_device_id/domain/b$a;.",
+        "estroy..detailedInfo..details..detailsSheetUri..detailsUri..device_id..dg..di..dialog..dialog params must be set..dialogData..dia",
+        "er(): isLocal=..details..detailsDeeplink..details_deeplink..device_id..dialog..dialogData..dialogShown..did load config..diff..di",
+        "NOT NULL, app_instance_id TEXT, gmp_app_id TEXT, resettable_device_id_hash TEXT, last_bundle_index INTEGER NOT NULL, last_bundle_",
+        "owid limit 1;.gapp_id,app_instance_id,gmp_app_id,resettable_device_id_hash,last_bundle_index,last_bundle_end_timestamp.\"app_id,au",
+        "tAnalyticsData..resetCStream..resetIconDrawable..resettable_device_id..resettable_device_id_hash..residentKey.+residueType greate",
+        "ource=check_user_action_validate%2Bmail_send&app_id=6287487&device_id=&s=1&resized=1\",.                                    \"captc",
+        "ource=check_user_action_validate%2Bmail_send&app_id=6287487&device_id=\",.                                    \"uiux_changes\": true",
+        "-\\.\\_~])+/cryptoKeyVersions/([0-9a-zA-Z\\-\\.\\_~])+$.._..__vk_device_id__.._aa.._ac.._ae.._ai.._app_ver.._aq.._au.._blank.._byte_..",
+        "nfo. DROP TABLE IF EXISTS binary_data.#DROP TABLE IF EXISTS device_id_info..DROP TABLE IF EXISTS l_dat..DROP TABLE IF EXISTS lbs_",
+        "rashpad_handler_extracted..appmetrica_deep_link..appmetrica_device_id_hash..appmetrica_gender..appmetrica_locks..appmetrica_name.",
+        "Delay..clickstream..clickstreamLite. clickstream_lite_prefs_device_id..clid..clid_key..clid_value..clids..clids_info..clids_set..",
+        "viceSecurityInfoProvider..deviceTypeToString..deviceVendor..device_id..device_policy..dfn..dialog..dialogCountryItems..dialogId.."
+      ]
+    },
+    "deviceId": {
+      "description": "deviceId field",
+      "found_in": [
+        "classes.dex",
+        "classes10.dex",
+        "classes11.dex",
+        "classes12.dex",
+        "classes13.dex",
+        "classes14.dex",
+        "classes16.dex",
+        "classes17.dex",
+        "classes3.dex",
+        "classes7.dex",
+        "classes8.dex",
+        "classes9.dex"
+      ],
+      "context": [
+        "3=.., x=.., y1=.., y2=.., y3=.., y=.., zslDisabled=..,0,0..,deviceId=..,displaySmall=..,fragment=..,hitRate=..,hits=..,horizonta",
+        "e=.., descriptionTopPadding=.., developmentsAdviceTitle=.., deviceId=.., dialogInfo=.., diameter=.., disableScrollWhileRefreshin",
+        "oup_id..development_id.\"developmentsAdviceAfterIcebreakers..deviceId..deviceInfo..deviceManufacturer..deviceName..deviceType..de",
+        "detailsMaxLinesCount=.., developmentId=.., developments=.., deviceId=.., dialog=.., diff=.., directPurchase=.., disableAddressCl",
+        "elopmentOfferGradient158x110..development_id..developments..deviceIdProvider..deviceLocal..device_form..device_id..df..di-inject",
+        "sInfo=.., detailsInfoV2=.., detailsItems=.., detailsUrl=.., deviceId=.., dialogArguments=.., diff=.., direction=.., disableParen",
+        "..developmentOfferId..development_id..development_offer_id..deviceId..df..dg..dh..dialog..dialogs_after_call_state..did_not_agre",
+        "..developmentsCatalog..developmentsCount..developmentsItem..deviceId..deviceIdHash..device_form..df..dg..dh..di..dialog..diff..d",
+        "entsCatalog..developmentsCount..developmentsItem..deviceId..deviceIdHash..device_form..df..dg..dh..di..dialog..diff..diffHeader.",
+        "stinationsInfo=.., details=.., developmentId=.., device=.., deviceId=.., deviceName=.., deviceSlug=.., devices=.., dialog=.., di",
+        ".IacServiceHolder(service=..IacServiceHolder.kt..IacSession(deviceId=..IacSettingsInteractor.kt..IacSettingsInteractorImpl.kt.&I",
+        ".developmentTitle..development_id..device..deviceAvailable..deviceId..deviceMetrics..deviceName..deviceParams..deviceSlug..devic",
+        ", descriptionText=.., detailsDeeplink=.., deviceChecked=.., deviceId=.., deviceTitle=.., devices=.., devicesForReplacement=.., d",
+        "velopmentsAdvice..developmentsCount..developmentsCountCard..deviceId..device_id..devices..diagnostic_context..diagnostic_error_i",
+        "=.., developerId=.., developerProfile=.., developmentId=.., deviceId=.., diff=.., direction=.., disableEarlyAccess=.., disabled=",
+        "lery_state..development_xl_gallery_state..developmentsItem..deviceId..device_id..dfpTargetings..dialog..dialogInfo..dialog_opene",
+        "..$default$size..$default$theme..$default$tokenExpiration..$deviceId..$groupId..$interactor..$isSuccess$delegate..$it..$justFrie",
+        "' expected after expression..', accessToken='..', args=..', deviceId='..', enable=..', granted=..', keyPrefix='..', lastName='..",
+        "., developmentPlatformVersion=.., device=.., deviceData=.., deviceId=.., deviceManufacturer=.., deviceModel=.., diagnosticLog$va",
+        "n: .., description=.., detail: .., device=.., deviceAbi=.., deviceId=.., deviceIdHash=.., deviceMemorySize=.., deviceModel=.., d",
+        "ption=.., detail: .., device=.., deviceAbi=.., deviceId=.., deviceIdHash=.., deviceMemorySize=.., deviceModel=.., deviceType=..,",
+        "teJvm.kt..DateUtils.java..DateUtils.kt..DbNetworkTaskConfig{deviceId='..DblClick..Death Metal..Debouncer.java.)Debug Meta Data P",
+        "t_XL..development_settings_enabled..deviationBytes..device..deviceId..deviceModel..deviceName.!devicePersonalizationInfoProvider"
+      ]
+    }
+  }
+}

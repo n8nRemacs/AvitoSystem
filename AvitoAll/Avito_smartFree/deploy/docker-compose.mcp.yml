@@ -1,0 +1,59 @@
+# MCP Server - Docker Compose
+# For VPS deployment (Hetzner CX22, etc.)
+
+version: "3.8"
+
+services:
+  # PostgreSQL Database (shared with Token Farm if on same server)
+  postgres:
+    image: postgres:15-alpine
+    container_name: avito-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-avito}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-avito}
+      POSTGRES_DB: ${POSTGRES_DB:-avito_smartfree}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avito -d avito_smartfree"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - avito-net
+
+  # MCP Server
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.mcp
+    container_name: mcp-server
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-avito}:${POSTGRES_PASSWORD:-avito}@postgres:5432/${POSTGRES_DB:-avito_smartfree}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ADMIN_IDS=${TELEGRAM_ADMIN_IDS:-}
+      - FARM_API_URL=${FARM_API_URL:-}
+      - FARM_API_KEY=${FARM_API_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - avito-net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+volumes:
+  postgres_data:
+
+networks:
+  avito-net:
+    driver: bridge

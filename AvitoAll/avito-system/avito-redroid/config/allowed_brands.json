@@ -1,0 +1,32 @@
+{
+  "allowed_brands": [
+    "Samsung",
+    "Xiaomi",
+    "Google",
+    "OnePlus",
+    "Oppo",
+    "Realme",
+    "Huawei",
+    "Vivo",
+    "Honor",
+    "Motorola"
+  ],
+  "excluded_keywords": [
+    "Lite",
+    "Go",
+    "Neo",
+    "FE",
+    "Mini",
+    "A01",
+    "A02",
+    "A03",
+    "budget"
+  ],
+  "min_release_year": 2021,
+  "preferred_brands": [
+    "Samsung",
+    "Xiaomi",
+    "Google"
+  ],
+  "notes": "Only select flagship and mid-range devices from these brands. Budget models are excluded to avoid detection patterns typical of low-end devices."
+}

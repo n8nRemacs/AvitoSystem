@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Search",
+  "description": "Поисковый запрос для мониторинга Avito",
+  "type": "object",
+  "required": ["query"],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Уникальный ID поиска (автоинкремент)"
+    },
+    "query": {
+      "type": "string",
+      "description": "Название устройства (iPhone 12 Pro, Samsung S24 и т.д.)"
+    },
+    "price_min": {
+      "type": ["integer", "null"],
+      "description": "Минимальная цена (руб)"
+    },
+    "price_max": {
+      "type": ["integer", "null"],
+      "description": "Максимальная цена (руб)"
+    },
+    "delivery": {
+      "type": "boolean",
+      "default": true,
+      "description": "Только с Авито Доставкой"
+    },
+    "location_id": {
+      "type": "integer",
+      "default": 621540,
+      "description": "ID локации (621540 = Вся Россия)"
+    },
+    "category_id": {
+      "type": ["integer", "null"],
+      "description": "ID категории Avito (null = все)"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Активен ли поиск"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

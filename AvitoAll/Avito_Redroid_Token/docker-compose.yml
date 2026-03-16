@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  avito-redroid:
+    image: redroid/redroid:13.0.0-latest
+    container_name: avito-redroid
+    privileged: true
+    ports:
+      - "5555:5555"  # ADB port
+      - "5900:5900"  # VNC port (optional)
+    volumes:
+      - redroid_data:/data
+      - ./config/build.prop.pixel6:/system/build.prop:ro
+    environment:
+      # Display settings
+      - REDROID_WIDTH=1080
+      - REDROID_HEIGHT=2400
+      - REDROID_DPI=420
+
+      # GPU rendering
+      - REDROID_GPU_MODE=auto
+
+      # Enable Google Play Services (optional)
+      - REDROID_MAGISK=false
+
+      # ADB settings
+      - ADB_ENABLED=true
+
+    restart: unless-stopped
+
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+
+volumes:
+  redroid_data:
+    driver: local
+
+networks:
+  default:
+    name: avito-network

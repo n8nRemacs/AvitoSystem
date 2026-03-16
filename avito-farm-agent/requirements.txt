@@ -1,0 +1,3 @@
+requests>=2.31.0
+frida-tools>=12.0.0
+schedule>=1.2.0

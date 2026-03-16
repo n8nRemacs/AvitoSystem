@@ -1,0 +1,18 @@
+node_modules/
+.env
+*.key
+*.pem
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+
+# Large binaries
+*.apk
+*.so
+*.dex
+*.pcap
+*.mitm
+avito-farm-agent/apk_work/
+AvitoAll/dex_extract/
+AvitoAll/lib_extract/

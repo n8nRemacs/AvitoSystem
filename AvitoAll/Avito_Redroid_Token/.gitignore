@@ -1,0 +1,40 @@
+# Extracted tokens (sensitive data!)
+output/*.json
+output/
+
+# Temporary files
+temp_prefs.xml
+*.tmp
+*.log
+
+# Downloaded files
+frida-server
+frida-server-*
+frida-server.xz
+avito.apk
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+.venv/
+
+# Docker
+.docker/
+
+# Screenshots
+*.png
+screen.png
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

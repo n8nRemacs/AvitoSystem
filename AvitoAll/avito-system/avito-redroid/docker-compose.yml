@@ -1,0 +1,83 @@
+version: '3.8'
+
+# Avito Redroid with Random Device Masking
+# Masks container as random real device from GSMArena database
+
+services:
+  avito-redroid:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: avito-redroid-masked:latest
+    container_name: avito-redroid
+    privileged: true
+
+    ports:
+      # ADB connection
+      - "5555:5555"
+      # ws-scrcpy web interface (if using external ws-scrcpy)
+      - "8000:8000"
+
+    volumes:
+      # Persistent data: device profile, Avito auth, app data
+      - redroid_data:/data
+      # Output directory for tokens and profiles on host
+      - ./output:/opt/output
+
+    environment:
+      # Display settings
+      - REDROID_WIDTH=1080
+      - REDROID_HEIGHT=2400
+      - REDROID_DPI=420
+      - REDROID_GPU_MODE=auto
+
+      # GSMArena Database for device selection
+      - GSMARENA_DB_HOST=85.198.98.104
+      - GSMARENA_DB_PORT=5433
+      - GSMARENA_DB_USER=postgres
+      - GSMARENA_DB_PASSWORD=${DB_PASSWORD}
+      - GSMARENA_DB_NAME=postgres
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "adb", "shell", "getprop", "sys.boot_completed"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+    # Kernel modules (required for Redroid)
+    # These must be loaded on the host system:
+    # - binder_linux
+    # - ashmem_linux (or CONFIG_ASHMEM=y)
+    #
+    # On most systems, load with:
+    #   modprobe binder_linux devices="binder,hwbinder,vndbinder"
+    #   modprobe ashmem_linux
+
+
+# Persistent volume for Android data
+volumes:
+  redroid_data:
+    driver: local
+    name: avito_redroid_data
+
+
+# Optional: External network for multi-container setups
+# networks:
+#   default:
+#     name: avito-network
+#     driver: bridge

@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "id": 3001234567,
+      "title": "iPhone 15 Pro 256GB",
+      "price": 95000,
+      "priceFormatted": "95 000 \u20bd",
+      "address": "Moscow, Tverskaya st.",
+      "location": {"name": "Moscow"},
+      "images": [
+        {"url": "https://img.avito.ru/1.jpg", "width": 640, "height": 480}
+      ],
+      "url": "https://avito.ru/items/3001234567",
+      "createdAt": "2024-02-01T10:00:00Z",
+      "sellerId": 88888888
+    },
+    {
+      "id": 3001234568,
+      "title": "iPhone 15 128GB",
+      "price": 75000,
+      "priceFormatted": "75 000 \u20bd",
+      "address": "SPb, Nevsky pr.",
+      "location": {"name": "Saint Petersburg"},
+      "images": [
+        {"url": "https://img.avito.ru/2.jpg", "width": 640, "height": 480}
+      ],
+      "url": "https://avito.ru/items/3001234568",
+      "createdAt": "2024-02-01T11:00:00Z",
+      "sellerId": 77777777
+    }
+  ],
+  "total": 150
+}

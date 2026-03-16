@@ -1,0 +1,54 @@
+# Build.prop Template for Avito Redroid Masking
+# Variables in {{brackets}} are replaced by build_prop_gen.py
+#
+# This template is for reference only.
+# The actual build.prop is generated dynamically from device profile.
+
+#
+# PRODUCT IDENTIFICATION
+#
+ro.product.model={{MODEL}}
+ro.product.brand={{BRAND}}
+ro.product.name={{PRODUCT}}
+ro.product.device={{DEVICE}}
+ro.product.manufacturer={{MANUFACTURER}}
+ro.product.board={{HARDWARE}}
+
+#
+# BUILD INFORMATION
+#
+ro.build.id={{BUILD_ID}}
+ro.build.display.id={{BUILD_NUMBER}}
+ro.build.version.incremental={{BUILD_NUMBER}}
+ro.build.version.sdk={{SDK_VERSION}}
+ro.build.version.release={{ANDROID_VERSION}}
+ro.build.version.security_patch={{SECURITY_PATCH}}
+ro.build.type=user
+ro.build.tags=release-keys
+
+#
+# FINGERPRINT (Critical for detection)
+#
+ro.build.fingerprint={{FINGERPRINT}}
+ro.bootimage.build.fingerprint={{FINGERPRINT}}
+ro.vendor.build.fingerprint={{FINGERPRINT}}
+
+#
+# HARDWARE
+#
+ro.hardware={{HARDWARE}}
+ro.hardware.chipname={{HARDWARE}}
+ro.board.platform={{HARDWARE}}
+
+#
+# ANTI-EMULATOR PROPERTIES
+#
+ro.kernel.qemu=0
+ro.kernel.android.qemud=0
+ro.kernel.qemu.gles=0
+ro.secure=1
+ro.adb.secure=1
+ro.debuggable=0
+ro.allow.mock.location=0
+ro.boot.verifiedbootstate=green
+ro.boot.flash.locked=1

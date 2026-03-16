@@ -1,0 +1,157 @@
+# Token Farm x86 - Development/Testing Version
+# Docker Compose for x86/x64 servers and local development
+#
+# WARNING: This is NOT for production!
+# Avito will detect x86 emulator even with masking.
+# Use this for:
+# - Local development and debugging
+# - Testing ADB controller logic
+# - Testing active refresh algorithm
+# - Prototyping new features
+#
+# For production, use token-farm/ folder with ARM64 platform
+
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: avito-postgres-x86
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-avito}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-avito}
+      POSTGRES_DB: ${POSTGRES_DB:-avito_smartfree_x86}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avito -d avito_smartfree_x86"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redroid Container 1 - x86 Test Container
+  redroid-x86-1:
+    image: redroid/redroid:12.0.0-latest
+    container_name: redroid-x86-1
+    # NOTE: NO platform specification - will use host architecture (x86_64)
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5555:5555"   # ADB
+      - "5900:5900"   # VNC (optional, for debugging)
+    volumes:
+      - redroid1_data:/data
+    command: >
+      androidboot.redroid_width=1080
+      androidboot.redroid_height=2400
+      androidboot.redroid_dpi=420
+      androidboot.redroid_fps=60
+      androidboot.redroid_gpu_mode=guest
+      ro.product.manufacturer=OnePlus
+      ro.product.model=LE2115
+      ro.product.brand=OnePlus
+      ro.product.device=OnePlus9
+      ro.hardware=qcom
+      ro.secure=0
+      ro.debuggable=1
+      androidboot.selinux=permissive
+    depends_on:
+      - postgres
+
+  # Redroid Container 2 - x86 Test Container
+  redroid-x86-2:
+    image: redroid/redroid:12.0.0-latest
+    container_name: redroid-x86-2
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5556:5555"   # ADB
+      - "5901:5900"   # VNC
+    volumes:
+      - redroid2_data:/data
+    command: >
+      androidboot.redroid_width=1080
+      androidboot.redroid_height=2400
+      androidboot.redroid_dpi=420
+      androidboot.redroid_fps=60
+      androidboot.redroid_gpu_mode=guest
+      ro.product.manufacturer=samsung
+      ro.product.model=SM-G998B
+      ro.product.brand=samsung
+      ro.product.device=p3s
+      ro.hardware=qcom
+      ro.secure=0
+      ro.debuggable=1
+      androidboot.selinux=permissive
+    depends_on:
+      - postgres
+
+  # Redroid Container 3 - x86 Test Container (optional, comment out if not needed)
+  redroid-x86-3:
+    image: redroid/redroid:12.0.0-latest
+    container_name: redroid-x86-3
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5557:5555"   # ADB
+      - "5902:5900"   # VNC
+    volumes:
+      - redroid3_data:/data
+    command: >
+      androidboot.redroid_width=1080
+      androidboot.redroid_height=2400
+      androidboot.redroid_dpi=411
+      androidboot.redroid_fps=90
+      androidboot.redroid_gpu_mode=guest
+      ro.product.manufacturer=Google
+      ro.product.model=Pixel_6
+      ro.product.brand=google
+      ro.product.device=oriole
+      ro.hardware=gs101
+      ro.secure=0
+      ro.debuggable=1
+      androidboot.selinux=permissive
+    depends_on:
+      - postgres
+    profiles:
+      - full  # Only start with: docker-compose --profile full up
+
+  # Token Farm API Server (optional for testing)
+  farm-api:
+    build:
+      context: ../token-farm  # Use ARM version code
+      dockerfile: Dockerfile.farm
+    container_name: farm-api-x86
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-avito}:${POSTGRES_PASSWORD:-avito}@postgres:5432/${POSTGRES_DB:-avito_smartfree_x86}
+      - FARM_HOST=0.0.0.0
+      - FARM_PORT=8000
+      - FARM_API_KEY=${FARM_API_KEY:-dev_key_x86}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - ENVIRONMENT=development
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../token-farm:/app  # Mount code for hot reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python api_server.py
+    profiles:
+      - api  # Only start with: docker-compose --profile api up
+
+volumes:
+  postgres_data:
+  redroid1_data:
+  redroid2_data:
+  redroid3_data:
+
+networks:
+  default:
+    name: avito-farm-x86

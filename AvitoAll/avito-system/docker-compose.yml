@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./part1-backend
+    container_name: avito-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - backend_data:/app/data
+    env_file: ./part1-backend/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build: ./part2-frontend
+    container_name: avito-frontend
+    ports:
+      - "3000:3000"
+    env_file: ./part2-frontend/.env
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: ./part3-worker
+    container_name: avito-worker
+    env_file: ./part3-worker/.env
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  telegram:
+    build: ./part4-telegram
+    container_name: avito-telegram
+    env_file: ./part4-telegram/.env
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redroid:
+    image: redroid/redroid:13.0.0-latest
+    container_name: redroid
+    privileged: true
+    ports:
+      - "5555:5555"
+      - "5900:5900"
+    volumes:
+      - redroid_data:/data
+    environment:
+      - REDROID_WIDTH=1080
+      - REDROID_HEIGHT=2400
+      - REDROID_DPI=420
+      - REDROID_GPU_MODE=auto
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+    restart: unless-stopped
+
+  token-bridge:
+    build: ./part5-token-bridge
+    container_name: avito-token-bridge
+    env_file: ./part5-token-bridge/.env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      backend:
+        condition: service_healthy
+      redroid:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  backend_data:
+  redroid_data:

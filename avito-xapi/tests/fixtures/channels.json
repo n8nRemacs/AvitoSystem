@@ -1,0 +1,41 @@
+{
+  "success": {
+    "channels": [
+      {
+        "id": "u2i-test-channel-1",
+        "created": 1707000000000000000,
+        "updated": 1707050000000000000,
+        "isRead": false,
+        "isAnswered": true,
+        "unreadCount": 2,
+        "userId": "99999999",
+        "sortingTimestamp": 1707050000000000000,
+        "users": [
+          {"id": "99999999", "name": "Me"},
+          {"id": "88888888", "name": "Ivan Petrov"}
+        ],
+        "info": {
+          "name": "Ivan Petrov",
+          "details": {
+            "itemId": "3001234567",
+            "title": "iPhone 15 Pro 256GB",
+            "url": "https://avito.ru/items/3001234567",
+            "price": 95000,
+            "images": ["https://img.avito.ru/1.jpg"]
+          }
+        },
+        "lastMessage": {
+          "id": "msg-001",
+          "authorId": "88888888",
+          "createdAt": 1707050000000000000,
+          "body": {
+            "text": {
+              "text": "Hello, is it still available?"
+            }
+          }
+        }
+      }
+    ],
+    "hasMore": false
+  }
+}

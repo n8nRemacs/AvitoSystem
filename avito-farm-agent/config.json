@@ -1,0 +1,14 @@
+{
+  "device_name": "OnePlus-8T-1",
+  "xapi_url": "https://avito.newlcd.ru/api/v1",
+  "api_key": "CHANGE_ME_farm_device_key",
+  "heartbeat_interval_sec": 300,
+  "schedule_poll_interval_sec": 300,
+  "refresh_lead_time_sec": 60,
+  "avito_launch_wait_sec": 90,
+  "avito_package": "com.avito.android",
+  "frida_script": "grab_token.js",
+  "spoof_script": "spoof_fingerprint.js",
+  "log_file": "/data/local/tmp/farm_agent.log",
+  "profiles_range": [10, 109]
+}

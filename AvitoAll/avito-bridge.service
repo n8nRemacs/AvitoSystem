@@ -1,0 +1,21 @@
+[Unit]
+Description=Avito Telegram Bridge
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Avito
+ExecStart=/usr/bin/python3 avito_telegram_bot_v2.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/avito-bridge.log
+StandardError=append:/var/log/avito-bridge.log
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/root/Avito
+
+[Install]
+WantedBy=multi-user.target

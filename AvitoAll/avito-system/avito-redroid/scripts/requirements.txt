@@ -1,0 +1,2 @@
+# Dependencies for Avito Redroid Masking Scripts
+psycopg2-binary>=2.9.9

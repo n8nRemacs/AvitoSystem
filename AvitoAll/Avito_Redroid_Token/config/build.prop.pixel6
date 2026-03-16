@@ -1,0 +1,59 @@
+# Google Pixel 6 Build Properties
+# Used to mask Redroid as real device for Avito
+
+# Product Information
+ro.product.model=Pixel 6
+ro.product.brand=google
+ro.product.name=oriole
+ro.product.device=oriole
+ro.product.manufacturer=Google
+
+# Build Information
+ro.build.id=TQ3A.230901.001
+ro.build.display.id=TQ3A.230901.001
+ro.build.version.incremental=10750268
+ro.build.version.sdk=33
+ro.build.version.release=13
+ro.build.version.security_patch=2023-09-05
+ro.build.type=user
+ro.build.tags=release-keys
+
+# Build Fingerprint
+ro.build.fingerprint=google/oriole/oriole:13/TQ3A.230901.001/10750268:user/release-keys
+ro.bootimage.build.fingerprint=google/oriole/oriole:13/TQ3A.230901.001/10750268:user/release-keys
+
+# System Fingerprint
+ro.system.build.fingerprint=google/oriole/oriole:13/TQ3A.230901.001/10750268:user/release-keys
+
+# Hardware Information
+ro.hardware=oriole
+ro.hardware.chipname=gs101
+
+# Board Information
+ro.product.board=oriole
+
+# Boot Information
+ro.bootloader=oriole-1.0-10750268
+
+# Hide emulator indicators
+ro.kernel.qemu=0
+ro.kernel.android.qemud=0
+ro.hardware.audio.primary=default
+
+# Network
+ro.telephony.default_network=10
+
+# Google Services
+ro.com.google.clientidbase=android-google
+
+# Security
+ro.secure=1
+ro.adb.secure=1
+ro.debuggable=0
+
+# Characteristics
+ro.build.characteristics=default
+
+# Additional properties to hide emulator/vm
+persist.sys.usb.config=mtp,adb
+ro.sf.lcd_density=420

@@ -1,0 +1,48 @@
+{
+  "success": {
+    "messages": [
+      {
+        "id": "msg-001",
+        "channelId": "u2i-test-channel-1",
+        "authorId": "88888888",
+        "createdAt": 1707050000000000000,
+        "readAt": null,
+        "isFirstMessage": true,
+        "body": {
+          "text": {
+            "text": "Hello, is it still available?"
+          }
+        }
+      },
+      {
+        "id": "msg-002",
+        "channelId": "u2i-test-channel-1",
+        "authorId": "99999999",
+        "createdAt": 1707051000000000000,
+        "readAt": 1707051500000000000,
+        "isFirstMessage": false,
+        "body": {
+          "text": {
+            "text": "Yes, available. When can you pick it up?"
+          }
+        }
+      },
+      {
+        "id": "msg-003",
+        "channelId": "u2i-test-channel-1",
+        "authorId": "88888888",
+        "createdAt": 1707052000000000000,
+        "readAt": null,
+        "isFirstMessage": false,
+        "body": {
+          "image": {
+            "imageId": "img-123",
+            "url": "https://img.avito.ru/photo.jpg",
+            "width": 1024,
+            "height": 768
+          }
+        }
+      }
+    ]
+  }
+}

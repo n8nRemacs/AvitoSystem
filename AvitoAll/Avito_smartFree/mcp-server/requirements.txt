@@ -1,0 +1,27 @@
+# MCP Server dependencies
+
+# Telegram Bot
+aiogram>=3.3.0
+
+# HTTP/WebSocket Client
+aiohttp>=3.9.0
+websockets>=12.0
+
+# Database (shared)
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+greenlet>=3.0.0
+
+# Configuration
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# Async utilities
+aiofiles>=23.0.0
+
+# HTTP client for Token Farm API
+httpx>=0.26.0
+
+# Logging
+structlog>=24.0.0

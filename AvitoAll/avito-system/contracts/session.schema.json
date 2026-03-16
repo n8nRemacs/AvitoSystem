@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AvitoSession",
+  "description": "Токены авторизации Avito, извлечённые из Redroid",
+  "type": "object",
+  "required": ["session_token", "refresh_token", "fingerprint", "device_id", "user_id", "expires_at"],
+  "properties": {
+    "session_token": {
+      "type": "string",
+      "description": "JWT токен (HS512, 24ч жизни). Заголовки: X-Session, Cookie: sessid="
+    },
+    "refresh_token": {
+      "type": "string",
+      "description": "Токен для обновления сессии (hex, 32-64 символа)"
+    },
+    "fingerprint": {
+      "type": "string",
+      "description": "Device fingerprint (A2.hex...). Заголовок: f"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "ID устройства. Заголовок: X-DeviceId"
+    },
+    "remote_device_id": {
+      "type": "string",
+      "description": "Remote device ID. Заголовок: X-RemoteDeviceId"
+    },
+    "user_hash": {
+      "type": "string",
+      "description": "Хеш пользователя для WebSocket"
+    },
+    "user_id": {
+      "type": "integer",
+      "description": "ID пользователя Avito"
+    },
+    "expires_at": {
+      "type": "integer",
+      "description": "Unix timestamp истечения JWT"
+    },
+    "cookies": {
+      "type": "object",
+      "description": "Дополнительные cookies",
+      "properties": {
+        "1f_uid": { "type": "string" },
+        "u": { "type": "string" },
+        "v": { "type": "string" }
+      }
+    },
+    "synced_at": {
+      "type": "integer",
+      "description": "Unix timestamp последней синхронизации"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "session_token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjgzOTcwNTEsImlhdCI6MTc2ODMxMDY1MSwidSI6MTU3OTIwMjE0LCJwIjoyODEwOTU5OSwicyI6IjJiZmE3MmFiNjE5OTU1OGI2ZjdkZmZlMWU1M2QxNGRlLjE3NjgzMTA2NTEiLCJoIjoiWmpNeE0yTmtOVGRpT0RFMk1EWTVaakZsTkdOak1EVTNNbVExWVdVd09UVXhZamt5TnpCaU9UcFpWR2hyVGpKSk0wNVVXWGxPVkZFeFQwUm5kMDlSIiwiZCI6ImE4ZDdiNzU2MjU0NTg4MDkiLCJwbCI6ImFuZHJvaWQiLCJleHRyYSI6bnVsbH0.0_QImFYDUGrKLD2Mg2Xc5hPVm_ikTTo3pQtoEbbV0U7eqLNdyNfd6UjFujlk1bn7rQbx0rxbP06x3tC4EExrFQ",
+  "refresh_token": "3dacb146ff0c80d3da5c2fd2ddb94047",
+  "session_data": {
+    "device_id": "a8d7b75625458809",
+    "fingerprint": "A2.a541fb18def1032c46e8ce9356bf78870fa9c764bfb1e9e5b987ddf59dd9d01cc9450700054f77c90fafbcf2130fdc0e28f55511b08ad67d2a56fddf442f3dff07669ef9caeb686faf92383f06c695a6c296491e31ea13d4ed9f4c834316a4fd2cf60b8bde696617a6928526221fc174f4eab22785947febba610b1f56d35460d798f306ccdf536c876453ee72d819c926bde786618ec0c53692e27e758f1d0dbb3666d69b2ede89c9dab24ad985363cf7c60d0e460fd1858cecd14770527a95609c38587ed746f99ea3e08ef90510eb1acae44bc0fa2d61",
+    "remote_device_id": "kSCwY4Kj4HUfwZHG.dETo5G6mASWYj1o8WQV7G9AoYQm3OBcfoD29SM-WGzZa_y5uXhxeKOfQAPNcyR0Kc-hc-w2TeA==.0Ir5Kv9vC5RQ_-0978SocYK64ZNiUpwSmGJGf2c-_74=.android",
+    "user_hash": "4c48533419806d790635e8565693e5c2",
+    "user_id": 157920214,
+    "cookies": {
+      "1f_uid": "27835d95-6380-44e1-8289-4a13a511a29b",
+      "u": "3bhsmqlh.1i5wwa4.i996zfqfof"
+    }
+  },
+  "expires_at": 1768397051,
+  "updated_at": 1768383600
+}

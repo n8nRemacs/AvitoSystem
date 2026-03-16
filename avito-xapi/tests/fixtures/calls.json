@@ -1,0 +1,21 @@
+{
+  "result": {
+    "items": [
+      {
+        "id": "12345",
+        "caller": "+79001234567",
+        "receiver": "+79007654321",
+        "duration": "2:30",
+        "hasRecord": true,
+        "isNew": false,
+        "isSpamTagged": false,
+        "isCallback": false,
+        "createTime": "2024-02-01T15:30:00Z",
+        "itemId": 3001234567,
+        "itemTitle": "iPhone 15 Pro 256GB"
+      }
+    ],
+    "total": 1
+  },
+  "status": "success"
+}

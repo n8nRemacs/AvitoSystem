@@ -1,0 +1,32 @@
+# Environment files with secrets
+.env
+*.env.local
+
+# Output directories
+output/tokens/
+output/profiles/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Docker
+.docker/
+
+# Temp files
+*.tmp
+*.temp

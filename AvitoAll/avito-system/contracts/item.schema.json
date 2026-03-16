@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Item",
+  "description": "Найденный товар на Avito с результатом AI-анализа",
+  "type": "object",
+  "required": ["id", "title", "price", "url"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "ID объявления на Avito"
+    },
+    "title": {
+      "type": "string"
+    },
+    "price": {
+      "type": "integer",
+      "description": "Цена в рублях"
+    },
+    "location": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string",
+      "description": "Ссылка на объявление"
+    },
+    "image_urls": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "URL фотографий (до 5)"
+    },
+    "delivery": {
+      "type": "boolean",
+      "description": "Доступна Авито Доставка"
+    },
+    "seller_id": {
+      "type": "string"
+    },
+    "reserved": {
+      "type": "boolean",
+      "description": "Товар зарезервирован (скрывается из выдачи)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Полное описание объявления"
+    },
+    "ai_verdict": {
+      "type": "string",
+      "enum": ["OK", "RISK", "SKIP", "PENDING"],
+      "description": "Вердикт AI-анализа"
+    },
+    "ai_score": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Оценка AI (1=плохо, 10=отлично)"
+    },
+    "ai_summary": {
+      "type": "string",
+      "description": "Краткое описание от AI"
+    },
+    "ai_defects": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Обнаруженные дефекты"
+    },
+    "search_id": {
+      "type": "integer",
+      "description": "ID поиска, которым найден"
+    },
+    "greeted": {
+      "type": "boolean",
+      "description": "Отправлено приветствие продавцу"
+    },
+    "channel_id": {
+      "type": ["string", "null"],
+      "description": "ID чата в мессенджере Avito"
+    },
+    "found_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

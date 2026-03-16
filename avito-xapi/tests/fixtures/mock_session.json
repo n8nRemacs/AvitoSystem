@@ -1,0 +1,13 @@
+{
+  "session_token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjo5OTk5OTk5OSwic3ViIjo5OTk5OTk5OSwiaWF0IjoxNzA3MDAwMDAwLCJleHAiOjE3MDcwODY0MDAsImluc3RhbGxfaWQiOiJ0ZXN0LWluc3RhbGwtaWQiLCJjbGllbnRfaWQiOiJhdml0by1hbmRyb2lkIiwicGxhdGZvcm0iOiJhbmRyb2lkIn0.MOCK_SIGNATURE_NOT_VALID",
+  "refresh_token": "5c5b31d4b70e997ac188ad7723b395b4",
+  "device_id": "a8d7b75625458809",
+  "fingerprint": "A2.000000000000000000mock",
+  "remote_device_id": "kSCwY4Kj4HUfwZHG.mock.android",
+  "user_hash": "4c48533419806d790635e8565693e5c2",
+  "cookies": {
+    "1f_uid": "27835d95-6380-44e1-8289-4a13a511a29b",
+    "u": "3bhsmqlh.1i5wwa4.i996zfqfof"
+  },
+  "source": "manual"
+}

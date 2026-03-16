@@ -1,0 +1,216 @@
+# Token Farm - Redroid Containers with Anti-Emulator Masking
+# Docker Compose for ARM servers (Hetzner CAX / Oracle Ampere)
+#
+# CRITICAL: All containers are configured to bypass Avito's anti-emulator checks:
+# - ARM platform (linux/arm64)
+# - Real device build properties (OnePlus, Samsung, etc.)
+# - ro.kernel.qemu=0 to hide QEMU
+# - Real hardware names (qcom, exynos) instead of goldfish
+# - Init script to remove /dev/qemu_pipe and other emulator traces
+
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: avito-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-avito}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-avito}
+      POSTGRES_DB: ${POSTGRES_DB:-avito_smartfree}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avito -d avito_smartfree"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redroid Container 1 - OnePlus 9 (LE2115)
+  redroid-1:
+    image: redroid/redroid:12.0.0-latest
+    container_name: redroid-1
+    platform: linux/arm64  # ARM обязательно для обхода проверок!
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5555:5555"   # ADB
+      - "5900:5900"   # VNC (optional)
+    volumes:
+      - redroid1_data:/data
+      - ./scripts/cleanup_emulator.sh:/system/bin/cleanup.sh:ro
+    command: >
+      androidboot.redroid_width=1080
+      androidboot.redroid_height=2400
+      androidboot.redroid_dpi=420
+      androidboot.redroid_fps=60
+      androidboot.redroid_gpu_mode=guest
+      ro.product.manufacturer=OnePlus
+      ro.product.model=LE2115
+      ro.product.brand=OnePlus
+      ro.product.device=OnePlus9
+      ro.hardware=qcom
+      ro.kernel.qemu=0
+      ro.build.fingerprint=OnePlus/OnePlus9/OnePlus9:13/TP1A.220905.001/R.202402a5:user/release-keys
+      androidboot.selinux=permissive
+    depends_on:
+      - postgres
+
+  # Redroid Container 2 - Samsung Galaxy S21 Ultra (SM-G998B)
+  redroid-2:
+    image: redroid/redroid:12.0.0-latest
+    container_name: redroid-2
+    platform: linux/arm64
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5556:5555"   # ADB
+      - "5901:5900"   # VNC
+    volumes:
+      - redroid2_data:/data
+      - ./scripts/cleanup_emulator.sh:/system/bin/cleanup.sh:ro
+    command: >
+      androidboot.redroid_width=1440
+      androidboot.redroid_height=3200
+      androidboot.redroid_dpi=516
+      androidboot.redroid_fps=120
+      androidboot.redroid_gpu_mode=guest
+      ro.product.manufacturer=samsung
+      ro.product.model=SM-G998B
+      ro.product.brand=samsung
+      ro.product.device=p3s
+      ro.hardware=exynos2100
+      ro.kernel.qemu=0
+      ro.build.fingerprint=samsung/p3sxxx/p3s:13/TP1A.220624.014/G998BXXU6DWEB:user/release-keys
+      androidboot.selinux=permissive
+    depends_on:
+      - postgres
+
+  # Redroid Container 3 - Samsung Galaxy A52 (SM-A525F)
+  redroid-3:
+    image: redroid/redroid:12.0.0-latest
+    container_name: redroid-3
+    platform: linux/arm64
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5557:5555"   # ADB
+      - "5902:5900"   # VNC
+    volumes:
+      - redroid3_data:/data
+      - ./scripts/cleanup_emulator.sh:/system/bin/cleanup.sh:ro
+    command: >
+      androidboot.redroid_width=1080
+      androidboot.redroid_height=2400
+      androidboot.redroid_dpi=405
+      androidboot.redroid_fps=90
+      androidboot.redroid_gpu_mode=guest
+      ro.product.manufacturer=samsung
+      ro.product.model=SM-A525F
+      ro.product.brand=samsung
+      ro.product.device=a52q
+      ro.hardware=qcom
+      ro.kernel.qemu=0
+      ro.build.fingerprint=samsung/a52qnsxx/a52q:13/TP1A.220624.014/A525FXXU5DWL2:user/release-keys
+      androidboot.selinux=permissive
+    depends_on:
+      - postgres
+
+  # Redroid Container 4 - Google Pixel 6 (GR1YH)
+  redroid-4:
+    image: redroid/redroid:12.0.0-latest
+    container_name: redroid-4
+    platform: linux/arm64
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5558:5555"
+      - "5903:5900"
+    volumes:
+      - redroid4_data:/data
+      - ./scripts/cleanup_emulator.sh:/system/bin/cleanup.sh:ro
+    command: >
+      androidboot.redroid_width=1080
+      androidboot.redroid_height=2400
+      androidboot.redroid_dpi=411
+      androidboot.redroid_fps=90
+      androidboot.redroid_gpu_mode=guest
+      ro.product.manufacturer=Google
+      ro.product.model=Pixel 6
+      ro.product.brand=google
+      ro.product.device=oriole
+      ro.hardware=gs101
+      ro.kernel.qemu=0
+      ro.build.fingerprint=google/oriole/oriole:13/TP1A.221105.002/9080065:user/release-keys
+      androidboot.selinux=permissive
+    depends_on:
+      - postgres
+
+  # Redroid Container 5 - Xiaomi Mi 11 (M2101K6G)
+  redroid-5:
+    image: redroid/redroid:12.0.0-latest
+    container_name: redroid-5
+    platform: linux/arm64
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5559:5555"
+      - "5904:5900"
+    volumes:
+      - redroid5_data:/data
+      - ./scripts/cleanup_emulator.sh:/system/bin/cleanup.sh:ro
+    command: >
+      androidboot.redroid_width=1440
+      androidboot.redroid_height=3200
+      androidboot.redroid_dpi=515
+      androidboot.redroid_fps=120
+      androidboot.redroid_gpu_mode=guest
+      ro.product.manufacturer=Xiaomi
+      ro.product.model=M2101K6G
+      ro.product.brand=Xiaomi
+      ro.product.device=venus
+      ro.hardware=qcom
+      ro.kernel.qemu=0
+      ro.build.fingerprint=Xiaomi/venus/venus:13/TKQ1.220905.001/V14.0.9.0.TKBMIXM:user/release-keys
+      androidboot.selinux=permissive
+    depends_on:
+      - postgres
+
+  # Token Farm API Server
+  farm-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.farm
+    container_name: farm-api
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-avito}:${POSTGRES_PASSWORD:-avito}@postgres:5432/${POSTGRES_DB:-avito_smartfree}
+      - FARM_HOST=0.0.0.0
+      - FARM_PORT=8000
+      - FARM_API_KEY=${FARM_API_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python api_server.py
+
+volumes:
+  postgres_data:
+  redroid1_data:
+  redroid2_data:
+  redroid3_data:
+  redroid4_data:
+  redroid5_data:
+
+networks:
+  default:
+    name: avito-farm
