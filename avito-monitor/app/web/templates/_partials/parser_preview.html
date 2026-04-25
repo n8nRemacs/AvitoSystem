@@ -1,0 +1,23 @@
+{% if error %}
+<div class="bg-red-50 border border-red-200 text-red-800 rounded-md px-3 py-2 text-xs">
+  {{ error }}
+</div>
+{% else %}
+<div class="bg-avito-elev rounded-md p-3 text-xs space-y-1">
+  <div class="text-avito-text-soft mb-1">Распознано из URL:</div>
+  {% if preview.brand %}<div>🏷️ Бренд: <strong class="text-avito-text">{{ preview.brand }}</strong></div>{% endif %}
+  {% if preview.model %}<div>📱 Модель: <strong class="text-avito-text">{{ preview.model }}</strong></div>{% endif %}
+  {% if preview.category_human %}<div>📂 Категория: <strong class="text-avito-text">{{ preview.category_human }}</strong></div>{% endif %}
+  {% if preview.region_name %}<div>🌍 Регион: <strong class="text-avito-text">{{ preview.region_name }}</strong> <span class="text-avito-text-muted">({{ preview.region_slug }})</span></div>{% endif %}
+  {% if preview.query %}<div>🔍 Keyword: <strong class="text-avito-text">{{ preview.query }}</strong></div>{% endif %}
+  {% if preview.pmin or preview.pmax %}
+    <div>💰 Цена в URL: <strong class="text-avito-text tabular-nums">{{ preview.pmin or '—' }} – {{ preview.pmax or '—' }} ₽</strong></div>
+  {% endif %}
+  {% if preview.suggested_search_min and preview.suggested_search_max %}
+    <div>📊 Авто search-вилка (±25%): <strong class="text-avito-text tabular-nums">{{ preview.suggested_search_min }} – {{ preview.suggested_search_max }} ₽</strong></div>
+  {% endif %}
+  <div class="pt-2 mt-2 border-t border-avito-border-soft">
+    💡 Предложенное имя: <strong class="text-avito-text">{{ preview.suggested_name }}</strong>
+  </div>
+</div>
+{% endif %}

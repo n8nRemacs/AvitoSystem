@@ -1,0 +1,98 @@
+{# Reusable Jinja macros for UI components (Avito-Cosplay style) #}
+
+{# ConditionChip — pill with pastel bg + colored text per condition_class #}
+{% macro condition_chip(condition_class) -%}
+{%- set styles = {
+    'working':         ('bg-[#EFFAD4] text-[#5A8C00]', 'Рабочий'),
+    'blocked_icloud':  ('bg-[#FFF4D6] text-[#A87800]', 'iCloud-блок'),
+    'blocked_account': ('bg-[#FFF4D6] text-[#A87800]', 'Блок аккаунт'),
+    'not_starting':    ('bg-[#FFE4E6] text-[#A02835]', 'Не включается'),
+    'broken_screen':   ('bg-[#FFE4E6] text-[#A02835]', 'Разбит экран'),
+    'broken_other':    ('bg-[#F0E6F8] text-[#6B3F99]', 'Поломка'),
+    'parts_only':      ('bg-[#EEEEEE] text-[#666666]', 'На запчасти'),
+    'unknown':         ('bg-[#F4F4F4] text-[#888888]', '?'),
+  } -%}
+{%- set cls, label = styles.get(condition_class, styles['unknown']) -%}
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ cls }}">
+  {{ label }}
+</span>
+{%- endmacro %}
+
+
+{# Price tag — formatted ₽ value, optional delta arrow #}
+{% macro price_tag(amount, delta_pct=None, currency='₽') -%}
+{%- if amount is none -%}
+  <span class="text-avito-text-muted">—</span>
+{%- else -%}
+  <span class="font-semibold tabular-nums">{{ '{:,.0f}'.format(amount).replace(',', ' ') }} {{ currency }}</span>
+  {%- if delta_pct is not none and delta_pct != 0 -%}
+    {% if delta_pct < 0 %}
+      <span class="ml-1 text-xs text-avito-negative">▼ {{ '%.1f' % (delta_pct|abs) }}%</span>
+    {% else %}
+      <span class="ml-1 text-xs text-avito-positive">▲ {{ '%.1f' % delta_pct }}%</span>
+    {% endif %}
+  {%- endif -%}
+{%- endif -%}
+{%- endmacro %}
+
+
+{# DualPriceRange — visualizes search-вилка (broad) and alert-вилка (narrow) inside #}
+{% macro dual_price_range(search_min, search_max, alert_min, alert_max, height='h-7') -%}
+{%- if (search_min is none) or (search_max is none) -%}
+  {%- set display_min = alert_min -%}
+  {%- set display_max = alert_max -%}
+{%- else -%}
+  {%- set display_min = search_min -%}
+  {%- set display_max = search_max -%}
+{%- endif -%}
+{%- if display_min is none or display_max is none or display_max <= display_min -%}
+  <div class="text-xs text-avito-text-muted italic">Вилка не задана</div>
+{%- else -%}
+  {%- set span = display_max - display_min -%}
+  {%- if alert_min is not none and alert_max is not none -%}
+    {%- set alert_left_pct = ((alert_min - display_min) / span * 100) | round(2) -%}
+    {%- set alert_width_pct = ((alert_max - alert_min) / span * 100) | round(2) -%}
+  {%- else -%}
+    {%- set alert_left_pct = 0 -%}
+    {%- set alert_width_pct = 0 -%}
+  {%- endif -%}
+  <div class="space-y-1">
+    <div class="relative {{ height }} rounded bg-[#F4F4F1] border border-avito-border overflow-hidden">
+      {% if alert_width_pct > 0 %}
+      <div class="absolute top-0 bottom-0 bg-avito-brand-soft border-x border-avito-brand"
+           style="left: {{ alert_left_pct }}%; width: {{ alert_width_pct }}%;">
+      </div>
+      {% endif %}
+    </div>
+    <div class="flex justify-between text-[11px] tabular-nums text-avito-text-soft">
+      <span>{{ '{:,.0f}'.format(display_min).replace(',', ' ') }} ₽</span>
+      {% if alert_min is not none %}
+        <span class="text-avito-brand-hover">↑ alert {{ '{:,.0f}'.format(alert_min).replace(',', ' ') }}–{{ '{:,.0f}'.format(alert_max).replace(',', ' ') }} ₽</span>
+      {% endif %}
+      <span>{{ '{:,.0f}'.format(display_max).replace(',', ' ') }} ₽</span>
+    </div>
+  </div>
+{%- endif -%}
+{%- endmacro %}
+
+
+{# KPI card — large number + label + optional sublabel #}
+{% macro kpi_card(label, value, sub=None, accent=None) -%}
+<div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+  <div class="text-xs uppercase tracking-wide text-avito-text-soft">{{ label }}</div>
+  <div class="mt-1 text-3xl font-semibold tabular-nums {% if accent %}text-{{ accent }}{% else %}text-avito-text{% endif %}">
+    {{ value }}
+  </div>
+  {% if sub %}<div class="text-xs text-avito-text-soft mt-1">{{ sub }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# Status dot — small colored circle indicating active/paused #}
+{% macro status_dot(is_active) -%}
+{%- if is_active -%}
+<span class="inline-block w-2 h-2 rounded-full bg-avito-positive" title="Активен"></span>
+{%- else -%}
+<span class="inline-block w-2 h-2 rounded-full bg-avito-text-muted" title="На паузе"></span>
+{%- endif -%}
+{%- endmacro %}

@@ -1,0 +1,245 @@
+{% extends "_layout.html" %}
+{% from "_macros.html" import dual_price_range %}
+
+{% block title %}{{ title }} — Avito Monitor{% endblock %}
+
+{% block page_content %}
+<div class="max-w-3xl mx-auto">
+  <div class="flex items-center gap-3 mb-6">
+    <a href="/search-profiles" class="text-sm text-avito-text-soft hover:text-avito-text">← К списку</a>
+    <h1 class="text-2xl font-semibold text-avito-text">{{ title }}</h1>
+  </div>
+
+  {% if error %}
+  <div class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3 mb-4 text-sm">
+    {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ form_action }}" class="space-y-5">
+    <!-- Step 1: URL -->
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <h2 class="text-sm font-semibold text-avito-text mb-1">URL поиска Avito <span class="text-red-500">*</span></h2>
+      <p class="text-xs text-avito-text-soft mb-3">
+        Открой Avito, настрой фильтр (категория, бренд, модель, цена, регион) и скопируй URL из адресной строки.
+      </p>
+      <div class="flex gap-2">
+        <input type="url"
+               name="avito_search_url"
+               id="avito_search_url"
+               placeholder="https://www.avito.ru/moskva/telefony/..."
+               value="{{ profile.avito_search_url if profile else '' }}"
+               required
+               class="flex-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm focus:border-avito-brand focus:outline-none focus:ring-2 focus:ring-avito-brand-soft">
+        <button type="button"
+                hx-post="/search-profiles/parse-url-fragment"
+                hx-include="#avito_search_url"
+                hx-target="#parser-preview"
+                hx-swap="innerHTML"
+                hx-trigger="click"
+                class="px-4 py-2 rounded-md border border-avito-border text-sm hover:bg-avito-elev">
+          Парсить
+        </button>
+      </div>
+      <div id="parser-preview" class="mt-3">
+        {% if profile %}
+        <div class="bg-avito-elev rounded-md p-3 text-xs text-avito-text-soft space-y-1">
+          {% if profile.parsed_brand %}<div>🏷️ Бренд: <strong class="text-avito-text">{{ profile.parsed_brand }}</strong></div>{% endif %}
+          {% if profile.parsed_model %}<div>📱 Модель: <strong class="text-avito-text">{{ profile.parsed_model }}</strong></div>{% endif %}
+          {% if profile.parsed_category %}<div>📂 Категория: <strong class="text-avito-text">{{ profile.parsed_category }}</strong></div>{% endif %}
+          {% if profile.region_slug %}<div>🌍 Регион: <strong class="text-avito-text">{{ profile.region_slug }}</strong></div>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- Step 2: Name -->
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <label class="block">
+        <span class="text-sm font-semibold text-avito-text mb-1 block">Имя профиля</span>
+        <input type="text" name="name" required
+               value="{{ profile.name if profile else '' }}"
+               placeholder="Например: iPhone 12 Pro Max до 13.5K"
+               class="w-full px-3 py-2 rounded-md border border-avito-border bg-white text-sm focus:border-avito-brand focus:outline-none focus:ring-2 focus:ring-avito-brand-soft">
+      </label>
+    </section>
+
+    <!-- Step 3: Dual price range -->
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-4">
+      <div>
+        <h2 class="text-sm font-semibold text-avito-text">Двойная вилка цен</h2>
+        <p class="text-xs text-avito-text-soft">
+          Alert — что показывать в мессенджере. Search — что грузить в БД для статистики (рекомендуется ±25% от alert).
+        </p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <label>
+          <span class="text-xs text-avito-text-soft">Alert min, ₽</span>
+          <input type="number" name="alert_min_price" min="0"
+                 value="{{ profile.alert_min_price if profile and profile.alert_min_price else '' }}"
+                 class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+        </label>
+        <label>
+          <span class="text-xs text-avito-text-soft">Alert max, ₽</span>
+          <input type="number" name="alert_max_price" min="0"
+                 value="{{ profile.alert_max_price if profile and profile.alert_max_price else '' }}"
+                 class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+        </label>
+        <label>
+          <span class="text-xs text-avito-text-soft">Search min, ₽ <span class="text-avito-text-muted">(auto = alert × 0.75)</span></span>
+          <input type="number" name="search_min_price" min="0"
+                 value="{{ profile.search_min_price if profile and profile.search_min_price else '' }}"
+                 class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+        </label>
+        <label>
+          <span class="text-xs text-avito-text-soft">Search max, ₽ <span class="text-avito-text-muted">(auto = alert × 1.25)</span></span>
+          <input type="number" name="search_max_price" min="0"
+                 value="{{ profile.search_max_price if profile and profile.search_max_price else '' }}"
+                 class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+        </label>
+      </div>
+
+      {% if profile and profile.alert_min_price and profile.alert_max_price %}
+      <div>
+        {{ dual_price_range(
+            profile.search_min_price, profile.search_max_price,
+            profile.alert_min_price,  profile.alert_max_price
+          ) }}
+      </div>
+      {% endif %}
+    </section>
+
+    <!-- Step 4: Overlay (collapsible) -->
+    <details class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <summary class="text-sm font-semibold text-avito-text cursor-pointer">Переопределения URL (overlay)</summary>
+      <div class="mt-3 space-y-3">
+        <p class="text-xs text-avito-text-soft">
+          Параметры, которые накладываются на исходный URL перед каждым прогоном (ADR-002).
+        </p>
+        <div class="grid grid-cols-2 gap-3">
+          <label>
+            <span class="text-xs text-avito-text-soft">Регион (slug)</span>
+            <input type="text" name="region_slug" list="regions"
+                   value="{{ profile.region_slug if profile else '' }}"
+                   placeholder="moskva"
+                   class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
+            <datalist id="regions">
+              {% for r in regions %}<option value="{{ r.slug }}">{{ r.name }}</option>{% endfor %}
+            </datalist>
+          </label>
+          <label>
+            <span class="text-xs text-avito-text-soft">Сортировка (s=)</span>
+            <select name="sort"
+                    class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
+              <option value="">Не задана</option>
+              <option value="104" {% if profile and profile.sort == 104 %}selected{% endif %}>По дате (новые сначала)</option>
+              <option value="1"   {% if profile and profile.sort == 1   %}selected{% endif %}>По цене ↑</option>
+              <option value="2"   {% if profile and profile.sort == 2   %}selected{% endif %}>По цене ↓</option>
+            </select>
+          </label>
+        </div>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="only_with_delivery" value="true"
+                 {% if profile and profile.only_with_delivery %}checked{% endif %}
+                 class="rounded">
+          <span>Только с Авито-доставкой</span>
+        </label>
+      </div>
+    </details>
+
+    <!-- Step 5: LLM criteria -->
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-4">
+      <h2 class="text-sm font-semibold text-avito-text">LLM-критерии и фильтр состояния</h2>
+
+      <div>
+        <span class="text-xs text-avito-text-soft mb-2 block">Допустимые состояния (попадают в alert):</span>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+          {% for code, label in [
+              ('working', 'Рабочий'),
+              ('blocked_icloud', 'iCloud-блок'),
+              ('blocked_account', 'Блок аккаунт'),
+              ('not_starting', 'Не включается'),
+              ('broken_screen', 'Разбит экран'),
+              ('broken_other', 'Поломка'),
+              ('parts_only', 'На запчасти'),
+              ('unknown', 'Неизвестно'),
+            ] %}
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="allowed_conditions" value="{{ code }}"
+                   {% if (profile and code in (profile.allowed_conditions or [])) or (not profile and code == 'working') %}checked{% endif %}
+                   class="rounded">
+            <span>{{ label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <label>
+        <span class="text-xs text-avito-text-soft mb-1 block">Произвольные критерии (естественный язык)</span>
+        <textarea name="custom_criteria" rows="3"
+                  placeholder="Аккумулятор не ниже 85%, без серьёзных царапин, не реплика..."
+                  class="w-full px-3 py-2 rounded-md border border-avito-border bg-white text-sm">{{ profile.custom_criteria if profile else '' }}</textarea>
+      </label>
+
+      <label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="analyze_photos" value="true"
+               {% if profile and profile.analyze_photos %}checked{% endif %}
+               class="rounded">
+        <span>Анализировать фото объявления (visual LLM)</span>
+      </label>
+    </section>
+
+    <!-- Step 6: Schedule -->
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-3">
+      <h2 class="text-sm font-semibold text-avito-text">Расписание</h2>
+      <label>
+        <span class="text-xs text-avito-text-soft mb-1 block">Интервал опроса</span>
+        <select name="poll_interval_minutes"
+                class="px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
+          {% for v in [2, 5, 10, 15, 30, 60] %}
+          <option value="{{ v }}" {% if profile and profile.poll_interval_minutes == v %}selected{% elif not profile and v == 15 %}selected{% endif %}>
+            {{ v }} мин
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="is_active" value="true"
+               {% if not profile or profile.is_active %}checked{% endif %}
+               class="rounded">
+        <span>Активен (опрашивать по расписанию)</span>
+      </label>
+    </section>
+
+    <!-- Step 7: Notifications -->
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-3">
+      <h2 class="text-sm font-semibold text-avito-text">Уведомления</h2>
+      <div class="flex gap-4 text-sm">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="notification_channels" value="telegram"
+                 {% if not profile or 'telegram' in (profile.notification_channels or []) %}checked{% endif %}
+                 class="rounded">
+          <span>Telegram</span>
+        </label>
+        <label class="flex items-center gap-2 opacity-60">
+          <input type="checkbox" name="notification_channels" value="max"
+                 {% if profile and 'max' in (profile.notification_channels or []) %}checked{% endif %}
+                 class="rounded">
+          <span>Max <span class="text-xs text-avito-text-muted">(скоро)</span></span>
+        </label>
+      </div>
+    </section>
+
+    <div class="flex justify-between items-center pt-2">
+      <a href="/search-profiles" class="px-4 py-2 rounded-md text-sm text-avito-text-soft hover:text-avito-text">
+        Отмена
+      </a>
+      <button type="submit"
+              class="px-5 py-2 rounded-md bg-avito-brand text-white text-sm font-medium hover:bg-avito-brand-hover">
+        {{ submit_label | default('Сохранить') }}
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="min-h-screen flex flex-col">
+  <!-- Topbar -->
+  <header class="h-14 bg-avito-surface border-b border-avito-border flex items-center px-6 sticky top-0 z-10">
+    <div class="flex items-center gap-3 flex-1">
+      <a href="/" class="flex items-center gap-2 group">
+        <span class="w-7 h-7 rounded-md bg-avito-brand flex items-center justify-center text-white font-bold text-sm">AM</span>
+        <span class="font-semibold text-avito-text">Avito Monitor</span>
+        <span class="ml-1 text-xs px-2 py-0.5 rounded-full bg-avito-brand-soft text-[#5A8C00] font-medium">V1.2</span>
+      </a>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-avito-text-soft hidden md:inline">Система:
+        <span class="text-avito-positive font-medium">●&nbsp;ON</span>
+      </span>
+      <span class="text-sm text-avito-text">{{ current_user.username if current_user else '' }}</span>
+      <form method="post" action="/logout" class="inline">
+        <button type="submit" class="text-xs text-avito-text-soft hover:text-avito-text px-2">Выйти</button>
+      </form>
+    </div>
+  </header>
+
+  <div class="flex flex-1">
+    <!-- Sidebar -->
+    <aside class="w-60 bg-avito-bg border-r border-avito-border flex-shrink-0">
+      <nav class="p-3 space-y-1">
+        {% set _items = [
+            ('dashboard', '/',                  '📊', 'Дашборд',           None),
+            ('profiles',  '/search-profiles',   '🎯', 'Профили поиска',    sidebar_profiles_count),
+            ('listings',  '/listings',          '📦', 'Лоты',              sidebar_listings_count),
+            ('prices',    '/price-intelligence','💰', 'Ценовая разведка',  None),
+            ('logs',      '/logs',              '📜', 'Логи',              None),
+            ('settings',  '/settings',          '⚙️',  'Настройки',         None),
+        ] %}
+        {% for key, href, icon, label, badge in _items %}
+        <a href="{{ href }}"
+           class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors
+             {% if active == key %}
+               bg-avito-brand-soft text-[#5A8C00] font-medium border-l-[3px] border-avito-brand pl-[9px]
+             {% else %}
+               text-avito-text hover:bg-avito-elev
+             {% endif %}">
+          <span class="text-base leading-none">{{ icon }}</span>
+          <span class="flex-1">{{ label }}</span>
+          {% if badge is not none and badge > 0 %}
+          <span class="text-xs bg-avito-brand text-white px-2 py-0.5 rounded-full tabular-nums">{{ badge }}</span>
+          {% endif %}
+        </a>
+        {% endfor %}
+      </nav>
+
+      <div class="px-5 pt-4 pb-6 mt-2 text-[11px] text-avito-text-soft border-t border-avito-border-soft space-y-1">
+        <div>LLM расход / 24ч: <span class="font-medium tabular-nums text-avito-text">$0.00</span></div>
+        <div>Профилей активно: <span class="font-medium tabular-nums text-avito-text">{{ sidebar_active_profiles or 0 }}</span></div>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="flex-1 p-6 max-w-[1400px]">
+      {% block page_content %}{% endblock %}
+    </main>
+  </div>
+</div>
+{% endblock %}

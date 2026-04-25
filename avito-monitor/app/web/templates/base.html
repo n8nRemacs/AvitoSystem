@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Avito Monitor{% endblock %}</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css">
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'avito-bg':         '#F2F1EE',
+              'avito-surface':    '#FFFFFF',
+              'avito-elev':       '#FAFAF7',
+              'avito-border':     '#E1E4E8',
+              'avito-border-soft':'#ECEEF1',
+              'avito-text':       '#1B1F26',
+              'avito-text-soft':  '#5C6878',
+              'avito-text-muted': '#8C95A1',
+              'avito-brand':      '#97CF26',
+              'avito-brand-hover':'#7FB418',
+              'avito-brand-soft': '#EFFAD4',
+              'avito-positive':   '#2EBF5C',
+              'avito-negative':   '#DC3545',
+              'avito-warning':    '#FFB900',
+              'avito-info':       '#1989C5',
+              'avito-purple':     '#9966CC',
+            },
+            fontFamily: {
+              sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+            },
+          },
+        },
+      };
+    </script>
+
+    <style>
+      /* Avito-Cosplay theme overrides on top of DaisyUI's `light` theme.
+         Tokens mirror DOCS/UI_DESIGN_SPEC_V1.md §6.2 and AvitoSystemUI/styles.css .theme-avito */
+      :root {
+        --avito-bg:          #F2F1EE;
+        --avito-surface:     #FFFFFF;
+        --avito-elev:        #FAFAF7;
+        --avito-border:      #E1E4E8;
+        --avito-border-soft: #ECEEF1;
+        --avito-text:        #1B1F26;
+        --avito-text-soft:   #5C6878;
+        --avito-text-muted:  #8C95A1;
+        --avito-brand:       #97CF26;
+        --avito-brand-hover: #7FB418;
+        --avito-brand-soft:  #EFFAD4;
+        --avito-positive:    #2EBF5C;
+        --avito-negative:    #DC3545;
+        --avito-warning:     #FFB900;
+        --avito-info:        #1989C5;
+      }
+
+      /* DaisyUI theme variable overrides (HSL space-separated, no commas) */
+      [data-theme="light"] {
+        --p:   84 67% 48%;   /* primary    -> avito-brand   #97CF26 */
+        --pc:  0 0% 100%;    /* primary-content -> white */
+        --s:   200 76% 43%;  /* secondary  -> avito-info    #1989C5 */
+        --sc:  0 0% 100%;
+        --a:   84 67% 48%;   /* accent     -> avito-brand */
+        --ac:  0 0% 100%;
+        --n:   217 19% 13%;  /* neutral    -> avito-text    #1B1F26 */
+        --nc:  0 0% 100%;
+        --b1:  0 0% 100%;    /* base-100   -> avito-surface #FFFFFF (cards) */
+        --b2:  40 11% 94%;   /* base-200   -> avito-bg      #F2F1EE (page) */
+        --b3:  213 11% 91%;  /* base-300   -> avito-border  #E1E4E8 */
+        --bc:  217 19% 13%;  /* base-content -> avito-text  #1B1F26 */
+        --su:  137 60% 47%;  /* success    -> avito-positive #2EBF5C */
+        --suc: 0 0% 100%;
+        --er:  354 70% 54%;  /* error      -> avito-negative #DC3545 */
+        --erc: 0 0% 100%;
+        --wa:  43 100% 50%;  /* warning    -> avito-warning #FFB900 */
+        --wac: 217 19% 13%;
+        --in:  200 76% 43%;  /* info       -> avito-info    #1989C5 */
+        --inc: 0 0% 100%;
+        --rounded-box: 0.5rem;
+        --rounded-btn: 0.375rem;
+        color-scheme: light;
+      }
+
+      html, body {
+        background: var(--avito-bg);
+        color: var(--avito-text);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      /* Tabular numerals everywhere prices/metrics are shown */
+      .am-num, .stat-value, .badge, .price-tag {
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+
+    <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+</head>
+<body class="min-h-screen">
+{% block body %}{% endblock %}
+</body>
+</html>

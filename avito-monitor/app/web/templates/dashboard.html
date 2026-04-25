@@ -1,0 +1,82 @@
+{% extends "_layout.html" %}
+{% from "_macros.html" import dual_price_range, status_dot, kpi_card %}
+
+{% block title %}Дашборд — Avito Monitor{% endblock %}
+
+{% block page_content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-avito-text">Дашборд</h1>
+    <p class="text-sm text-avito-text-soft">Сводка по активным мониторингам</p>
+  </div>
+  <a href="/search-profiles/new"
+     class="px-4 py-2 rounded-md bg-avito-brand text-white text-sm font-medium hover:bg-avito-brand-hover">
+    + Новый профиль
+  </a>
+</div>
+
+<!-- KPI strip -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ kpi_card('Активных профилей', sidebar_active_profiles, sub='из ' ~ sidebar_profiles_count) }}
+  {{ kpi_card('Лотов за 24ч', '0', sub='Блок 4') }}
+  {{ kpi_card('В alert-зоне', '0', sub='Блок 4') }}
+  {{ kpi_card('LLM расход / 24ч', '$0.00', sub='Блок 3') }}
+</div>
+
+<!-- Active profiles -->
+<section class="bg-avito-surface rounded-lg border border-avito-border p-5 mb-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-base font-semibold text-avito-text">Профили</h2>
+    <a href="/search-profiles" class="text-xs text-avito-brand-hover hover:underline">→ Все профили</a>
+  </div>
+
+  {% if not profiles %}
+    <div class="text-center py-8">
+      <div class="text-3xl mb-2">🎯</div>
+      <p class="text-avito-text-soft mb-4">Пока нет ни одного профиля.</p>
+      <a href="/search-profiles/new"
+         class="inline-block px-4 py-2 rounded-md bg-avito-brand text-white text-sm font-medium hover:bg-avito-brand-hover">
+        Создать первый профиль
+      </a>
+    </div>
+  {% else %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      {% for p in profiles[:6] %}
+      <a href="/search-profiles/{{ p.id }}"
+         class="block bg-avito-elev rounded-lg border border-avito-border p-3 hover:border-avito-brand transition-colors">
+        <div class="flex items-start gap-2 mb-2">
+          {{ status_dot(p.is_active) }}
+          <div class="text-sm font-medium text-avito-text truncate flex-1">{{ p.name }}</div>
+        </div>
+        <div class="text-[11px] text-avito-text-soft mb-2 truncate">
+          {{ p.parsed_brand or '—' }}
+          {% if p.parsed_model %}/ {{ p.parsed_model }}{% endif %}
+          · {{ p.poll_interval_minutes }} мин
+        </div>
+        {{ dual_price_range(
+            p.search_min_price, p.search_max_price,
+            p.alert_min_price,  p.alert_max_price,
+            height='h-5'
+          ) }}
+      </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+
+<!-- Market events placeholder + recent listings placeholder -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+    <h2 class="text-base font-semibold text-avito-text mb-3">Последние market-события</h2>
+    <div class="text-sm text-avito-text-soft text-center py-8">
+      Лента появится после Блока 4 (worker pipeline)
+    </div>
+  </section>
+  <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+    <h2 class="text-base font-semibold text-avito-text mb-3">Лоты в alert-зоне</h2>
+    <div class="text-sm text-avito-text-soft text-center py-8">
+      Список появится после Блока 4
+    </div>
+  </section>
+</div>
+{% endblock %}

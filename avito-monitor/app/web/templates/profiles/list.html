@@ -1,0 +1,108 @@
+{% extends "_layout.html" %}
+{% from "_macros.html" import dual_price_range, status_dot, kpi_card %}
+
+{% block title %}Профили поиска — Avito Monitor{% endblock %}
+
+{% block page_content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-avito-text">Профили поиска</h1>
+    <p class="text-sm text-avito-text-soft">Мониторинг лотов на Avito по сохранённым URL</p>
+  </div>
+  <a href="/search-profiles/new"
+     class="px-4 py-2 rounded-md bg-avito-brand text-white text-sm font-medium hover:bg-avito-brand-hover transition-colors">
+    + Новый профиль
+  </a>
+</div>
+
+{% if not profiles %}
+<div class="bg-avito-surface rounded-lg border border-avito-border p-12 text-center">
+  <div class="text-5xl mb-3">🎯</div>
+  <h2 class="text-lg font-medium text-avito-text mb-2">Пока нет профилей поиска</h2>
+  <p class="text-avito-text-soft mb-5 max-w-md mx-auto">
+    Скопируй URL поиска из веб-Avito (с настроенными фильтрами и ценовой вилкой) и вставь его в форму создания.
+  </p>
+  <a href="/search-profiles/new"
+     class="inline-block px-4 py-2 rounded-md bg-avito-brand text-white text-sm font-medium hover:bg-avito-brand-hover">
+    Создать первый профиль
+  </a>
+</div>
+{% else %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  {% for p in profiles %}
+  <article class="bg-avito-surface rounded-lg border border-avito-border p-5 hover:shadow-md transition-shadow">
+    <header class="flex items-start justify-between gap-3 mb-3">
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2 mb-1">
+          {{ status_dot(p.is_active) }}
+          <a href="/search-profiles/{{ p.id }}"
+             class="text-base font-semibold text-avito-text hover:text-avito-brand-hover truncate">
+            {{ p.name }}
+          </a>
+        </div>
+        <div class="text-xs text-avito-text-soft truncate">
+          {% if p.parsed_brand %}{{ p.parsed_brand }}{% endif %}
+          {% if p.parsed_model %}/ {{ p.parsed_model }}{% endif %}
+          {% if p.parsed_category %}· {{ p.parsed_category }}{% endif %}
+          {% if p.region_slug %}· {{ p.region_slug }}{% endif %}
+        </div>
+      </div>
+      <div class="flex items-center gap-1">
+        <form method="post" action="/search-profiles/{{ p.id }}/toggle" class="inline">
+          <button type="submit"
+                  class="px-2 py-1 text-xs rounded text-avito-text-soft hover:bg-avito-elev"
+                  title="{% if p.is_active %}Поставить на паузу{% else %}Возобновить{% endif %}">
+            {% if p.is_active %}⏸{% else %}▶{% endif %}
+          </button>
+        </form>
+        <a href="/search-profiles/{{ p.id }}"
+           class="px-2 py-1 text-xs rounded text-avito-text-soft hover:bg-avito-elev"
+           title="Редактировать">⚙</a>
+      </div>
+    </header>
+
+    <div class="mb-3">
+      {{ dual_price_range(
+          p.search_min_price, p.search_max_price,
+          p.alert_min_price,  p.alert_max_price
+        ) }}
+    </div>
+
+    <div class="grid grid-cols-3 gap-2 text-center">
+      <div class="bg-avito-elev rounded p-2">
+        <div class="text-[10px] uppercase tracking-wide text-avito-text-soft">Опрос</div>
+        <div class="text-sm font-semibold tabular-nums">{{ p.poll_interval_minutes }} мин</div>
+      </div>
+      <div class="bg-avito-elev rounded p-2">
+        <div class="text-[10px] uppercase tracking-wide text-avito-text-soft">Лоты 24ч</div>
+        <div class="text-sm font-semibold tabular-nums">—</div>
+      </div>
+      <div class="bg-avito-elev rounded p-2">
+        <div class="text-[10px] uppercase tracking-wide text-avito-text-soft">Алерт</div>
+        <div class="text-sm font-semibold tabular-nums">—</div>
+      </div>
+    </div>
+
+    <footer class="mt-3 flex gap-2">
+      <form method="post" action="/search-profiles/{{ p.id }}/run-now" class="flex-1">
+        <button type="submit"
+                class="w-full px-3 py-1.5 text-xs rounded-md border border-avito-border hover:bg-avito-elev">
+          ▶ Запустить
+        </button>
+      </form>
+      <a href="/search-profiles/{{ p.id }}/runs"
+         class="px-3 py-1.5 text-xs rounded-md border border-avito-border hover:bg-avito-elev">
+        История
+      </a>
+    </footer>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if message %}
+<div class="fixed bottom-6 right-6 bg-avito-text text-white px-4 py-2 rounded-md text-sm shadow-lg">
+  {{ message }}
+</div>
+{% endif %}
+{% endblock %}

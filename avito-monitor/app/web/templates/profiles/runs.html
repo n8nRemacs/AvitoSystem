@@ -1,0 +1,60 @@
+{% extends "_layout.html" %}
+{% block title %}История прогонов — Avito Monitor{% endblock %}
+
+{% block page_content %}
+<div class="max-w-4xl">
+  <div class="flex items-center gap-3 mb-6">
+    <a href="/search-profiles" class="text-sm text-avito-text-soft hover:text-avito-text">← К списку</a>
+    <h1 class="text-2xl font-semibold text-avito-text">История прогонов</h1>
+  </div>
+  <div class="text-sm text-avito-text-soft mb-4">
+    Профиль: <strong class="text-avito-text">{{ profile.name }}</strong>
+  </div>
+
+  {% if not runs %}
+  <div class="bg-avito-surface rounded-lg border border-avito-border p-8 text-center">
+    <div class="text-3xl mb-2">📭</div>
+    <p class="text-avito-text-soft">
+      Прогонов пока нет. Воркер будет реализован в Блоке 4 — после этого здесь появится живая лента.
+    </p>
+  </div>
+  {% else %}
+  <div class="bg-avito-surface rounded-lg border border-avito-border overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-avito-elev text-xs uppercase text-avito-text-soft">
+        <tr>
+          <th class="px-4 py-3 text-left">Время</th>
+          <th class="px-4 py-3 text-left">Статус</th>
+          <th class="px-4 py-3 text-right tabular-nums">Лотов</th>
+          <th class="px-4 py-3 text-right tabular-nums">Новых</th>
+          <th class="px-4 py-3 text-right tabular-nums">Alert</th>
+          <th class="px-4 py-3 text-left">Заметка</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-avito-border-soft">
+        {% for r in runs %}
+        <tr class="hover:bg-avito-elev">
+          <td class="px-4 py-3 tabular-nums">{{ r.started_at.strftime('%d.%m %H:%M') }}</td>
+          <td class="px-4 py-3">
+            {% if r.status == 'success' %}
+              <span class="text-avito-positive">✓ success</span>
+            {% elif r.status == 'failed' %}
+              <span class="text-avito-negative">✗ failed</span>
+            {% elif r.status == 'skipped' %}
+              <span class="text-avito-text-muted">↷ skipped</span>
+            {% else %}
+              <span class="text-avito-warning">⟳ running</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ r.listings_seen }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ r.listings_new }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ r.listings_in_alert }}</td>
+          <td class="px-4 py-3 text-xs text-avito-text-soft">{{ r.error_message or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
