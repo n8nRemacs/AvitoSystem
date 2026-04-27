@@ -44,6 +44,28 @@ from app.services.health_checker.scenarios import ScenarioResult
 
 log = structlog.get_logger(__name__)
 
+
+def _local_tz(settings: Settings | None = None) -> ZoneInfo:
+    """Resolve the timezone the user wants alerts rendered in.
+
+    Falls back to UTC if the configured ``timezone`` setting isn't a valid
+    IANA name (so a typo never crashes the alerter).
+    """
+    s = settings or get_settings()
+    try:
+        return ZoneInfo(s.timezone)
+    except Exception:  # pragma: no cover — defensive
+        return ZoneInfo("UTC")
+
+
+def _tz_short_label(tz: ZoneInfo, ref: datetime | None = None) -> str:
+    """Return a short label like 'MSK' or '+04' for the configured timezone."""
+    when = ref or datetime.now(UTC)
+    try:
+        return when.astimezone(tz).strftime("%Z") or str(tz)
+    except Exception:  # pragma: no cover
+        return str(tz)
+
 # In-process sentinel: scenario letter → ts when the fire alert was sent.
 # Used to suppress repeat fires until a recovery passes.
 FIRED_SENTINELS: dict[str, datetime] = {}
@@ -137,8 +159,10 @@ def _format_fire_text(
             if v:
                 reason = str(v)
                 break
+    tz = _local_tz()
+    label = _tz_short_label(tz)
     timestamps = " · ".join(
-        (r.ts.astimezone(UTC).strftime("%H:%M:%S") if r.ts else "?") for r in recent
+        (r.ts.astimezone(tz).strftime("%H:%M:%S") if r.ts else "?") for r in recent
     )
     lines = [
         f"\U0001F6A8 *Сбой проверки* — сценарий `{scenario}`",
@@ -146,14 +170,16 @@ def _format_fire_text(
     ]
     if reason:
         lines.append(f"Причина: `{reason[:300]}`")
-    lines.append(f"Последние {len(recent)} временных меток (UTC): {timestamps}")
+    lines.append(f"Последние {len(recent)} временных меток ({label}): {timestamps}")
     return "\n".join(lines)
 
 
 def _format_recovery_text(scenario: str, latest: HealthCheck) -> str:
     latency = latest.latency_ms if latest and latest.latency_ms is not None else "?"
+    tz = _local_tz()
+    label = _tz_short_label(tz)
     ts = (
-        latest.ts.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        latest.ts.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S " + label)
         if latest and latest.ts
         else "?"
     )
@@ -258,9 +284,13 @@ def build_daily_summary_text(
         ):
             unreachable_events.append((r.scenario, r.ts or end, err[:120]))
 
+    tz = _local_tz()
+    label = _tz_short_label(tz, end)
+    start_local = start.astimezone(tz)
+    end_local = end.astimezone(tz)
     lines = [
         f"\U0001F4CA *Сводка надёжности за {window_hours} ч*",
-        f"_{start.strftime('%Y-%m-%d %H:%M')} → {end.strftime('%Y-%m-%d %H:%M')} UTC_",
+        f"_{start_local.strftime('%Y-%m-%d %H:%M')} → {end_local.strftime('%Y-%m-%d %H:%M')} {label}_",
         "",
         "```",
         f"{'сц':<3} {'всего':>6} {'pass%':>6} {'fail':>5} {'p95мс':>7}",
@@ -285,8 +315,8 @@ def build_daily_summary_text(
         lines.append("")
         lines.append("*События недоступности сервисов:*")
         for scenario, ts, err in unreachable_events[:10]:
-            ts_s = ts.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
-            lines.append(f"- `{scenario}` @ {ts_s} — {err}")
+            ts_s = ts.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
+            lines.append(f"- `{scenario}` @ {ts_s} {label} — {err}")
         if len(unreachable_events) > 10:
             lines.append(f"... и ещё {len(unreachable_events) - 10}")
     else:
