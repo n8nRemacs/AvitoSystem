@@ -37,7 +37,10 @@ log = structlog.get_logger(__name__)
 
 
 POLL_INTERVAL_SEC = 30
-REFRESH_WINDOW_LOWER_SEC = 60
+# Refresh window — we trigger when ttl <= UPPER. There's no lower
+# bound: an already-expired token (ttl < 0) is the same lemon, just
+# more sour. The only fix is still "open Avito so it refreshes" and
+# the cooldown below keeps us from spamming the APK.
 REFRESH_WINDOW_UPPER_SEC = 180
 COOLDOWN_AFTER_REQUEST_SEC = 300  # don't re-issue command for 5 min
 CORRELATION_DELAY_SEC = 90
@@ -151,7 +154,7 @@ async def _tick(client: XapiClient) -> None:
     # Check whether we're in the refresh window and not in cooldown.
     if ttl is None:
         return
-    if not (REFRESH_WINDOW_LOWER_SEC <= ttl <= REFRESH_WINDOW_UPPER_SEC):
+    if ttl > REFRESH_WINDOW_UPPER_SEC:
         return
 
     # Cooldown — don't spam commands.
@@ -178,7 +181,7 @@ async def loop(settings: Settings | None = None) -> None:
     log.info(
         "token_refresh.loop.start",
         poll_interval=POLL_INTERVAL_SEC,
-        refresh_window=(REFRESH_WINDOW_LOWER_SEC, REFRESH_WINDOW_UPPER_SEC),
+        refresh_window_upper=REFRESH_WINDOW_UPPER_SEC,
         cooldown_sec=COOLDOWN_AFTER_REQUEST_SEC,
     )
     while True:
