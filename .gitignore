@@ -7,6 +7,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Claude Code — local overrides (settings.json коммитится для команды)
+.claude/settings.local.json
+
 # Large binaries
 *.apk
 *.so
@@ -16,3 +19,10 @@ Thumbs.db
 avito-farm-agent/apk_work/
 AvitoAll/dex_extract/
 AvitoAll/lib_extract/
+
+# Syncthing tmp/conflict files
+*~syncthing~*
+*.sync-conflict-*
+
+# Local scratch / shell snippets (e.g. accidentally-saved prompt commands)
+claude --dangerously-skip-permissions
