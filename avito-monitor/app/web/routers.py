@@ -386,6 +386,25 @@ async def profile_run_now_web(
     )
 
 
+@router.post("/search-profiles/{profile_id}/delete", response_model=None)
+async def profile_delete_web(
+    profile_id: uuid.UUID,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    profile = await svc.get_profile(session, user.id, profile_id)
+    if profile is None:
+        raise HTTPException(404, "Profile not found")
+    name = profile.name
+    await svc.delete_profile(session, profile)
+    await session.commit()
+    from urllib.parse import quote_plus
+    return RedirectResponse(
+        f"/search-profiles?msg={quote_plus(f'Профиль «{name}» удалён')}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Reliability — V2 Messenger Reliability §2 L5 / Stage 7
 # ---------------------------------------------------------------------------

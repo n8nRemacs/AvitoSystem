@@ -77,6 +77,10 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str | None = None
     telegram_allowed_user_ids: str = ""
+    # Optional HTTP/SOCKS proxy for api.telegram.org (e.g.
+    # ``http://host.docker.internal:10808``). Required from inside RU
+    # where Telegram is blocked at the IP level.
+    telegram_proxy_url: str | None = None
 
     # V2 reliability — Stage 8: Telegram alerts (lite). TZ §6.
     reliability_tg_alert_enabled: bool = True

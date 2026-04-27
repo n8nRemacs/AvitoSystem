@@ -241,5 +241,26 @@
       </button>
     </div>
   </form>
+
+  {% if profile %}
+  <div class="mt-8 pt-6 border-t border-avito-border-soft">
+    <h3 class="text-sm font-semibold text-avito-negative mb-2">Опасная зона</h3>
+    <div class="flex items-center justify-between gap-4 bg-red-50 border border-red-200 rounded-md p-4">
+      <div class="text-sm text-avito-text">
+        <div class="font-medium">Удалить профиль «{{ profile.name }}»</div>
+        <div class="text-xs text-avito-text-soft mt-1">
+          Лоты и история останутся в БД, но привязка к профилю будет разорвана.
+        </div>
+      </div>
+      <form method="post" action="/search-profiles/{{ profile.id }}/delete"
+            onsubmit="return confirm('Удалить профиль «{{ profile.name }}» окончательно?')">
+        <button type="submit"
+                class="px-4 py-2 rounded-md bg-white border border-avito-negative text-avito-negative text-sm font-medium hover:bg-avito-negative hover:text-white">
+          Удалить
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

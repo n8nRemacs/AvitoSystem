@@ -14,6 +14,7 @@ import logging
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import (
     TelegramAPIError,
     TelegramNetworkError,
@@ -70,10 +71,25 @@ class TelegramProvider(MessengerProvider):
         self._bot = bot
 
     @classmethod
-    def from_token(cls, token: str) -> "TelegramProvider":
+    def from_token(
+        cls, token: str, *, proxy_url: str | None = None
+    ) -> "TelegramProvider":
+        session = None
+        if proxy_url:
+            try:
+                session = AiohttpSession(proxy=proxy_url)
+            except RuntimeError as exc:
+                # aiogram raises when aiohttp_socks is missing. We log
+                # and fall back to a direct connection — better to fail
+                # at send time than restart-loop the whole service.
+                log.warning(
+                    "telegram.proxy_unavailable url=%s err=%s — falling back to direct",
+                    proxy_url, exc,
+                )
         bot = Bot(
             token=token,
             default=DefaultBotProperties(parse_mode="Markdown"),
+            session=session,
         )
         return cls(bot=bot)
 

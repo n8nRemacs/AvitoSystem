@@ -58,6 +58,12 @@
         <a href="/search-profiles/{{ p.id }}"
            class="px-2 py-1 text-xs rounded text-avito-text-soft hover:bg-avito-elev"
            title="Редактировать">⚙</a>
+        <form method="post" action="/search-profiles/{{ p.id }}/delete" class="inline"
+              onsubmit="return confirm('Удалить профиль «{{ p.name }}»? Все связанные лоты и история останутся, но связь с профилем будет разорвана.')">
+          <button type="submit"
+                  class="px-2 py-1 text-xs rounded text-avito-text-soft hover:bg-red-50 hover:text-avito-negative"
+                  title="Удалить профиль">🗑</button>
+        </form>
       </div>
     </header>
 

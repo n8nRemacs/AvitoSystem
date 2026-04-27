@@ -38,6 +38,7 @@ from app.db.models.enums import (
     NotificationType,
     ProcessingStatus,
 )
+from app.integrations.avito_mcp_client.client import AvitoMcpClient
 from app.integrations.openrouter import OpenRouterClient
 from app.services.llm_analyzer import LLMAnalyzer
 from app.services.llm_budget import LLMBudgetExceeded, assert_budget
@@ -167,6 +168,35 @@ async def analyze_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
         in_alert = bool(link and link.in_alert_zone)
 
     detail = _listing_to_detail(listing)
+
+    # The polling step only persists what's in the search results — title,
+    # price, region, images. The actual ad description and parameters live
+    # on the per-item detail page, so we fetch it here on the first
+    # classify (when description is empty) and write it back to the row
+    # so subsequent ops (match, compare-to-reference) and the listing
+    # detail view see the full text.
+    if not (detail.description or "").strip():
+        try:
+            async with AvitoMcpClient() as mcp:
+                fresh = await mcp.get_listing(int(listing.avito_id))
+        except Exception:
+            log.exception(
+                "analysis.fetch_detail_failed listing=%s avito_id=%s",
+                listing_id, listing.avito_id,
+            )
+        else:
+            detail = fresh
+            async with sessionmaker() as session:
+                await session.execute(
+                    update(Listing)
+                    .where(Listing.id == lid)
+                    .values(
+                        description=fresh.description,
+                        parameters=fresh.parameters or {},
+                    )
+                )
+                await session.commit()
+
     analyzer = _build_analyzer()
     classification = await analyzer.classify_condition(
         detail, model=profile.llm_classify_model or None

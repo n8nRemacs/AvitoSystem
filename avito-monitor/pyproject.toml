@@ -22,6 +22,7 @@ dependencies = [
     "taskiq>=0.11",
     "taskiq-redis>=1.0",
     "aiogram>=3.13",
+    "aiohttp-socks>=0.10",  # required by aiogram when TELEGRAM_PROXY_URL is set
     "mcp>=1.0",
     "starlette>=0.41",
     "openai>=1.50",

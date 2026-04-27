@@ -25,7 +25,8 @@ def _telegram_provider(settings: Settings) -> TelegramProvider:
                         "TelegramProvider",
                         transient=False,
                     )
-                _telegram = TelegramProvider.from_token(token)
+                proxy = (settings.telegram_proxy_url or "").strip() or None
+                _telegram = TelegramProvider.from_token(token, proxy_url=proxy)
     return _telegram
 
 

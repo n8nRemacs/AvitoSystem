@@ -11,6 +11,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 
 from app.config import get_settings
 from app.integrations.telegram.callbacks import router as callback_router
@@ -23,10 +24,24 @@ from app.integrations.telegram.middleware import (
 log = logging.getLogger(__name__)
 
 
-def build_bot(token: str) -> Bot:
+def build_bot(token: str, *, proxy_url: str | None = None) -> Bot:
+    """Construct the long-polling Bot. ``proxy_url`` is wired in for
+    deployments where api.telegram.org is IP-blocked (RU). Falls back to
+    a direct connection if aiohttp_socks isn't available — long-polling
+    just won't work in that case but the service stays up."""
+    session = None
+    if proxy_url:
+        try:
+            session = AiohttpSession(proxy=proxy_url)
+        except RuntimeError as exc:
+            log.warning(
+                "bot.proxy_unavailable url=%s err=%s — falling back to direct",
+                proxy_url, exc,
+            )
     return Bot(
         token=token,
         default=DefaultBotProperties(parse_mode="Markdown"),
+        session=session,
     )
 
 
@@ -59,7 +74,8 @@ async def run() -> None:
         while True:
             await asyncio.sleep(3600)
 
-    bot = build_bot(token)
+    proxy = (settings.telegram_proxy_url or "").strip() or None
+    bot = build_bot(token, proxy_url=proxy)
     dp = build_dispatcher(settings.telegram_allowed_user_ids)
     log.info("bot.starting username-fetch")
     me = await bot.get_me()

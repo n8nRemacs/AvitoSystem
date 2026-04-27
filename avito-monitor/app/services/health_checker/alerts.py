@@ -110,7 +110,11 @@ async def send_alert(
     }
 
     own_client = client is None
-    http = client or httpx.AsyncClient(timeout=10.0)
+    if client is None:
+        proxy = (s.telegram_proxy_url or "").strip() or None
+        http = httpx.AsyncClient(timeout=10.0, proxy=proxy)
+    else:
+        http = client
     try:
         resp = await http.post(url, json=payload)
         if resp.status_code >= 400:
