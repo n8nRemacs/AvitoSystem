@@ -13,6 +13,7 @@ import com.avitobridge.data.AvitoSessionReader
 import com.avitobridge.data.ServerApi
 import com.avitobridge.data.SessionData
 import com.avitobridge.ui.MainActivity
+import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -401,23 +402,53 @@ class SessionMonitorService : Service() {
     }
 
     /**
-     * Launch Avito app to trigger token refresh
+     * Launch Avito app to trigger token refresh.
+     *
+     * Android 10+ silently blocks startActivity() from a background service,
+     * so a plain Intent launch is unreliable when the user is in another app
+     * or the device is locked — exactly the cases where the token goes stale.
+     *
+     * Since the device is rooted (we already use libsu to read Avito's
+     * SharedPrefs), we shell out to ``monkey`` as root, which is exempt from
+     * the background-activity-start restriction. ``monkey`` resolves the
+     * package's launcher activity itself, so we don't have to hard-code
+     * com.avito.android's main Activity name (which would break across app
+     * updates).
+     *
+     * Fallback path uses the original startActivity() so the feature still
+     * works on a non-rooted device with the user actively using the phone.
      */
     private fun launchAvito() {
-        try {
-            Log.i(TAG, "Launching Avito app...")
-            updateNotification("Launching Avito to refresh token...")
+        Log.i(TAG, "Launching Avito app...")
+        updateNotification("Launching Avito to refresh token...")
 
+        // Preferred: root-based launch via monkey — works from background.
+        try {
+            val result = Shell.cmd(
+                "monkey -p com.avito.android -c android.intent.category.LAUNCHER 1"
+            ).exec()
+            if (result.isSuccess) {
+                Log.i(TAG, "Avito launched via root (monkey)")
+                return
+            }
+            Log.w(TAG, "monkey launch failed: out=${result.out.take(2)} err=${result.err.take(2)}")
+        } catch (e: Exception) {
+            Log.w(TAG, "monkey launch threw — falling back to Intent", e)
+        }
+
+        // Fallback: Intent — only works on Android 10+ when the app
+        // happens to be foreground or has a recently-clicked notification.
+        try {
             val launchIntent = packageManager.getLaunchIntentForPackage("com.avito.android")
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(launchIntent)
-                Log.i(TAG, "Avito launched successfully")
+                Log.i(TAG, "Avito launched via Intent (fallback)")
             } else {
                 Log.e(TAG, "Could not get launch intent for Avito")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch Avito", e)
+            Log.e(TAG, "Failed to launch Avito via Intent fallback", e)
         }
     }
 }
