@@ -1,8 +1,8 @@
 # CONTINUE — Быстрый рестарт сессии V1
 
-> **Если ты — Claude и видишь этот файл первым:** ты подхватываешь работу над V1 системы мониторинга Avito. Прочитай этот файл целиком, потом проверь сервисы по разделу 2, потом выбери действие из раздела 4. Детали по конкретному блоку — в `DOCS/V1_BLOCKS_TZ.md` §4.
+> **Если ты — Claude в новой сессии:** прочитай этот файл целиком, потом проверь сервисы по §2, потом выбери действие из §4. Детали по конкретному блоку — в `DOCS/V1_BLOCKS_TZ.md` §4.
 >
-> **Если ты — пользователь:** просто скопируй этот файл целиком в новую сессию Claude Code, и работа продолжится.
+> **Если ты — пользователь:** скопируй этот файл в новую сессию Claude Code, и работа продолжится.
 
 ---
 
@@ -10,278 +10,211 @@
 
 **Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito + ценовой разведки. Single-user, homelab-deploy, Avito-Cosplay UI.
 
-**Дата последнего обновления:** 2026-04-27 (Block 6 closed + server-driven token refresh).
+**Дата последнего обновления:** 2026-04-27 (Block 6 closed + server-driven token refresh deployed).
 
 ### Готово (закоммичено в git)
 
-| Блок | Что | Коммит |
+| Этап | Что | Коммит |
 |---|---|---|
-| Block 0 + UI spec + Block 2 | каркас FastAPI + auth + 8 моделей + URL-парсер + sidebar+topbar + 3 demo-профиля | `0c2be7f` |
-| docs (V1_BLOCKS_TZ) | per-block self-contained TZ + parallelization matrix | `251d78d` |
-| docs (CONTINUE) | этот файл | `cce9d85` |
-| chore (cleanup) | gitignore hygiene + .claude/settings.json (SessionStart preflight) | `e934812` |
-| docs (project map) | CLAUDE.md по всему репо + V1/V2 specs | `22b86f5` |
-| **V2.0 reliability** | health-checker (9 сценариев A–I), activity-simulator, messenger-bot autoreply (Phase A с xapi-fallback) | `e179e5f` |
-| **V2.1 notification interception** | xapi `/notifications` + APK NotificationListener service + bot UI cards + миграция 005 | `9dc8a70` |
-| **V1 Block 1 (avito-mcp)** | scaffold с 4 MCP-tools (search/listing/listing_images/health), HTTP+SSE transport с Bearer-auth, /healthz, docker-compose сервис | `a8097e2` |
-| import: pre-existing subsystems | AvitoBayer, AvitoSystemUI, avito-mcp-homelab, tenant-auth/scripts | `a73c2f6` |
-| **V1 Block 3 (LLM Analyzer)** | OpenRouter wrapper + 3 prompts (classify/match/compare) + LLMAnalyzer.{classify_condition, match_criteria, compare_to_reference} с DB-кешем по `cache_key`, LLMBudget с 24h sum + LLMBudgetExceeded, scripts/test_llm.py CLI smoke | `~Block-3 commit` |
-| **V1 Block 4.1 (worker core)** | TaskIQ broker (Redis) + scheduler (минутный тик) + `poll_profile` (upsert listings/profile_listings, disappear-detection, price-change), worker+scheduler контейнеры | `9786e72` |
-| **V1 Block 4.2 (LLM dispatch + Gemini default)** | `analyze_listing` (stage-1 classify) + `match_listing` (stage-2 + Notification создание), polling enqueue, расширенный pricing catalog (gpt-5/gemini/deepseek/qwen), bench_models.py — **дефолт переключён на `google/gemini-2.5-flash-lite` (~11× дешевле haiku при 100% accuracy на 8 mock-листингах)** | `92f09ff` |
-| chore (timezone) | health-checker alerts рендерятся в `Europe/Astrakhan` вместо UTC | `46a4250` |
-| **V1 Block 4.3 (analytics + cleanup + notifications stub)** | `compute_market_stats` (median/p25/p75/working_share/condition_distribution + триггеры `market_trend_*`/`supply_surge`/`condition_mix_change`, daily 00:05 UTC tick) + `cleanup_old_listings` (ADR-009 retention 30/90/∞, daily 03:30 UTC) + `send_notification` stub с `dispatch_pending` каждые 2 мин. **Block 4 closed.** | `a291050` |
-| **V1 Block 5 (Telegram bot + pluggable messenger)** | `MessengerProvider` Protocol + `TelegramProvider` (aiogram 3) + `MaxProvider` stub + factory; 9 Jinja2 шаблонов в `app/prompts/messenger/`; long-polling бот с командами `/start /help /status /pause /resume /silent /profiles` + WhitelistMiddleware; inline-кнопки (Просмотрено/Скрыть/Скрыть продавца/Повторный LLM/Применить вилку/Игнорировать); `runtime_state` (system_paused + silent_until через `system_settings`); `send_notification` теперь реально шлёт через провайдер с retry/backoff и silent-gate. Smoke: `/start` отвечает, market_trend_down dispatch → TG message_id=16 → status=sent. | `1ae2f03` |
-| **V1 Block 6 (Profile Stats — Chart.js)** | `/search-profiles/{id}/stats` с 4 виджетами (line-chart медианы 30д с alert-band пунктиром, stacked histogram текущих цен по working/broken/iCloud/parts, donut condition-distribution, лента market-событий) + KPI-row + heuristic recommended alert-band (p10/p50 working) + placeholder когда < 7 дней истории и нет current snapshot. Сервис `profile_stats.py` (read-only view), Chart.js inline через CDN, кнопка 📊 в карточке профиля. | `e08365e` |
-| **V1+V2.1 server-driven token refresh** | Новая таблица `avito_device_commands` (миграция `006`) + 3 эндпоинта в xapi (`GET /api/v1/devices/me/commands?wait=60` long-poll, `POST .../{id}/ack`, admin `POST .../commands` с dedup window). APK получает команды через `commandPollJob` + refresh state-machine (root `monkey` → `input swipe` loop → re-read SharedPrefs → `am force-stop` → sync → ack). Health-checker `token_refresher.py` тикает 30с, при `ttl<=180s` POST'ит refresh_token, через 90с проверяет успех, 3 strikes → TG алерт. Silent_until теперь гейтит **только** листинг-уведомления, системные всегда проходят. Smoke на homelab пройден end-to-end по Server-side. | `b11e465`, `040477a`, fix `~ttl-window` |
+| Pre-V1 | Block 0/1/2/3, V2.0 reliability, V2.1 notification interception | `0c2be7f` … `9dc8a70` |
+| **V1 Block 4** | TaskIQ pipeline (poll → analyze → match → notify) + analytics (median/p25/p75/triggers) + cleanup (ADR-009 retention) + dispatch_pending. **Default LLM = `google/gemini-2.5-flash-lite`** (~11× дешевле haiku) | `9786e72`, `92f09ff`, `46a4250`, `a291050` |
+| **V1 Block 5** | aiogram Telegram bot + pluggable `MessengerProvider` (Telegram + Max stub) + 9 Jinja2 шаблонов + WhitelistMiddleware + inline-кнопки + `runtime_state` (system_paused / silent_until). `silent_until` гейтит **только** листинг-уведомления; системные алерты идут всегда | `1ae2f03` |
+| **V1 Block 6** | `/search-profiles/{id}/stats` — 4 виджета на Chart.js (line/donut/histogram/events) + KPI-row + recommended alert-band + placeholder | `e08365e` |
+| **Server-driven token refresh** | таблица `avito_device_commands` (миграция `006`) + 3 эндпоинта в xapi (long-poll GET, ack POST, admin insert POST с dedup) + APK `commandPollJob` + refresh state-machine (root `monkey` → `input swipe` → re-read SharedPrefs → `am force-stop` → sync → ack) + health-checker `token_refresher.py` (тик 30с, окно `ttl<=180s`, 3 strikes → TG алерт). **Baseline берётся из server-supplied `payload.prev_exp`**, не из self-read SharedPrefs | `b11e465`, `040477a`, `dd5a29d` |
+| Homelab compose overlays | `avito-monitor/docker-compose.homelab.yml` + `avito-xapi/docker-compose.homelab.yml` (apparmor=unconfined + bind-mount `./src` + `--reload`; ports remap для конфликта с supabase-kong/avito-xapi/avito-mcp-homelab) | `37f34c7`, `6a07b1f` |
 
-### В работе / следующий шаг
+### Что задеплоено на homelab прямо сейчас
 
-**Что задеплоено на homelab прямо сейчас:**
-- APK `com.avitobridge.sessionmanager` установлен на OnePlus 8T (`110139ce`), serverUrl=`http://213.108.170.194:8080`, api_key=`test_dev_key_123`. SessionMonitorService running.
-- xapi на homelab бежит с `docker-compose.homelab.yml` overlay (apparmor=unconfined + bind-mount `./src` + `--reload` — нет rebuild на хосте).
-- avito-monitor health-checker: `token_refresher.py` тикает 30с; baseline берёт из server-supplied `payload.prev_exp` (фикс `dd5a29d`).
-- avito_device_commands таблица создана в self-hosted Supabase, миграция `006` применена.
-- Текущая Avito-сессия свежая: `ttl ≈ 23h`. Token-refresh-loop спит до завтра.
+| Сервис | Где | Статус |
+|---|---|---|
+| avito-monitor app | `213.108.170.194:8088` (через ssh-tunnel `localhost:8088`) | Up |
+| avito-monitor db / redis / avito-mcp / worker / scheduler / telegram-bot | docker compose, `host.docker.internal:8080` → xapi | Up |
+| avito-monitor health-checker | `token_refresher.py` тикает 30с | Up |
+| xapi | `213.108.170.194:8080` (внешне доступен) | Up, bind-mount `./src` |
+| Supabase self-hosted | `213.108.170.194:8000` (Studio) / `:5433` (db direct) | Миграция `006` применена |
+| AvitoSessionManager APK | OnePlus 8T (`110139ce`), serverUrl=`http://213.108.170.194:8080`, api_key=`test_dev_key_123` | SessionMonitorService running |
+| Telegram bot | `@Avitisystem_bot`, whitelist `id=6416413182` | Long-poll active |
+| Avito session | `ttl ≈ 23h` (свежий, refresh-loop спит) | Healthy |
 
-**Завтрашняя проверка (≈ 2026-04-28 14:00 UTC):**
-- Когда `ttl ≤ 180s`, health-checker создаст `refresh_token` команду с `prev_exp=<текущий exp>`.
-- APK long-poll вернёт её (~50ms), откроет Avito (root `monkey`), 90с скроллит, читает SharedPrefs.
-- Bug пофикшен: baseline = `min(server payload.prev_exp, prefs.cachedExpiresAt, fresh self-read)`, плюс альтернативная проверка по сравнению самого JWT-string. Так что Avito-internal-refresh не угонит baseline.
-- Ожидаем: `refreshed=true` → `am force-stop com.avito.android` → POST /sessions с свежим JWT → ack `ok=true`.
-- Если 3 неудачи подряд → TG-алерт «открой Avito вручную».
+**Доступ к UI с локалки:**
+```bash
+ssh -L 8088:127.0.0.1:8088 homelab
+# затем в браузере: http://localhost:8088/login (owner / block0test)
+```
 
-**Block 7 — Price Intelligence (полные market triggers).** ТЗ в `DOCS/V1_BLOCKS_TZ.md` §4 «Block 7».
+---
 
-Кратко:
-- Полная реализация триггеров `historical_low`, `price_drop_listing`, `price_dropped_into_alert` (сейчас в `analytics.py` только `market_trend_*` / `supply_surge` / `condition_mix_change` — minimal версия из Block 4.3).
-- Page `/price-intelligence/{id}` — отчёт по конкурентам через `LLMAnalyzer.compare_to_reference`. Топ-5 дешевле/дороже, рекомендация. Synchronous (не через TaskIQ).
-- Авто-рекомендация alert-вилки → кнопка «Применить» применяет per-profile.
-- Smoothed median (rolling 7d) для устойчивых трендов.
+## 2. Главное ожидание — завтрашний smoke (≈ 2026-04-28 14:00 UTC)
 
-После Block 7:
-- Block 8 (polish + 72h soak)
+Когда Avito-сессия подойдёт к expiry (`ttl ≤ 180s`), полный server-driven refresh-цикл должен сработать сам:
 
-### Operational заметки (важно при рестарте)
+1. `health-checker.token_refresher` тик → видит `ttl ≤ 180`
+2. POST `/api/v1/devices/me/commands` с `payload.prev_exp = <current exp>`
+3. APK long-poll вернёт команду (~50ms latency)
+4. APK: wake → `monkey -p com.avito.android` → 90с скроллит `input swipe` → re-read SharedPrefs
+5. **Bug fixed (`dd5a29d`):** baseline = `min(payload.prev_exp, prefs.cachedExpiresAt, fresh self-read)` + альтернативная проверка по сравнению самого JWT-string. Avito-internal-refresh не угонит baseline.
+6. На diff: `am force-stop com.avito.android` → POST `/sessions` со свежим JWT → `ack ok=true`
+7. Если 3 неудачи подряд (90с correlation × 3 strikes) → TG-алерт «открой Avito вручную»
+
+### Как утром завтра проверить результат
+
+```bash
+# 1. Свежий ack в БД device_commands?
+ssh homelab 'docker exec supabase-db psql -U postgres -d postgres -c \
+  "SELECT id, status, created_at, acked_at, result FROM avito_device_commands \
+   ORDER BY created_at DESC LIMIT 5;"'
+# Ожидаешь: status=done, result.ok=true, result.payload.new_exp > prev_exp
+
+# 2. Сервер видит свежую сессию?
+ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' \
+  http://127.0.0.1:8080/api/v1/sessions/current"
+# Ожидаешь: ttl_human ~ 23h (новый), is_active=true
+
+# 3. APK логи — был ли реальный refresh?
+$ADB="C:\Users\EloNout\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.3.4\adb.exe"
+& $ADB -s 110139ce logcat -d -t 5000 \
+  -s "SessionMonitorService:V" "ServerApi:V" "AvitoSessionReader:V"
+# Ищи: "command received cmd=refresh_token", "Avito launched via root (monkey)",
+#      "notifications.sent" или "no_refresh"
+```
+
+**Если smoke провалился:** проверь TG — должен прилететь алерт. И смотри логи `health-checker` (`docker logs avito-monitor-health-checker-1 | grep token_refresh`) — там видно strikes counter и причину.
+
+---
+
+## 3. Operational заметки
 
 - **TIMEZONE = `Europe/Astrakhan`** (UTC+4). Все health-checker алерты рендерятся в `+04`. Логи и DB всё ещё в UTC.
-- **Default LLM model = `google/gemini-2.5-flash-lite`** для текста и vision (image $0.0001/картинка). Per-profile override через `SearchProfile.llm_classify_model` / `llm_match_model`.
-- **Avito session TTL** регулярно падает к 4ч — health-checker scenario A алертит. Ручной refresh: на телефоне `110139ce` открой AvitoSessionManager → "Sync now". Иначе APK сам пушит когда приближается к 1ч.
-- **Phone setup для V2.1:** на устройстве выставлено `settings put global hidden_api_policy 1` (через root) и `cmd deviceidle whitelist +com.avitobridge.sessionmanager`. Это нужно чтобы NotificationListenerService не замораживался Oplus battery saver.
-- **OPENROUTER_API_KEY** — реальный, в `avito-monitor/.env` (не коммитится). Дневной лимит 10 USD, sum по `llm_analyses.cost_usd` за 24ч.
+- **Default LLM model = `google/gemini-2.5-flash-lite`** (текст + vision, $0.0001/картинка). Per-profile override через `SearchProfile.llm_classify_model` / `llm_match_model`.
+- **OPENROUTER_API_KEY** в `avito-monitor/.env` (не коммитится). Дневной лимит 10 USD, sum по `llm_analyses.cost_usd` за 24ч.
+- **Phone setup для V2.1:** на устройстве `settings put global hidden_api_policy 1` (через root) и `cmd deviceidle whitelist +com.avitobridge.sessionmanager` — иначе NotificationListenerService замораживается Oplus battery saver.
+- **APK build:** `JAVA_HOME=C:\Program Files\Android\Android Studio4\jbr; cd AvitoAll/AvitoSessionManager; .\gradlew.bat assembleDebug`. Install: `adb -s 110139ce install -r app/build/outputs/apk/debug/app-debug.apk`. ADB у юзера лежит в `C:\Users\EloNout\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.3.4\adb.exe`.
+- **Homelab deploy:** обе compose всегда нужно поднимать с homelab.yml override (в `docker-compose.override.yml` symlink уже стоит на homelab.yml). Без него `apparmor` блокирует AF_UNIX socketpair() и asyncio падает.
 
 ### Известные хвосты
 
-- 5 health_checker tests сломаны после Stage 9 (русские строки vs ожидаемые английские, и переименование поля `keepalive_ms` → `second_event_ms`). ~20 мин на починку, **не блокер**.
-- Block 1 query parsing (`avito_fetch_search_page`): для category-only URLs query из brand слишком широкий ("apple" → AirPods + iPhone). Решается в Block 4 (worker) — он передаёт полный URL и xapi пробрасывает category_id. Уже работает достаточно.
+- 5 health_checker tests сломаны после Stage 9 (русские строки vs ожидаемые английские, переименование `keepalive_ms` → `second_event_ms`). ~20 мин на починку, не блокер.
+- Block 1 query parsing (`avito_fetch_search_page`): для category-only URLs query из brand слишком широкий ("apple" → AirPods + iPhone). Worker (Block 4) обходит — передаёт полный URL, xapi пробрасывает category_id.
 
 ---
 
-## 2. Поднять сервисы (Quick Health Check)
+## 4. Что делать дальше
 
-Запускай команды из репо-корня `c:/Projects/Sync/AvitoSystem/`. Если какой-то шаг падает — иди в раздел 3 «Восстановление».
+| Опция | Что | Когда выбрать |
+|---|---|---|
+| **A. Завтрашний smoke** | Утром проверить server-driven refresh по плану §2. Если ОК — закрываем V2.1 хвост окончательно | Просто стартовая задача нового дня |
+| **B. Block 7** — Price Intelligence | Полные триггеры `historical_low` / `price_drop_listing` / `price_dropped_into_alert` (сейчас в `analytics.py` minimal: `market_trend_*` / `supply_surge` / `condition_mix_change`). Page `/price-intelligence/{id}` с `LLMAnalyzer.compare_to_reference`. Recommended alert-band с кнопкой «Применить». Smoothed 7d-rolling median. ~4–6 ч | Не зависит от refresh-теста, можно начать сразу |
+| **C. Block 8** — Polish + 72h soak | Caddy/TLS, Makefile, документация, мониторинг, ручной 72h soak. Финальный блок V1 | После Block 7, нужны ≥ 1 живой профиль |
+| **D. Запустить реальный поллинг** | Активировать iPhone-профиль на 24+ часа, смотреть что прилетит — реальные лоты, классификация, нотификации в TG. Stats-страница наполнится. Параллельно с любым из A/B/C | Если хочешь увидеть систему «вживую» |
 
-### 2.1. SOCKS5-туннель к homelab (нужен для запросов к Avito с зарубежной машины)
+**Рекомендация:** D в фоне + B параллельно. К завтра у тебя живые данные на /stats + Block 7 готов.
 
-```bash
-curl -s --max-time 5 --socks5-hostname 127.0.0.1:1081 https://ifconfig.me
-# Ожидаемый ответ: 213.108.170.194
-```
-
-Если пустой ответ — туннель упал. **Поднять:**
-```bash
-ssh -D 127.0.0.1:1081 -N -f homelab
-```
-
-(SessionStart hook `.claude/settings.json` поднимает его автоматически в начале каждой сессии — обычно делать ничего не надо.)
-
-### 2.2. Docker Desktop
-
-```bash
-docker info >/dev/null 2>&1 && echo "✅ docker up" || echo "❌ docker down"
-```
-
-Если down — запусти Docker Desktop вручную через Windows GUI (или PowerShell):
-```powershell
-Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-# Подожди ~30-60 секунд пока daemon запустится
-```
-
-### 2.3. avito-monitor стек (app + db + redis)
-
-```bash
-cd c:/Projects/Sync/AvitoSystem/avito-monitor
-docker compose ps
-```
-
-Ожидаемый вывод — три контейнера в статусе `Up` / `healthy`:
-```
-avito-monitor-app-1     Up   0.0.0.0:8000->8000/tcp
-avito-monitor-db-1      Up (healthy)   5432/tcp
-avito-monitor-redis-1   Up   6379/tcp
-```
-
-Если контейнеры не запущены:
-```bash
-docker compose up -d
-sleep 5
-docker compose ps
-```
-
-### 2.4. Приложение отвечает
-
-```bash
-curl -s -w "\n%{http_code}\n" http://localhost:8000/health
-# Ожидаемый ответ:
-# {"status":"ok"}
-# 200
-```
-
-### 2.5. Login работает
-
-```bash
-COOKIE=/tmp/c.txt && rm -f $COOKIE
-curl -s -c $COOKIE -o /dev/null --max-redirs 0 \
-  -d "username=owner&password=block0test" \
-  http://localhost:8000/login
-curl -s -b $COOKIE -o /dev/null -w "GET / -> %{http_code}\n" \
-  http://localhost:8000/
-# Ожидаемый ответ:
-# GET / -> 200
-```
-
-Тестовый юзер: `owner / block0test`. Поменять можно через:
-```bash
-docker compose run --rm app python -m scripts.create_admin owner новый_пароль
-```
-
-### 2.6. БД-миграции применены и есть demo-данные
-
-```bash
-curl -s -b $COOKIE -H "Accept: application/json" http://localhost:8000/api/search-profiles | head
-# Ожидаешь: JSON-список из 3-4 профилей
-```
-
-Если 0 профилей — выполни seed:
-```bash
-docker compose run --rm app python -m scripts.seed_demo_data
-```
-
-Если миграции не применились (ошибка `relation does not exist`):
-```bash
-docker compose run --rm app alembic upgrade head
-```
-
-### 2.7. avito-xapi (если уже развёрнут)
-
-```bash
-curl -s -w "\n%{http_code}\n" http://213.108.170.194:8080/health
-# или если xapi локально:
-curl -s -w "\n%{http_code}\n" http://localhost:8080/health
-```
-
-Если 200 — есть xapi. Если timeout/refused — xapi пока не развёрнут (см. раздел 4 P5).
-
----
-
-## 3. Восстановление (если что-то сломалось)
-
-| Симптом | Что делать |
-|---|---|
-| `docker compose ps` — контейнеры в `Restarting` или `Exited` | `docker compose logs --tail=50 app` чтобы понять причину; типичные: пароль БД (значит сменился `.env`), миграции не применены, синтакс-ошибка в новых файлах |
-| Тема dashboard вернулась к dark | Проверь что в `app/web/templates/base.html` `data-theme="light"` (не `dark`) и есть блок CSS variables `[data-theme="light"]` с `--p: 84 67% 48%` |
-| Login 500 | Чаще всего — забытая `await session.commit()` или сломанная сессия. Перезапусти `docker compose restart app` |
-| Алембик ругается на `relation already exists` | Откатить и снова: `docker compose run --rm app alembic downgrade base && alembic upgrade head` (потеряешь данные!) |
-| Порт 8000 занят | Останови другой проект или поменяй mapping в `docker-compose.yml` на 8001:8000 |
-
----
-
-## 4. Что делать дальше — зависит от состояния
-
-### 🅰 Если инфра НЕ готова (OnePlus не рутирован / xapi не развёрнут)
-
-Текущий блокер — Block 1 нельзя запускать без xapi и токена.
-
-**Параллельно можно:**
-- **Block 3 (LLM Analyzer)** — не требует Avito, только OpenRouter API key. См. `DOCS/V1_BLOCKS_TZ.md` §4 «Block 3»
-- **P3** — собрать `AvitoSessionManager.apk` (есть Android Studio JBR? `cd AvitoAll/AvitoSessionManager && gradlew.bat assembleDebug`)
-- **P5** — развернуть avito-xapi на homelab (`ssh homelab; cd /mnt/projects/repos/AvitoSystem/avito-xapi; docker compose up -d xapi`)
-
-### 🅱 Если инфра готова (телефон льёт токен → xapi отвечает на /api/v1/search/items)
-
-Запускай блоки последовательно:
-1. **Block 1** — avito-mcp (тонкая обёртка над xapi)
-2. **Block 3** — LLM Analyzer (если ещё не сделан, можно параллельно с Block 1)
-3. **Block 4** — worker pipeline
-4. **Pre-flight §3** в `DOCS/V1_BLOCKS_TZ.md` (split routers.py)
-5. **Block 5/6/7** — параллельно или последовательно
-6. **Block 8** — deploy + 72h soak
-
-Каждый блок — отдельная сессия. Скопируй секцию «Block N» из `DOCS/V1_BLOCKS_TZ.md` §4 как первое сообщение в новую сессию.
-
-### 🆎 Промпт-стартер для нового блока (универсальный)
+### Промпт-стартер для нового блока
 
 ```
 Проект: c:/Projects/Sync/AvitoSystem/avito-monitor/
+Прочитай: CONTINUE.md (текущий статус) + DOCS/V1_BLOCKS_TZ.md §4 «Block N» (твоё ТЗ).
+Глобальные секреты: c:/Projects/Sync/CLAUDE.md.
 
-Прочитай:
-1. CONTINUE.md в корне (этот файл) — узнаешь текущее состояние
-2. c:/Projects/Sync/CLAUDE.md (глобальные секреты)
-3. DOCS/V1_BLOCKS_TZ.md §0 + §4 «Block N» (твоё ТЗ)
-
-Я хочу запустить Block N. Сначала проверь сервисы по разделу 2 CONTINUE.md.
-Если сервисы up — приступай. Если нет — подними и сообщи мне.
+Я хочу запустить Block N. Сначала проверь сервисы (см. §2 CONTINUE.md). Если что-то не up — подними и сообщи мне.
 ```
-
-Замени `N` на нужный номер блока.
 
 ---
 
-## 5. Где лежат секреты
+## 5. Quick health check
 
-- **Глобальные** (Supabase, JWT, homelab IP, Telegram bot token, etc.): `c:/Projects/Sync/CLAUDE.md` — НЕ в git, локальный
-- **Avito Official API credentials** (для V2): `c:/Projects/Sync/AvitoSystem/.env` — НЕ в git
-- **avito-monitor локальный конфиг:** `c:/Projects/Sync/AvitoSystem/avito-monitor/.env` — gitignored, есть пример в `.env.example`
-- **OpenRouter API key** (нужен с Block 3): добавь в `avito-monitor/.env` строку `OPENROUTER_API_KEY=...`
+Перед стартом любой работы — пробежать.
+
+```bash
+# Туннель к homelab
+curl -s --max-time 5 --socks5-hostname 127.0.0.1:1081 https://ifconfig.me
+# Ожидаешь: 213.108.170.194 (если пусто — `ssh -D 127.0.0.1:1081 -N -f homelab`)
+
+# Homelab стек жив?
+ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && docker compose ps --format "table {{.Service}}\t{{.Status}}"'
+# avito-mcp / app / db (healthy) / redis / scheduler / telegram-bot / worker / health-checker — все Up
+
+# UI открывается? (через SSH tunnel)
+# В отдельном окне: ssh -L 8088:127.0.0.1:8088 homelab
+# Потом: http://localhost:8088/login (owner / block0test)
+
+# avito-xapi жив?
+curl -s -w "\nHTTP %{http_code}\n" http://213.108.170.194:8080/health
+# Ожидаешь: HTTP 200
+
+# Avito-сессия valid?
+ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' http://127.0.0.1:8080/api/v1/sessions/current"
+# Ожидаешь: is_active=true, ttl_seconds > 180
+```
+
+Если что-то падает — логи: `ssh homelab 'docker logs <container> --tail=50'`.
+
+### Восстановление
+
+| Симптом | Что делать |
+|---|---|
+| Контейнер `Restarting` / `Exited` | `docker compose logs --tail=50 <service>`. На homelab — обязательно с homelab.yml overlay (apparmor блокирует asyncio без него) |
+| `avito_monitor` БД пустая на homelab | `docker compose exec -T db psql -h 127.0.0.1 -U avito -d postgres -c 'CREATE DATABASE avito_monitor OWNER avito;' && docker compose exec -T app alembic upgrade head` |
+| Login 500 | Перезапусти `app` (`docker compose restart app`) |
+| Stats `/search-profiles/{id}/stats` пуст | Это placeholder когда `< 7 дней истории И нет current snapshot`. Запусти hand-trigger `compute_market_stats` или дождись поллинга |
+| Token refresh висит в `delivered`, не `done` | Скорее всего APK свернут / процесс убит. Проверь `adb logcat` + что SessionMonitorService running. UPDATE `avito_device_commands SET status='expired'` для cleanup |
+
+---
+
+## 6. Где секреты
+
+- **Глобальные** (Supabase URL/keys, JWT, homelab IP, Telegram bot token): `c:/Projects/Sync/CLAUDE.md` — НЕ в git
+- **avito-monitor локальный конфиг:** `c:/Projects/Sync/AvitoSystem/avito-monitor/.env` — gitignored, пример в `.env.example`
+- **На homelab `.env` отдельный** в `/mnt/projects/repos/AvitoSystem/avito-monitor/.env` (там `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, реальные значения)
+- **xapi homelab:** `SUPABASE_URL=http://213.108.170.194:8000` (self-hosted), `AVITO_XAPI_API_KEY=test_dev_key_123`
+- **APK prefs:** `/data/data/com.avitobridge.sessionmanager/shared_prefs/avito_session_manager.xml` — менять через root (`adb shell su -c`)
 - **Auto-memory** (что Claude помнит про юзера): `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/`
 
 ---
 
-## 6. Полезные команды
+## 7. Полезные команды
 
 ```bash
-# Полная картина состояния
-cd c:/Projects/Sync/AvitoSystem && git log --oneline -10 && echo "---" && \
-  cd avito-monitor && docker compose ps
+# История коммитов V1
+cd c:/Projects/Sync/AvitoSystem && git log --oneline -15
 
-# Логи приложения за последние 5 минут
-cd c:/Projects/Sync/AvitoSystem/avito-monitor && docker compose logs --tail=100 --since=5m app
+# Все логи на homelab
+ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && docker compose logs --tail=100 --since=10m'
 
-# Зайти в контейнер app
-docker compose exec app /bin/bash
+# Avito-сессия в БД (homelab)
+ssh homelab "docker exec supabase-db psql -U postgres -d postgres -c 'SELECT user_id, source, expires_at, is_active FROM avito_sessions ORDER BY created_at DESC LIMIT 5;'"
 
-# Подключение к Postgres из хоста
-docker compose exec db psql -U avito avito_monitor
+# Force-trigger token refresh (для теста, без ждать)
+ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' -H 'Content-Type: application/json' \
+  -d '{\"command\":\"refresh_token\",\"payload\":{\"timeout_sec\":60,\"prev_exp\":0},\"issued_by\":\"manual\"}' \
+  -X POST http://127.0.0.1:8080/api/v1/devices/me/commands"
 
-# Перезапуск только app (после правки кода без --reload)
-docker compose restart app
+# APK logcat фильтр (PowerShell)
+$adb = "C:\Users\EloNout\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.3.4\adb.exe"
+& $adb -s 110139ce logcat -d -t 1000 -s "SessionMonitorService:V" "ServerApi:V"
 
-# Полный рестарт
-docker compose down && docker compose up -d
+# Ручной seed (если БД пуста)
+ssh homelab "cd /mnt/projects/repos/AvitoSystem/avito-monitor && \
+  docker compose exec -T app python -m scripts.create_admin owner block0test && \
+  docker compose exec -T app python -m scripts.seed_demo_data"
 ```
 
 ---
 
-## 7. Где детальная документация
+## 8. Где детальная документация
 
 | Файл | Что |
 |---|---|
-| `DOCS/V1_EXECUTION_PLAN.md` | Высокоуровневый план 9 блоков |
-| `DOCS/V1_BLOCKS_TZ.md` | **Самое важное** — per-block ТЗ для запуска в отдельных сессиях, граф зависимостей, матрица параллелизма |
-| `DOCS/TZ_Avito_Monitor_V1.md` | Главное ТЗ V1.2 — все требования |
-| `DOCS/DECISIONS.md` | 10 ADR (особенно ADR-001 URL-based, ADR-008 двойная вилка, ADR-010 двухступенчатый LLM) |
+| `DOCS/V1_BLOCKS_TZ.md` | **Самое важное** — per-block ТЗ (особенно §4 Block 7/8 ещё актуальны) |
+| `DOCS/TZ_Avito_Monitor_V1.md` | Главное ТЗ V1.2 |
+| `DOCS/DECISIONS.md` | 10 ADR (особенно ADR-001 URL-based, ADR-008 двойная вилка, ADR-010 двухступенчатый LLM, ADR-009 market stats) |
 | `DOCS/UI_DESIGN_SPEC_V1.md` | UI спека: 8 экранов, sample data, style guide |
-| `avito-monitor/README.md` | Quick start avito-monitor |
+| `avito-monitor/docker-compose.homelab.yml` | объяснение почему apparmor=unconfined + ports remap (комментарии в файле) |
+| `avito-xapi/docker-compose.homelab.yml` | объяснение почему bind-mount + reload вместо rebuild |
 
 ---
 
-**TL;DR:** скопируй этот файл в новую сессию → Claude проверит сервисы по §2 → выберет действие по §4. Все детали — в `DOCS/V1_BLOCKS_TZ.md`.
+**TL;DR для следующей сессии:**
+1. §2 проверь утренний smoke (taken `device_commands` → `done`?)
+2. §4 выбери опцию (рекомендую B + D параллельно)
+3. Все детали — в `DOCS/V1_BLOCKS_TZ.md` §4
