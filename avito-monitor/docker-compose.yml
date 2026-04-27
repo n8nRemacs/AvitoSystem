@@ -167,5 +167,58 @@ services:
       - redis
     restart: unless-stopped
 
+  worker:
+    build:
+      context: .
+      target: runtime
+    image: avito-monitor-app:dev
+    command: taskiq worker --workers 2 --max-async-tasks 10 app.tasks.broker:broker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://avito:avito@db:5432/avito_monitor
+      REDIS_URL: redis://redis:6379/0
+      AVITO_XAPI_URL: ${AVITO_XAPI_URL:-http://host.docker.internal:8080}
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY:-test_dev_key_123}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./app:/app/app
+      - ./avito_mcp:/app/avito_mcp
+      - ./shared:/app/shared
+      - ./scripts:/app/scripts
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      target: runtime
+    image: avito-monitor-app:dev
+    command: taskiq scheduler app.tasks.broker:scheduler
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://avito:avito@db:5432/avito_monitor
+      REDIS_URL: redis://redis:6379/0
+      AVITO_XAPI_URL: ${AVITO_XAPI_URL:-http://host.docker.internal:8080}
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY:-test_dev_key_123}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./app:/app/app
+      - ./avito_mcp:/app/avito_mcp
+      - ./shared:/app/shared
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   db_data:
