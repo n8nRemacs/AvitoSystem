@@ -60,8 +60,17 @@ def _reset_state() -> None:
     _state["strikes"] = 0
 
 
-async def _post_refresh_command(client: XapiClient) -> bool:
-    """POST /api/v1/devices/me/commands with command=refresh_token. True on success."""
+async def _post_refresh_command(
+    client: XapiClient, prev_exp: int | None
+) -> bool:
+    """POST /api/v1/devices/me/commands with command=refresh_token. True on success.
+
+    ``prev_exp`` is the JWT exp the server currently sees. The APK
+    treats it as the authoritative baseline for the "did Avito refresh?"
+    check — we hand it down because the APK can't tell whether a fresh
+    Avito SharedPrefs read happens before or after Avito's internal
+    refresh, but the server-side value is always strictly older.
+    """
     res = await client.post(
         "/api/v1/devices/me/commands",
         json_body={
@@ -69,6 +78,7 @@ async def _post_refresh_command(client: XapiClient) -> bool:
             "payload": {
                 "timeout_sec": 90,
                 "scroll_interval_sec": 1.5,
+                "prev_exp": prev_exp,
             },
             "dedup_window_sec": COOLDOWN_AFTER_REQUEST_SEC,
             "expire_after_sec": 180,
@@ -168,7 +178,7 @@ async def _tick(client: XapiClient) -> None:
         ttl_sec=ttl,
         exp_unix=exp_unix,
     )
-    ok = await _post_refresh_command(client)
+    ok = await _post_refresh_command(client, prev_exp=exp_unix)
     if ok:
         _state["last_request_at"] = datetime.now(timezone.utc)
         _state["last_request_prev_exp"] = exp_unix

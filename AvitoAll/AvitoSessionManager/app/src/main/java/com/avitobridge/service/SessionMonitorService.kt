@@ -496,12 +496,24 @@ class SessionMonitorService : Service() {
             return
         }
 
-        val prevSession = try {
+        // Baseline: prefer server-supplied prev_exp (the exp the server
+        // *currently* sees). Reading SharedPrefs ourselves can race with
+        // Avito's own refresh — we may read after Avito has already
+        // updated the file in memory, so a self-read prev_exp can equal
+        // the post-refresh exp and the loop never finds a diff.
+        val payloadPrevExp = (cmd.payload?.get("prev_exp") as? Number)?.toLong() ?: 0L
+        val cachedPrevExp = prefs.cachedExpiresAt
+        val readPrevSession = try {
             sessionReader.readSession()
         } catch (e: Exception) {
             null
         }
-        val prevExp = prevSession?.expiresAt ?: 0L
+        val readPrevExp = readPrevSession?.expiresAt ?: 0L
+        // Pick the *oldest* known exp as baseline. Anything later than
+        // it would mean Avito refreshed.
+        val candidates = listOf(payloadPrevExp, cachedPrevExp, readPrevExp).filter { it > 0L }
+        val prevExp = if (candidates.isEmpty()) 0L else candidates.min()
+        val prevToken = readPrevSession?.sessionToken ?: prefs.cachedSessionToken
 
         // 1. Wake the screen (no-op if already on).
         try {
@@ -551,9 +563,13 @@ class SessionMonitorService : Service() {
             } catch (e: Exception) {
                 null
             }
-            if (session != null && session.expiresAt > prevExp) {
-                newExp = session.expiresAt
-                break
+            if (session != null && session.expiresAt > 0) {
+                val expGrew = prevExp == 0L || session.expiresAt > prevExp
+                val tokenChanged = prevToken.isNotEmpty() && session.sessionToken != prevToken
+                if (expGrew || tokenChanged) {
+                    newExp = session.expiresAt
+                    break
+                }
             }
         }
 
