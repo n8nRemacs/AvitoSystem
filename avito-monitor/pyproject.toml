@@ -24,6 +24,7 @@ dependencies = [
     "aiogram>=3.13",
     "mcp>=1.0",
     "starlette>=0.41",
+    "openai>=1.50",
 ]
 
 [dependency-groups]
