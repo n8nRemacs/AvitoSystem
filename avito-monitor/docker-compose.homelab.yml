@@ -1,0 +1,68 @@
+# Homelab override — apply with:
+#   docker compose -f docker-compose.yml -f docker-compose.homelab.yml up -d \
+#       app db redis avito-mcp worker scheduler telegram-bot
+#
+# (Or alias `compose-homelab` to that prefix.)
+#
+# What this overlay handles vs the default compose:
+#
+# 1. AppArmor — the homelab Proxmox LXC blocks AF_UNIX socketpair() under
+#    the default docker apparmor profile, which kills asyncio (uvloop's
+#    self-pipe). avito-xapi + supabase on the same host both run with
+#    apparmor=unconfined; we mirror that.
+# 2. Port conflicts — supabase-kong owns :8000, avito-xapi owns :8080,
+#    a standalone avito-mcp-homelab owns :9000. We remap app to :8088
+#    and drop avito-mcp's host binding entirely (worker reaches it via
+#    the compose network).
+# 3. Postgres — the LXC also blocks bind() on AF_UNIX paths, so the
+#    docker-entrypoint init's internal pg_ctl can't open its socket and
+#    the CREATE DATABASE step never runs. We disable the unix socket
+#    and route the healthcheck over TCP. Run the very first ``CREATE
+#    DATABASE avito_monitor OWNER avito;`` manually after the first up.
+# 4. V2 reliability ports — health-checker / activity-simulator /
+#    messenger-bot are not part of the V1 stats stack and shouldn't
+#    publish their API ports here.
+x-apparmor-off: &apparmor_off
+  security_opt:
+    - apparmor=unconfined
+
+services:
+  app:
+    <<: *apparmor_off
+    ports: !override
+      - "8088:8000"
+
+  db:
+    <<: *apparmor_off
+    command:
+      - postgres
+      - -c
+      - unix_socket_directories=
+      - -c
+      - listen_addresses=*
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avito -d avito_monitor -h 127.0.0.1 -p 5432"]
+
+  redis:
+    <<: *apparmor_off
+
+  avito-mcp:
+    <<: *apparmor_off
+    ports: !override []
+
+  worker:
+    <<: *apparmor_off
+  scheduler:
+    <<: *apparmor_off
+  telegram-bot:
+    <<: *apparmor_off
+
+  health-checker:
+    <<: *apparmor_off
+    ports: !override []
+  activity-simulator:
+    <<: *apparmor_off
+    ports: !override []
+  messenger-bot:
+    <<: *apparmor_off
+    ports: !override []
