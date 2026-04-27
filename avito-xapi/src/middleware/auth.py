@@ -114,14 +114,14 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
                     return await call_next(request)
 
         # Fall back to API key auth
-        api_key = request.headers.get("X-Api-Key") or request.query_params.get("api_key")
+        api_key = request.headers.get("X-Api-Key") or request.headers.get("X-Device-Key") or request.query_params.get("api_key")
         if not api_key:
             return _error(401, "Missing X-Api-Key header or Authorization: Bearer token")
 
         key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
         # Lookup API key
-        key_resp = sb.table("api_keys").select("*").eq("key_hash", key_hash).eq("is_active", True).execute()
+        key_resp = sb.table("avito_api_keys").select("*").eq("key_hash", key_hash).eq("is_active", True).execute()
         if not key_resp.data:
             return _error(401, "Invalid API key")
 
@@ -147,7 +147,7 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
 
         # Update last_used_at (fire and forget)
         try:
-            sb.table("api_keys").update({"last_used_at": datetime.now(timezone.utc).isoformat()}).eq("id", key_row["id"]).execute()
+            sb.table("avito_api_keys").update({"last_used_at": datetime.now(timezone.utc).isoformat()}).eq("id", key_row["id"]).execute()
         except Exception:
             pass
 

@@ -42,7 +42,7 @@
         <service
             android:name=".service.SessionMonitorService"
             android:foregroundServiceType="dataSync"
-            android:exported="false" />
+            android:exported="true" />
 
         <!-- Boot Receiver -->
         <receiver
@@ -53,6 +53,17 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- V2.1 Notification Listener for com.avito.android FCM pushes -->
+        <service
+            android:name=".service.AvitoNotificationListener"
+            android:label="Avito Notification Listener"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
     </application>
 

@@ -167,12 +167,23 @@ class AvitoHttpClient(BaseAvitoClient):
 
     # ── Search ───────────────────────────────────────────
 
-    async def search_items(self, query: str, price_min: int | None = None,
-                           price_max: int | None = None,
-                           location_id: int | None = None,
-                           category_id: int | None = None,
-                           sort: str | None = None,
-                           page: int = 1, per_page: int = 30) -> dict[str, Any]:
+    async def search_items(
+        self,
+        query: str,
+        price_min: int | None = None,
+        price_max: int | None = None,
+        location_id: int | None = None,
+        category_id: int | None = None,
+        sort: str | None = None,
+        page: int = 1,
+        per_page: int = 30,
+        with_delivery: bool | None = None,
+        owner: str | None = None,
+        search_area: str | None = None,
+        radius: int | None = None,
+        force_location: bool | None = None,
+        params_extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         await self.rate_limiter.wait_and_acquire()
         params: dict[str, Any] = {
             "query": query,
@@ -189,6 +200,18 @@ class AvitoHttpClient(BaseAvitoClient):
             params["categoryId"] = category_id
         if sort:
             params["sort"] = sort
+        if with_delivery is not None:
+            params["withDelivery"] = with_delivery
+        if owner:
+            params["owner"] = owner
+        if search_area:
+            params["searchArea"] = search_area
+        if radius is not None:
+            params["radius"] = radius
+        if force_location is not None:
+            params["forceLocation"] = force_location
+        if params_extra:
+            params.update(params_extra)
 
         resp = self.http.get(
             f"{self.BASE_URL}/11/items",

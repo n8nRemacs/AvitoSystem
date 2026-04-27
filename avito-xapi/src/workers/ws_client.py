@@ -25,7 +25,7 @@ logger = logging.getLogger("xapi.ws")
 
 PING_ID = 999
 PING_INTERVAL = 25  # seconds
-RECONNECT_MAX_ATTEMPTS = 5
+RECONNECT_MAX_ATTEMPTS = 999_999  # de facto infinite — V2 reliability
 RECONNECT_MAX_DELAY = 30  # seconds
 
 
@@ -39,8 +39,11 @@ class AvitoWsClient:
     WS_URL = "wss://socket.avito.ru/socket"
     APP_VERSION = "215.1"
 
-    def __init__(self, session_data: SessionData):
+    def __init__(self, session_data: SessionData, session_loader: Callable | None = None):
+        # session_loader(): SessionData — optional callback to re-fetch a fresh
+        # session from DB before each reconnect (V2 reliability: token refresh).
         self.session_data = session_data
+        self._session_loader = session_loader
         self._ws = None
         self._session = curl_requests.Session(impersonate="chrome120")
         self._msg_id = 0
@@ -164,10 +167,18 @@ class AvitoWsClient:
 
             self._ws = self._session.ws_connect(url, headers=headers)
 
-            # Read initial session message
+            # Read initial session message.
+            # curl_cffi ws.recv() may return:
+            #   - tuple (data, frame_info)  — newer versions
+            #   - list[bytes]               — legacy
+            #   - bytes / str               — single frame
             frames = self._ws.recv()
             if frames:
-                init_msg = json.loads(frames[0] if isinstance(frames, list) else frames)
+                if isinstance(frames, (tuple, list)):
+                    raw = frames[0]
+                else:
+                    raw = frames
+                init_msg = json.loads(raw)
                 logger.info("WS connected. Init: type=%s", init_msg.get("type"))
 
                 # Extract userId and seq from session init
@@ -212,7 +223,10 @@ class AvitoWsClient:
                 if not frames:
                     continue
 
-                raw = frames[0] if isinstance(frames, list) else frames
+                if isinstance(frames, (tuple, list)):
+                    raw = frames[0]
+                else:
+                    raw = frames
                 data = json.loads(raw)
                 self._handle_message(data)
 
@@ -244,19 +258,27 @@ class AvitoWsClient:
                 logger.warning("WS ping failed: %s", e)
 
     def _try_reconnect(self) -> None:
-        """Attempt to reconnect with exponential backoff."""
+        """Attempt to reconnect with exponential backoff (V2: ~infinite + token refresh)."""
         for attempt in range(RECONNECT_MAX_ATTEMPTS):
             if not self._running:
                 return
 
-            delay = min(2 ** attempt, RECONNECT_MAX_DELAY)
-            logger.info("WS reconnecting in %ds (attempt %d/%d)",
-                        delay, attempt + 1, RECONNECT_MAX_ATTEMPTS)
+            delay = min(2 ** min(attempt, 5), RECONNECT_MAX_DELAY)
+            logger.info("WS reconnecting in %ds (attempt %d)", delay, attempt + 1)
             time.sleep(delay)
+
+            # V2 token refresh: pull a fresh active session from DB before each retry
+            if self._session_loader is not None:
+                try:
+                    fresh = self._session_loader()
+                    if fresh is not None:
+                        self.session_data = fresh
+                except Exception as e:
+                    logger.warning("session_loader failed (will retry with cached): %s", e)
 
             result = self._connect_sync()
             if result:
-                logger.info("WS reconnected successfully")
+                logger.info("WS reconnected successfully (attempt %d)", attempt + 1)
                 return
 
         logger.error("WS reconnect failed after %d attempts", RECONNECT_MAX_ATTEMPTS)

@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="server_url">http://192.168.31.97:8080</string>
+    <string name="api_key">test_dev_key_123</string>
+    <boolean name="auto_sync" value="true" />
+    <boolean name="auto_launch_avito" value="true" />
+    <boolean name="notify_on_expiry" value="true" />
+</map>

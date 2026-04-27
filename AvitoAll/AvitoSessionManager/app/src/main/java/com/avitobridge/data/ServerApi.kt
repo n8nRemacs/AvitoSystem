@@ -95,45 +95,14 @@ class ServerApi(
     }
 
     /**
-     * Send device ping to server
+     * Get current server-stored Avito session (xapi: GET /api/v1/sessions/current).
      */
-    suspend fun sendPing(
-        batteryLevel: Int,
-        avitoRunning: Boolean,
-        lastSessionUpdate: Long
-    ): Boolean = withContext(Dispatchers.IO) {
+    suspend fun getServerSession(): Result<ServerSessionInfo> = withContext(Dispatchers.IO) {
         try {
-            val pingData = mapOf(
-                "battery_level" to batteryLevel,
-                "avito_app_running" to avitoRunning,
-                "last_session_update" to lastSessionUpdate,
-                "timestamp" to System.currentTimeMillis() / 1000
-            )
-
-            val json = gson.toJson(pingData)
-
             val request = Request.Builder()
-                .url("$baseUrl/api/v1/devices/ping")
-                .header("Content-Type", "application/json")
+                .url("$baseUrl/api/v1/sessions/current")
+                .header("X-Api-Key", apiKey)
                 .header("X-Device-Key", apiKey)
-                .post(json.toRequestBody(JSON))
-                .build()
-
-            val response = client.newCall(request).execute()
-            response.isSuccessful
-        } catch (e: Exception) {
-            Log.e(TAG, "Ping failed", e)
-            false
-        }
-    }
-
-    /**
-     * Get full server status (session + MCP)
-     */
-    suspend fun getFullStatus(): Result<FullStatusResponse> = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("$baseUrl/api/v1/full-status")
                 .get()
                 .build()
 
@@ -141,75 +110,102 @@ class ServerApi(
             val body = response.body?.string()
 
             if (response.isSuccessful && body != null) {
-                val status = gson.fromJson(body, FullStatusResponse::class.java)
-                Result.success(status)
+                val info = gson.fromJson(body, ServerSessionInfo::class.java)
+                Log.d(TAG, "sessions/current: is_active=${info.is_active} ttl=${info.ttl_human}")
+                Result.success(info)
             } else {
-                Result.failure(Exception("Server error: ${response.code}"))
+                Result.failure(Exception("sessions/current ${response.code}: ${body ?: ""}"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Get status failed", e)
+            Log.e(TAG, "getServerSession failed", e)
             Result.failure(e)
         }
     }
 
     /**
-     * Restart MCP (Telegram bot) service
+     * Forward an intercepted Android notification to xapi
+     * `POST /api/v1/notifications`. Returns the persisted DB id and whether
+     * an SSE subscriber received the broadcast.
      */
-    suspend fun restartMcp(): Result<McpRestartResponse> = withContext(Dispatchers.IO) {
+    suspend fun forwardNotification(payload: NotificationForwardRequest): Result<NotificationForwardResponse> =
+        withContext(Dispatchers.IO) {
+            try {
+                val json = gson.toJson(payload)
+
+                val httpRequest = Request.Builder()
+                    .url("$baseUrl/api/v1/notifications")
+                    .header("Content-Type", "application/json")
+                    .header("X-Device-Key", apiKey)
+                    .post(json.toRequestBody(JSON))
+                    .build()
+
+                val response = client.newCall(httpRequest).execute()
+                val body = response.body?.string()
+
+                if (response.isSuccessful && body != null) {
+                    val parsed = gson.fromJson(body, NotificationForwardResponse::class.java)
+                    Log.i(TAG, "notifications forwarded db_id=${parsed.dbId} broadcast=${parsed.broadcast}")
+                    Result.success(parsed)
+                } else {
+                    val error = "notifications HTTP ${response.code}: ${body ?: "no body"}"
+                    Log.w(TAG, error)
+                    Result.failure(Exception(error))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "forwardNotification failed", e)
+                Result.failure(e)
+            }
+        }
+
+    /**
+     * Get unread messenger count from xapi (proves JWT pipe works).
+     */
+    suspend fun getUnreadCount(): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url("$baseUrl/api/v1/mcp/restart")
+                .url("$baseUrl/api/v1/messenger/unread-count")
+                .header("X-Api-Key", apiKey)
                 .header("X-Device-Key", apiKey)
-                .post("".toRequestBody(JSON))
+                .get()
                 .build()
 
             val response = client.newCall(request).execute()
             val body = response.body?.string()
 
             if (response.isSuccessful && body != null) {
-                val result = gson.fromJson(body, McpRestartResponse::class.java)
-                Result.success(result)
+                val parsed = gson.fromJson(body, UnreadCountResponse::class.java)
+                Log.d(TAG, "messenger/unread-count: ${parsed.count}")
+                Result.success(parsed.count)
             } else {
-                Result.failure(Exception("Restart failed: ${response.code}"))
+                Result.failure(Exception("unread-count ${response.code}: ${body ?: ""}"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "MCP restart failed", e)
+            Log.e(TAG, "getUnreadCount failed", e)
             Result.failure(e)
         }
     }
 }
 
-// Response classes for new endpoints
-data class FullStatusResponse(
-    val server: ServerStatus,
-    val session: SessionStatus?,
-    val mcp: McpStatus?
+/**
+ * GET /api/v1/sessions/current response.
+ */
+data class ServerSessionInfo(
+    val is_active: Boolean = false,
+    val user_id: Long? = null,
+    val source: String? = null,
+    val ttl_seconds: Int? = null,
+    val ttl_human: String? = null,
+    val expires_at: String? = null,
+    val created_at: String? = null,
+    val device_id: String? = null,
+    val fingerprint_preview: String? = null
 )
 
-data class ServerStatus(
-    val status: String,
-    val timestamp: Long
-)
-
-data class SessionStatus(
-    val exists: Boolean,
-    val expires_at: Long = 0,
-    val hours_left: Double = 0.0,
-    val is_valid: Boolean = false,
-    val updated_at: Long = 0,
-    val token_preview: String = ""
-)
-
-data class McpStatus(
-    val service: String,
-    val is_running: Boolean,
-    val status: String
-)
-
-data class McpRestartResponse(
-    val success: Boolean,
-    val message: String = "",
-    val error: String = ""
+/**
+ * GET /api/v1/messenger/unread-count response.
+ */
+data class UnreadCountResponse(
+    val count: Int = 0
 )
 
 /**

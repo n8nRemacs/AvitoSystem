@@ -93,6 +93,36 @@ class WsManager:
             await self._stop_connection(tid)
         logger.info("WsManager stopped all connections")
 
+    def broadcast_to_tenant(
+        self, tenant_id: str, event_name: str, payload: dict[str, Any]
+    ) -> bool:
+        """Inject an externally-sourced event into the tenant's SSE fan-out.
+
+        Returns True when the event was queued for at least one SSE subscriber.
+        Returns False when no SSE subscribers exist for that tenant — in that
+        case the caller is expected to have persisted the event durably so it
+        can be replayed via a catch-up query later.
+
+        Used by the V2.1 NotificationListener pipeline: the notifications
+        router calls this after persisting the row, so the messenger-bot can
+        react in real-time without polling.
+        """
+        conn = self._connections.get(tenant_id)
+        if not conn or not conn.subscribers:
+            logger.info(
+                "broadcast_to_tenant: no SSE subscribers for tenant %s, event=%s skipped",
+                tenant_id, event_name,
+            )
+            return False
+        event = {
+            "event": event_name,
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "payload": payload,
+        }
+        conn.broadcast(event)
+        return True
+
     def get_status(self, tenant_id: str) -> dict[str, Any]:
         """Get connection status for a tenant."""
         conn = self._connections.get(tenant_id)
@@ -119,7 +149,9 @@ class WsManager:
         if not session:
             raise ValueError(f"No active session for tenant {tenant_id}")
 
-        client = AvitoWsClient(session)
+        # V2 reliability: re-fetch active session from DB on each reconnect
+        # so we pick up freshly synced JWT (APK refreshes tokens every ~24h).
+        client = AvitoWsClient(session, session_loader=lambda: load_active_session(tenant_id))
         conn = TenantConnection(tenant_id, client, self._loop)
 
         def _make_handler(event_type: str):

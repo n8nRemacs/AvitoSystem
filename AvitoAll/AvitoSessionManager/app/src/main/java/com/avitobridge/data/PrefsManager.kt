@@ -82,6 +82,32 @@ class PrefsManager(context: Context) {
         get() = prefs.getLong(KEY_LAST_TELEGRAM_NOTIFY, 0)
         set(value) = prefs.edit().putLong(KEY_LAST_TELEGRAM_NOTIFY, value).apply()
 
+    // V2.1 NotificationListener settings
+    var notificationListenerEnabled: Boolean
+        get() = prefs.getBoolean(KEY_NOTIF_LISTENER_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_NOTIF_LISTENER_ENABLED, value).apply()
+
+    var notificationsForwardedTotal: Long
+        get() = prefs.getLong(KEY_NOTIF_TOTAL, 0L)
+        set(value) = prefs.edit().putLong(KEY_NOTIF_TOTAL, value).apply()
+
+    var notificationsLastForwardedAt: Long
+        get() = prefs.getLong(KEY_NOTIF_LAST_AT, 0L)
+        set(value) = prefs.edit().putLong(KEY_NOTIF_LAST_AT, value).apply()
+
+    var notificationsLastStatus: String
+        get() = prefs.getString(KEY_NOTIF_LAST_STATUS, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_NOTIF_LAST_STATUS, value).apply()
+
+    // avito-mcp service settings
+    var mcpUrl: String
+        get() = prefs.getString(KEY_MCP_URL, DEFAULT_MCP_URL) ?: DEFAULT_MCP_URL
+        set(value) = prefs.edit().putString(KEY_MCP_URL, value).apply()
+
+    var mcpAuthToken: String
+        get() = prefs.getString(KEY_MCP_AUTH_TOKEN, DEFAULT_MCP_AUTH_TOKEN) ?: DEFAULT_MCP_AUTH_TOKEN
+        set(value) = prefs.edit().putString(KEY_MCP_AUTH_TOKEN, value).apply()
+
     companion object {
         private const val PREFS_NAME = "avito_session_manager"
 
@@ -101,10 +127,18 @@ class PrefsManager(context: Context) {
         private const val KEY_TELEGRAM_BOT_TOKEN = "telegram_bot_token"
         private const val KEY_TELEGRAM_CHAT_ID = "telegram_chat_id"
         private const val KEY_LAST_TELEGRAM_NOTIFY = "last_telegram_notify"
+        private const val KEY_MCP_URL = "mcp_url"
+        private const val KEY_MCP_AUTH_TOKEN = "mcp_auth_token"
+        private const val KEY_NOTIF_LISTENER_ENABLED = "notification_listener_enabled"
+        private const val KEY_NOTIF_TOTAL = "notifications_forwarded_total"
+        private const val KEY_NOTIF_LAST_AT = "notifications_last_forwarded_at"
+        private const val KEY_NOTIF_LAST_STATUS = "notifications_last_status"
 
         private const val DEFAULT_SERVER_URL = "http://155.212.221.189:8080"
         private const val DEFAULT_API_KEY = "avito_sync_key_2026"
         private const val DEFAULT_SYNC_BEFORE_HOURS = 2
         private const val DEFAULT_CHECK_INTERVAL = 30 // minutes
+        private const val DEFAULT_MCP_URL = "http://192.168.31.97:9000"
+        private const val DEFAULT_MCP_AUTH_TOKEN = "dev-mcp-token-change-me"
     }
 }

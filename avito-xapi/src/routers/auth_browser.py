@@ -143,7 +143,7 @@ async def _resolve_tenant(api_key: str) -> str | None:
 
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
     sb = get_supabase()
-    resp = sb.table("api_keys").select("tenant_id").eq("key_hash", key_hash).eq("is_active", True).execute()
+    resp = sb.table("avito_api_keys").select("tenant_id").eq("key_hash", key_hash).eq("is_active", True).execute()
     if resp.data:
         return resp.data[0]["tenant_id"]
     return None
