@@ -10,7 +10,7 @@
 
 **Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito + ценовой разведки. Single-user, homelab-deploy, Avito-Cosplay UI.
 
-**Дата последнего обновления:** 2026-04-27 (Block 5 closed).
+**Дата последнего обновления:** 2026-04-27 (Block 6 closed).
 
 ### Готово (закоммичено в git)
 
@@ -31,24 +31,19 @@
 | chore (timezone) | health-checker alerts рендерятся в `Europe/Astrakhan` вместо UTC | `46a4250` |
 | **V1 Block 4.3 (analytics + cleanup + notifications stub)** | `compute_market_stats` (median/p25/p75/working_share/condition_distribution + триггеры `market_trend_*`/`supply_surge`/`condition_mix_change`, daily 00:05 UTC tick) + `cleanup_old_listings` (ADR-009 retention 30/90/∞, daily 03:30 UTC) + `send_notification` stub с `dispatch_pending` каждые 2 мин. **Block 4 closed.** | `a291050` |
 | **V1 Block 5 (Telegram bot + pluggable messenger)** | `MessengerProvider` Protocol + `TelegramProvider` (aiogram 3) + `MaxProvider` stub + factory; 9 Jinja2 шаблонов в `app/prompts/messenger/`; long-polling бот с командами `/start /help /status /pause /resume /silent /profiles` + WhitelistMiddleware; inline-кнопки (Просмотрено/Скрыть/Скрыть продавца/Повторный LLM/Применить вилку/Игнорировать); `runtime_state` (system_paused + silent_until через `system_settings`); `send_notification` теперь реально шлёт через провайдер с retry/backoff и silent-gate. Smoke: `/start` отвечает, market_trend_down dispatch → TG message_id=16 → status=sent. | `1ae2f03` |
+| **V1 Block 6 (Profile Stats — Chart.js)** | `/search-profiles/{id}/stats` с 4 виджетами (line-chart медианы 30д с alert-band пунктиром, stacked histogram текущих цен по working/broken/iCloud/parts, donut condition-distribution, лента market-событий) + KPI-row + heuristic recommended alert-band (p10/p50 working) + placeholder когда < 7 дней истории и нет current snapshot. Сервис `profile_stats.py` (read-only view), Chart.js inline через CDN, кнопка 📊 в карточке профиля. | `e08365e` |
 
 ### В работе / следующий шаг
 
-**Block 6 — stats dashboard (Chart.js).** ТЗ в `DOCS/V1_BLOCKS_TZ.md` §4 «Block 6».
+**Block 7 — Price Intelligence (полные market triggers).** ТЗ в `DOCS/V1_BLOCKS_TZ.md` §4 «Block 7».
 
 Кратко:
-- Главный экран — `/search-profiles/{id}/stats`. 4 виджета (см. `DOCS/UI_DESIGN_SPEC_V1.md` §4.4):
-  1. Line-chart медианы 30 дней + alert-вилка пунктиром (Chart.js).
-  2. Гистограмма распределения цен (now) с разделением working / non-working.
-  3. Donut condition-distribution.
-  4. Лента market-событий (нотификации `market_*`).
-- Style: Avito-Cosplay Light. CSS-токены в `app/web/templates/base.html`. Реф: `AvitoSystemUI/screens/profile-stats.jsx`.
-- Data source: `profile_market_stats` (наполняет analytics) + текущий снимок `listings` + `notifications WHERE type LIKE 'market_%'`.
-- Если данных < 7 дней — placeholder «копится статистика, прогон #N/30».
-- Pre-flight (§3): уже есть заглушка `app/web/stats_routes.py` (проверь).
+- Полная реализация триггеров `historical_low`, `price_drop_listing`, `price_dropped_into_alert` (сейчас в `analytics.py` только `market_trend_*` / `supply_surge` / `condition_mix_change` — minimal версия из Block 4.3).
+- Page `/price-intelligence/{id}` — отчёт по конкурентам через `LLMAnalyzer.compare_to_reference`. Топ-5 дешевле/дороже, рекомендация. Synchronous (не через TaskIQ).
+- Авто-рекомендация alert-вилки → кнопка «Применить» применяет per-profile.
+- Smoothed median (rolling 7d) для устойчивых трендов.
 
-После Block 6:
-- Block 7 (price intelligence, полные market triggers + `historical_low` + auto-recommended alert band)
+После Block 7:
 - Block 8 (polish + 72h soak)
 
 ### Operational заметки (важно при рестарте)
