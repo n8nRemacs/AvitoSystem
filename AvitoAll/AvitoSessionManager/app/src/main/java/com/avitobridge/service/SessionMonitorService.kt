@@ -17,6 +17,7 @@ import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.coroutines.coroutineContext
 
 /**
  * Background service for monitoring Avito session and auto-syncing
@@ -45,6 +46,7 @@ class SessionMonitorService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var monitorJob: Job? = null
+    private var commandPollJob: Job? = null
 
     private lateinit var sessionReader: AvitoSessionReader
     private var serverApi: ServerApi? = null
@@ -108,6 +110,13 @@ class SessionMonitorService : Service() {
             }
         }
 
+        // Start command long-poll loop in parallel — server can ask the
+        // APK to refresh the token reactively (when JWT is 1–3 min from
+        // expiry) instead of waiting for the next monitor tick.
+        commandPollJob = scope.launch {
+            commandPollLoop()
+        }
+
         broadcastStatus("running", "Monitor started")
     }
 
@@ -118,6 +127,7 @@ class SessionMonitorService : Service() {
         Log.i(TAG, "Stopping session monitor")
         isMonitoring = false
         monitorJob?.cancel()
+        commandPollJob?.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         broadcastStatus("stopped", "Monitor stopped")
@@ -399,6 +409,214 @@ class SessionMonitorService : Service() {
 
         val manager = getSystemService(android.app.NotificationManager::class.java)
         manager.notify(2, notification)
+    }
+
+    // ----------------------------------------------------------------
+    // Server-driven command channel
+    // ----------------------------------------------------------------
+
+    /**
+     * Long-poll xapi for commands and dispatch them.
+     *
+     * The loop is intentionally simple: poll, handle one command,
+     * loop. The ServerApi side already sets a 90 s read timeout to
+     * cover the 60 s server-side hold. On any error we wait a bit
+     * before the next attempt so a flaky network doesn't burn battery.
+     */
+    private suspend fun commandPollLoop() {
+        Log.i(TAG, "command poll loop started")
+        while (coroutineContext[Job]?.isActive == true) {
+            updateServerApi()
+            val api = serverApi
+            if (api == null) {
+                delay(15_000)
+                continue
+            }
+            try {
+                val res = api.pollCommand(waitSec = 60)
+                val cmd = res.getOrNull()
+                if (cmd != null) {
+                    Log.i(TAG, "command received id=${cmd.id} cmd=${cmd.command}")
+                    handleCommand(cmd, api)
+                }
+                if (res.isFailure) {
+                    Log.w(TAG, "command poll failed: ${res.exceptionOrNull()?.message}")
+                    delay(10_000)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "command poll loop error", e)
+                delay(10_000)
+            }
+        }
+        Log.i(TAG, "command poll loop stopped")
+    }
+
+    private suspend fun handleCommand(cmd: com.avitobridge.data.DeviceCommand, api: ServerApi) {
+        when (cmd.command) {
+            "refresh_token" -> handleRefreshToken(cmd, api)
+            "launch_avito" -> {
+                // Legacy alias — same effect as refresh_token but without
+                // the post-launch verify loop. Treat as refresh_token so
+                // we always close Avito + sync new token afterwards.
+                handleRefreshToken(cmd, api)
+            }
+            else -> {
+                Log.w(TAG, "Unknown command: ${cmd.command}")
+                api.ackCommand(cmd.id, ok = false, error = "unknown_command")
+            }
+        }
+    }
+
+    /**
+     * Refresh state machine:
+     *
+     *  1. Wake the screen (so ``input swipe`` is meaningful — Avito
+     *     refreshes its session only on actual user activity).
+     *  2. Open Avito via root ``monkey``.
+     *  3. Wait 2 s for Avito to render its feed.
+     *  4. Loop: ``input swipe`` → wait → re-read SharedPrefs →
+     *     break when the new exp exceeds the previous one.
+     *  5. Force-stop Avito so it returns to background.
+     *  6. POST the new session to xapi.
+     *  7. Ack the command with elapsed/scrolls metadata.
+     *
+     * Any failure path acks ``ok=false`` with an ``error`` token so the
+     * server-side correlator can flag the command and trigger an alert
+     * after 3 strikes.
+     */
+    private suspend fun handleRefreshToken(cmd: com.avitobridge.data.DeviceCommand, api: ServerApi) {
+        val timeoutSec = (cmd.payload?.get("timeout_sec") as? Number)?.toInt() ?: 90
+        val intervalSec = (cmd.payload?.get("scroll_interval_sec") as? Number)?.toFloat() ?: 1.5f
+        val started = System.currentTimeMillis()
+
+        if (!sessionReader.hasRootAccess()) {
+            api.ackCommand(cmd.id, ok = false, error = "no_root")
+            return
+        }
+
+        val prevSession = try {
+            sessionReader.readSession()
+        } catch (e: Exception) {
+            null
+        }
+        val prevExp = prevSession?.expiresAt ?: 0L
+
+        // 1. Wake the screen (no-op if already on).
+        try {
+            Shell.cmd("input keyevent KEYCODE_WAKEUP").exec()
+        } catch (e: Exception) {
+            Log.w(TAG, "wake keyevent failed", e)
+        }
+
+        // (We don't try to bypass PIN locks. If the lockscreen is up,
+        // the swipes below still trigger but Avito stays behind the
+        // lock; we'll fail with no_refresh and the server alerts.)
+
+        // 2. Open Avito.
+        val openRes = Shell.cmd(
+            "monkey -p com.avito.android -c android.intent.category.LAUNCHER 1"
+        ).exec()
+        if (!openRes.isSuccess) {
+            api.ackCommand(
+                cmd.id, ok = false,
+                error = "monkey_failed",
+                payload = mapOf("stderr" to (openRes.err.firstOrNull() ?: "")),
+            )
+            return
+        }
+
+        // 3. Let the feed render before we start scrolling.
+        delay(2_000)
+
+        // 4. Scroll loop. Each iteration:
+        //    a. inject one swipe-up (drags the feed)
+        //    b. sleep ``intervalSec``
+        //    c. re-read SharedPrefs and check exp.
+        var newExp = prevExp
+        var scrolls = 0
+        val deadline = started + timeoutSec * 1000L
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                Shell.cmd("input swipe 540 1600 540 600 250").exec()
+            } catch (e: Exception) {
+                Log.w(TAG, "swipe failed", e)
+            }
+            scrolls++
+            delay((intervalSec * 1000).toLong())
+
+            val session = try {
+                sessionReader.readSession()
+            } catch (e: Exception) {
+                null
+            }
+            if (session != null && session.expiresAt > prevExp) {
+                newExp = session.expiresAt
+                break
+            }
+        }
+
+        val refreshed = newExp > prevExp
+
+        // 5. Close Avito so the user is left where they were.
+        try {
+            Shell.cmd("am force-stop com.avito.android").exec()
+        } catch (e: Exception) {
+            Log.w(TAG, "force-stop failed", e)
+        }
+
+        if (!refreshed) {
+            val elapsed = ((System.currentTimeMillis() - started) / 1000).toInt()
+            api.ackCommand(
+                cmd.id, ok = false,
+                error = "no_refresh",
+                payload = mapOf(
+                    "scrolls" to scrolls,
+                    "elapsed_sec" to elapsed,
+                    "prev_exp" to prevExp,
+                ),
+            )
+            return
+        }
+
+        // 6. Re-read once more (post-force-stop SharedPrefs is committed)
+        //    and sync to server.
+        val finalSession = try {
+            sessionReader.readSession()
+        } catch (e: Exception) {
+            null
+        }
+        if (finalSession == null) {
+            api.ackCommand(cmd.id, ok = false, error = "post_refresh_read_failed")
+            return
+        }
+
+        prefs.cachedSessionToken = finalSession.sessionToken
+        prefs.cachedFingerprint = finalSession.fingerprint
+        prefs.cachedExpiresAt = finalSession.expiresAt
+        lastSession = finalSession
+
+        val syncOk = syncToServer(finalSession)
+        val elapsed = ((System.currentTimeMillis() - started) / 1000).toInt()
+
+        api.ackCommand(
+            cmd.id,
+            ok = syncOk,
+            error = if (syncOk) null else "sync_failed",
+            payload = mapOf(
+                "new_exp" to finalSession.expiresAt,
+                "prev_exp" to prevExp,
+                "scrolls" to scrolls,
+                "elapsed_sec" to elapsed,
+            ),
+        )
+
+        if (syncOk) {
+            prefs.lastSyncTime = System.currentTimeMillis()
+            prefs.lastSyncStatus = "Refresh→sync ok at ${dateFormat.format(Date())}"
+            broadcastStatus("synced", "Token refreshed via server cmd")
+        }
     }
 
     /**

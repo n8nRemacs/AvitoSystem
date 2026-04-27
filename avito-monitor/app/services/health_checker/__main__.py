@@ -20,6 +20,7 @@ from app.logging_config import configure_logging
 from app.services.health_checker.alerts import daily_summary_loop
 from app.services.health_checker.api import app as fastapi_app
 from app.services.health_checker.runner import start_scheduler
+from app.services.health_checker.token_refresher import loop as token_refresh_loop
 
 log = structlog.get_logger(__name__)
 
@@ -45,6 +46,14 @@ async def amain() -> None:
         daily_summary_loop(settings), name="hc-daily-summary"
     )
     loop_tasks.append(summary_task)
+
+    # 1c. token-refresh trigger — watches the active xapi session's TTL
+    # and, when JWT exp is 60–180 s away, asks the APK (via xapi
+    # device-commands) to bring Avito to the foreground and nudge it.
+    refresh_task = asyncio.create_task(
+        token_refresh_loop(settings), name="hc-token-refresh"
+    )
+    loop_tasks.append(refresh_task)
 
     # 2. uvicorn server in the same event loop
     api_port = int(os.environ.get("HEALTH_CHECKER_API_PORT", DEFAULT_API_PORT))

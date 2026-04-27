@@ -29,11 +29,23 @@ from sqlalchemy import select, update
 from app.config import get_settings
 from app.db.base import get_sessionmaker
 from app.db.models import Notification
-from app.db.models.enums import NotificationStatus
+from app.db.models.enums import NotificationStatus, NotificationType
 from app.integrations.messenger import MessengerError, get_provider
 from app.integrations.messenger.renderer import render
 from app.services import runtime_state
 from app.tasks.broker import broker
+
+# Listing-level notifications — informational, can be deferred during
+# the user's silent window. Anything else (market_*, supply_surge,
+# condition_mix_change, error, …) is a system signal that always ships
+# even when the user said "тише, я в кино" — losing those creates
+# real harm (missed budget breach, missed token-refresh failure, …).
+_LISTING_TYPES: frozenset[str] = frozenset({
+    NotificationType.NEW_LISTING.value,
+    NotificationType.PRICE_DROP_LISTING.value,
+    NotificationType.PRICE_DROPPED_INTO_ALERT.value,
+    NotificationType.HISTORICAL_LOW.value,
+})
 
 log = logging.getLogger(__name__)
 
@@ -148,36 +160,54 @@ async def send_notification(notification_id: str) -> dict[str, str]:
 async def dispatch_pending() -> dict[str, int]:
     """Every 2 minutes: enqueue ``send_notification`` for PENDING rows.
 
-    Held back entirely when the system is paused or the silent window
-    is active — rows pile up and ship on the next tick after the gate
-    opens. Polling-style retry rather than reactive enqueueing so a
-    worker crash mid-match never strands a notification.
+    Pause and silent gates apply differently:
+
+    * ``paused`` — the whole system is on hold; we hold every
+      notification (including system alerts) until the user resumes.
+    * ``silent_until`` — the user wants quiet hours for *listings only*
+      (new_listing / price_drop_listing / price_dropped_into_alert /
+      historical_low). System alerts (market_*, supply_surge,
+      condition_mix_change, error, …) always ship — losing those
+      defeats the point of having them.
+
+    Polling-style retry rather than reactive enqueueing so a worker
+    crash mid-match never strands a notification.
     """
     if await runtime_state.is_paused():
         log.info("notifications.dispatch.paused")
         return {"enqueued": 0, "reason": "paused"}
-    if await runtime_state.is_silent_now():
-        log.info("notifications.dispatch.silent")
-        return {"enqueued": 0, "reason": "silent"}
+
+    silent = await runtime_state.is_silent_now()
 
     sessionmaker = get_sessionmaker()
     enqueued = 0
+    held_listing = 0
     async with sessionmaker() as session:
         rows = (
             await session.execute(
-                select(Notification.id)
+                select(Notification.id, Notification.type)
                 .where(Notification.status == NotificationStatus.PENDING.value)
                 .limit(500)
             )
-        ).scalars().all()
+        ).all()
 
-    for row_id in rows:
+    for row_id, ntype in rows:
+        if silent and ntype in _LISTING_TYPES:
+            held_listing += 1
+            continue
         try:
             await send_notification.kiq(str(row_id))
             enqueued += 1
         except Exception:
             log.exception("notifications.dispatch.kiq_failed id=%s", row_id)
 
-    if enqueued:
-        log.info("notifications.dispatch.tick enqueued=%d", enqueued)
-    return {"enqueued": enqueued}
+    if enqueued or held_listing:
+        log.info(
+            "notifications.dispatch.tick enqueued=%d held_listing=%d silent=%s",
+            enqueued, held_listing, silent,
+        )
+    return {
+        "enqueued": enqueued,
+        "held_listing": held_listing,
+        "silent": silent,
+    }

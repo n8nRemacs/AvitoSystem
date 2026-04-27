@@ -30,6 +30,15 @@ class ServerApi(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    // Long-polling needs a much longer read window than the regular sync
+    // calls — server holds the connection open for ``wait`` seconds (≤ 60).
+    private val longPollClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
     /**
      * Sync session data to server
      */
@@ -158,6 +167,76 @@ class ServerApi(
         }
 
     /**
+     * Long-poll for the next device command. Returns:
+     * - Result.success(cmd)     — command ready to execute
+     * - Result.success(null)    — server returned 204 (timeout, no work)
+     * - Result.failure(...)     — transport / 5xx / auth error
+     *
+     * ``waitSec`` is sent as a query param; server clamps to [0, 60]. We
+     * use a dedicated OkHttp client with a 90 s read timeout so the
+     * server-side hold doesn't trip our default 30 s deadline.
+     */
+    suspend fun pollCommand(waitSec: Int = 60): Result<DeviceCommand?> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$baseUrl/api/v1/devices/me/commands?wait=$waitSec")
+                .header("X-Device-Key", apiKey)
+                .header("X-Api-Key", apiKey)
+                .get()
+                .build()
+
+            val response = longPollClient.newCall(request).execute()
+            when (response.code) {
+                204 -> Result.success(null)
+                200 -> {
+                    val body = response.body?.string()
+                    if (body.isNullOrBlank()) Result.success(null)
+                    else Result.success(gson.fromJson(body, DeviceCommand::class.java))
+                }
+                else -> {
+                    val body = response.body?.string() ?: ""
+                    Result.failure(Exception("pollCommand HTTP ${response.code}: ${body.take(200)}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Acknowledge a command after attempting it. Idempotent on the server
+     * — repeating an ack on a terminal row returns ``noop=true``.
+     */
+    suspend fun ackCommand(
+        commandId: String,
+        ok: Boolean,
+        error: String? = null,
+        payload: Map<String, Any>? = null,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val body = gson.toJson(
+                mapOf(
+                    "ok" to ok,
+                    "error" to error,
+                    "payload" to (payload ?: emptyMap<String, Any>()),
+                )
+            )
+            val request = Request.Builder()
+                .url("$baseUrl/api/v1/devices/me/commands/$commandId/ack")
+                .header("Content-Type", "application/json")
+                .header("X-Device-Key", apiKey)
+                .header("X-Api-Key", apiKey)
+                .post(body.toRequestBody(JSON))
+                .build()
+            val resp = client.newCall(request).execute()
+            if (resp.isSuccessful) Result.success(Unit)
+            else Result.failure(Exception("ack HTTP ${resp.code}: ${resp.body?.string()?.take(200) ?: ""}"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Get unread messenger count from xapi (proves JWT pipe works).
      */
     suspend fun getUnreadCount(): Result<Int> = withContext(Dispatchers.IO) {
@@ -206,6 +285,21 @@ data class ServerSessionInfo(
  */
 data class UnreadCountResponse(
     val count: Int = 0
+)
+
+/**
+ * One row from ``GET /api/v1/devices/me/commands``.
+ *
+ * ``payload`` is left untyped (Map) because each command kind defines
+ * its own shape — the handler in SessionMonitorService inspects
+ * ``command`` and casts as needed.
+ */
+data class DeviceCommand(
+    val id: String,
+    val command: String,
+    val payload: Map<String, Any>? = null,
+    val created_at: String? = null,
+    val expire_at: String? = null,
 )
 
 /**
