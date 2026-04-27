@@ -53,6 +53,9 @@ def _register_tasks() -> None:
     # noqa: F401 — imports for side-effect registration.
     from app.tasks import (  # noqa: F401
         analysis,
+        analytics,
+        cleanup,
+        notifications,
         polling,
         scheduler as _sched,
     )
