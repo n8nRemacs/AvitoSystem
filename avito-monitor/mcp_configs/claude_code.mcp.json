@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "avito-mcp": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "avito-monitor-avito-mcp-1",
+        "python",
+        "-m",
+        "avito_mcp"
+      ],
+      "env": {
+        "AVITO_MCP_TRANSPORT": "stdio"
+      }
+    }
+  }
+}
