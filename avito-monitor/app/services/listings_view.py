@@ -68,6 +68,18 @@ class ListingRow:
             return round((self.price - self.initial_price) * 100 / self.initial_price, 1)
         return None
 
+    @property
+    def web_url(self) -> str:
+        """Always-clickable web URL.
+
+        Old rows stored ``ru.avito://...`` deep-links from the mobile API —
+        those don't open in a browser. Fall back to the canonical ID-only
+        URL Avito 301-redirects to its slug page.
+        """
+        if self.url and self.url.startswith("https://"):
+            return self.url
+        return f"https://www.avito.ru/{self.avito_id}"
+
 
 @dataclass
 class ListingFilters:

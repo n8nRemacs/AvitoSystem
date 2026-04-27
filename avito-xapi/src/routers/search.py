@@ -260,12 +260,19 @@ def _normalize_item_card(raw: dict) -> ItemCard:
     )
 
     # ── URL (deep-link or web) ────────────────────────────────────────────
+    # Mobile API only ships ``ru.avito://`` deep-links via ``uri``. Browsers
+    # can't open those, so when no real https URL exists we synthesise one
+    # from the numeric ID. Avito does a 301 to the canonical slug-URL on its
+    # own.
     url = val.get("url")
-    if not url:
-        # Mobile API uses ``ru.avito://`` deep-link as ``uri`` — surface it as-is
-        # so MCP/UI can reconstruct https://www.avito.ru/.../{id} from sharing
-        # endpoint or item-detail later.
-        url = val.get("uri")
+    if not url or (isinstance(url, str) and url.startswith("ru.avito:")):
+        deep = val.get("uri")
+        if item_id:
+            url = f"https://www.avito.ru/{int(item_id)}"
+        elif isinstance(deep, str) and not deep.startswith("ru.avito:"):
+            url = deep
+        else:
+            url = None
 
     # ── Created-at ────────────────────────────────────────────────────────
     created_at = val.get("createdAt") or val.get("time")
@@ -346,6 +353,14 @@ def _normalize_item_detail(raw: dict, fallback_id: int = 0) -> ItemDetail:
         sharing = raw.get("sharing")
         if isinstance(sharing, dict):
             url = sharing.get("url") or sharing.get("native")
+    # Detail API may also yield a ``ru.avito://`` deep-link — same fallback as
+    # the search-list normaliser above.
+    if isinstance(url, str) and url.startswith("ru.avito:"):
+        rid = raw.get("id") or fallback_id
+        if rid:
+            url = f"https://www.avito.ru/{int(rid)}"
+        else:
+            url = None
 
     # ── Category ──────────────────────────────────────────────────────────
     category: str | None = None

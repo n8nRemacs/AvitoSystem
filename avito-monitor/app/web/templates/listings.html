@@ -95,7 +95,7 @@
   {% else %}
     <div class="space-y-2">
       {% for r in rows %}
-        <a href="{{ r.url or '#' }}" target="_blank" rel="noopener"
+        <a href="{{ r.web_url }}" target="_blank" rel="noopener"
            class="block bg-avito-surface rounded-lg border border-avito-border p-3 hover:border-avito-brand-soft hover:shadow-sm transition-all
              {% if not r.in_alert_zone %}opacity-60 hover:opacity-100{% endif %}">
           <div class="flex gap-3">
