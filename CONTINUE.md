@@ -10,7 +10,7 @@
 
 **Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito + ценовой разведки. Single-user, homelab-deploy, Avito-Cosplay UI.
 
-**Дата последнего обновления:** 2026-04-27 (Block 6 closed).
+**Дата последнего обновления:** 2026-04-27 (Block 6 closed + server-driven token refresh).
 
 ### Готово (закоммичено в git)
 
@@ -32,8 +32,16 @@
 | **V1 Block 4.3 (analytics + cleanup + notifications stub)** | `compute_market_stats` (median/p25/p75/working_share/condition_distribution + триггеры `market_trend_*`/`supply_surge`/`condition_mix_change`, daily 00:05 UTC tick) + `cleanup_old_listings` (ADR-009 retention 30/90/∞, daily 03:30 UTC) + `send_notification` stub с `dispatch_pending` каждые 2 мин. **Block 4 closed.** | `a291050` |
 | **V1 Block 5 (Telegram bot + pluggable messenger)** | `MessengerProvider` Protocol + `TelegramProvider` (aiogram 3) + `MaxProvider` stub + factory; 9 Jinja2 шаблонов в `app/prompts/messenger/`; long-polling бот с командами `/start /help /status /pause /resume /silent /profiles` + WhitelistMiddleware; inline-кнопки (Просмотрено/Скрыть/Скрыть продавца/Повторный LLM/Применить вилку/Игнорировать); `runtime_state` (system_paused + silent_until через `system_settings`); `send_notification` теперь реально шлёт через провайдер с retry/backoff и silent-gate. Smoke: `/start` отвечает, market_trend_down dispatch → TG message_id=16 → status=sent. | `1ae2f03` |
 | **V1 Block 6 (Profile Stats — Chart.js)** | `/search-profiles/{id}/stats` с 4 виджетами (line-chart медианы 30д с alert-band пунктиром, stacked histogram текущих цен по working/broken/iCloud/parts, donut condition-distribution, лента market-событий) + KPI-row + heuristic recommended alert-band (p10/p50 working) + placeholder когда < 7 дней истории и нет current snapshot. Сервис `profile_stats.py` (read-only view), Chart.js inline через CDN, кнопка 📊 в карточке профиля. | `e08365e` |
+| **V1+V2.1 server-driven token refresh** | Новая таблица `avito_device_commands` (миграция `006`) + 3 эндпоинта в xapi (`GET /api/v1/devices/me/commands?wait=60` long-poll, `POST .../{id}/ack`, admin `POST .../commands` с dedup window). APK получает команды через `commandPollJob` + refresh state-machine (root `monkey` → `input swipe` loop → re-read SharedPrefs → `am force-stop` → sync → ack). Health-checker `token_refresher.py` тикает 30с, при `ttl<=180s` POST'ит refresh_token, через 90с проверяет успех, 3 strikes → TG алерт. Silent_until теперь гейтит **только** листинг-уведомления, системные всегда проходят. Smoke на homelab пройден end-to-end по Server-side. | `b11e465`, `040477a`, fix `~ttl-window` |
 
 ### В работе / следующий шаг
+
+**Hand-off для юзера прямо сейчас:**
+1. **Собрать APK** (`AvitoAll/AvitoSessionManager/`) с новым `commandPollJob` и `handleRefreshToken`. Команда: `gradlew.bat assembleDebug`, потом `adb install -r app/build/outputs/apk/debug/app-debug.apk`. JAVA_HOME = JBR из `Android Studio4`.
+2. В UI приложения убедиться что Auto-launch ON и сервис запущен (Foreground Service).
+3. APK сразу начнёт long-poll'ить `/api/v1/devices/me/commands?wait=60` на `serverUrl` из настроек (по умолчанию `http://155.212.221.189:8080` — поменяй на homelab `http://213.108.170.194:8080`).
+4. Сервер уже создаёт `refresh_token` команды (видно в `avito_device_commands`); как только APK с новым кодом подключится — first long-poll вернёт команду, APK откроет Avito, скроллит, обновит токен, закроет.
+5. Через 90с health-checker проверит — если новый exp пришёл, strikes=0; если 3 раза подряд no_refresh → TG-алерт «открой Avito вручную».
 
 **Block 7 — Price Intelligence (полные market triggers).** ТЗ в `DOCS/V1_BLOCKS_TZ.md` §4 «Block 7».
 
