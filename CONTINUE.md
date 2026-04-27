@@ -10,26 +10,53 @@
 
 **Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito + ценовой разведки. Single-user, homelab-deploy, Avito-Cosplay UI.
 
+**Дата последнего обновления:** 2026-04-27.
+
 ### Готово (закоммичено в git)
 
 | Блок | Что | Коммит |
 |---|---|---|
-| Block 0 | Каркас FastAPI + SQLAlchemy 2.0 + auth + Avito-Cosplay light theme + Inter | `0c2be7f` |
-| Block 1 (UI design spec) | `DOCS/UI_DESIGN_SPEC_V1.md` + `AvitoSystemUI.zip` (Claude Design выдал 8 hero-screens × 2 стиля, выбран Avito-Cosplay) | `0c2be7f` |
-| Block 2 | 8 SQLAlchemy моделей §5.1 + URL-парсер + двойная вилка ±25% + sidebar+topbar layout + 4 страницы профилей + REST API + 3 demo-профиля | `0c2be7f` |
-| Документация | `DOCS/V1_BLOCKS_TZ.md` — per-block self-contained TZ + parallelization matrix | `251d78d` |
+| Block 0 + UI spec + Block 2 | каркас FastAPI + auth + 8 моделей + URL-парсер + sidebar+topbar + 3 demo-профиля | `0c2be7f` |
+| docs (V1_BLOCKS_TZ) | per-block self-contained TZ + parallelization matrix | `251d78d` |
+| docs (CONTINUE) | этот файл | `cce9d85` |
+| chore (cleanup) | gitignore hygiene + .claude/settings.json (SessionStart preflight) | `e934812` |
+| docs (project map) | CLAUDE.md по всему репо + V1/V2 specs | `22b86f5` |
+| **V2.0 reliability** | health-checker (9 сценариев A–I), activity-simulator, messenger-bot autoreply (Phase A с xapi-fallback) | `e179e5f` |
+| **V2.1 notification interception** | xapi `/notifications` + APK NotificationListener service + bot UI cards + миграция 005 | `9dc8a70` |
+| **V1 Block 1 (avito-mcp)** | scaffold с 4 MCP-tools (search/listing/listing_images/health), HTTP+SSE transport с Bearer-auth, /healthz, docker-compose сервис | `a8097e2` |
+| import: pre-existing subsystems | AvitoBayer, AvitoSystemUI, avito-mcp-homelab, tenant-auth/scripts | `a73c2f6` |
+| **V1 Block 3 (LLM Analyzer)** | OpenRouter wrapper + 3 prompts (classify/match/compare) + LLMAnalyzer.{classify_condition, match_criteria, compare_to_reference} с DB-кешем по `cache_key`, LLMBudget с 24h sum + LLMBudgetExceeded, scripts/test_llm.py CLI smoke | `~Block-3 commit` |
+| **V1 Block 4.1 (worker core)** | TaskIQ broker (Redis) + scheduler (минутный тик) + `poll_profile` (upsert listings/profile_listings, disappear-detection, price-change), worker+scheduler контейнеры | `9786e72` |
+| **V1 Block 4.2 (LLM dispatch + Gemini default)** | `analyze_listing` (stage-1 classify) + `match_listing` (stage-2 + Notification создание), polling enqueue, расширенный pricing catalog (gpt-5/gemini/deepseek/qwen), bench_models.py — **дефолт переключён на `google/gemini-2.5-flash-lite` (~11× дешевле haiku при 100% accuracy на 8 mock-листингах)** | `92f09ff` |
+| chore (timezone) | health-checker alerts рендерятся в `Europe/Astrakhan` вместо UTC | `46a4250` |
 
 ### В работе / следующий шаг
 
-**Зависит от того, есть ли инфраструктура:**
-- ❓ Рутирован ли OnePlus 8t? Установлен ли AvitoSessionManager APK? Льётся ли токен в Supabase?
-- ❓ Развёрнут ли avito-xapi на homelab (213.108.170.194:8080) и работает?
+**Block 4.3 — analytics + cleanup + notifications stub.** Частично сделано:
+- ✅ `app/tasks/notifications.py` написан (stub `send_notification` + `dispatch_pending` каждые 2 мин) — **untracked, не закоммичено** — посмотри `git status`
+- ❌ `app/tasks/analytics.py` — `compute_market_stats(profile_id, granularity='day')`. Считает median/p25/p75 + working_share + condition_distribution → пишет в `profile_market_stats`. Триггеры (`market_trend_*`, `supply_surge`, `condition_mix_change`, `historical_low`) — minimal версия, полная логика в Block 7
+- ❌ `app/tasks/cleanup.py` — `cleanup_old_listings`. market_data → 30 дней, analyzed → 90 дней, notified → бессрочно
+- ❌ Зарегистрировать `analytics`/`cleanup`/`notifications` в `app/tasks/broker.py::_register_tasks` (сейчас только `polling`+`scheduler`+`analysis`)
+- ❌ Smoke на одном профиле: poll → analyze → match → notification PENDING → dispatch_pending → SENT
 
-Проверь через раздел 2 ниже. По результату — раздел 4.
+После 4.3 → **Block 4 closed**, далее по плану `DOCS/V1_BLOCKS_TZ.md`:
+- Block 5 (Telegram bot, aiogram, заменяет stub в `notifications.py`)
+- Block 6 (stats dashboard, Chart.js)
+- Block 7 (price intelligence, полные market triggers)
+- Block 8 (polish + 72h soak)
 
-### Что осталось (7 блоков)
+### Operational заметки (важно при рестарте)
 
-`Block 1 (avito-mcp)`, `Block 3 (LLM Analyzer)`, `Block 4 (worker)`, `Block 5 (TG bot)`, `Block 6 (stats charts)`, `Block 7 (price intel)`, `Block 8 (deploy + 72h soak)`. Подробности — `DOCS/V1_BLOCKS_TZ.md`.
+- **TIMEZONE = `Europe/Astrakhan`** (UTC+4). Все health-checker алерты рендерятся в `+04`. Логи и DB всё ещё в UTC.
+- **Default LLM model = `google/gemini-2.5-flash-lite`** для текста и vision (image $0.0001/картинка). Per-profile override через `SearchProfile.llm_classify_model` / `llm_match_model`.
+- **Avito session TTL** регулярно падает к 4ч — health-checker scenario A алертит. Ручной refresh: на телефоне `110139ce` открой AvitoSessionManager → "Sync now". Иначе APK сам пушит когда приближается к 1ч.
+- **Phone setup для V2.1:** на устройстве выставлено `settings put global hidden_api_policy 1` (через root) и `cmd deviceidle whitelist +com.avitobridge.sessionmanager`. Это нужно чтобы NotificationListenerService не замораживался Oplus battery saver.
+- **OPENROUTER_API_KEY** — реальный, в `avito-monitor/.env` (не коммитится). Дневной лимит 10 USD, sum по `llm_analyses.cost_usd` за 24ч.
+
+### Известные хвосты
+
+- 5 health_checker tests сломаны после Stage 9 (русские строки vs ожидаемые английские, и переименование поля `keepalive_ms` → `second_event_ms`). ~20 мин на починку, **не блокер**.
+- Block 1 query parsing (`avito_fetch_search_page`): для category-only URLs query из brand слишком широкий ("apple" → AirPods + iPhone). Решается в Block 4 (worker) — он передаёт полный URL и xapi пробрасывает category_id. Уже работает достаточно.
 
 ---
 
