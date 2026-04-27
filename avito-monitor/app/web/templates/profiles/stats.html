@@ -1,0 +1,332 @@
+{% extends "_layout.html" %}
+{% block title %}Статистика — {{ profile.name }} — Avito Monitor{% endblock %}
+
+{% block page_content %}
+<div class="max-w-[1280px]">
+  {# ─────────── header ─────────── #}
+  <div class="flex items-center justify-between gap-3 mb-4">
+    <div>
+      <a href="/search-profiles" class="text-xs text-avito-text-soft hover:text-avito-text">← К списку профилей</a>
+      <h1 class="text-2xl font-semibold text-avito-text mt-1 flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full {% if profile.is_active %}bg-avito-positive{% else %}bg-avito-text-muted{% endif %}"></span>
+        {{ profile.name }}
+      </h1>
+      <div class="text-xs text-avito-text-soft mt-1">
+        {% if profile.parsed_brand %}{{ profile.parsed_brand }}{% if profile.parsed_model %} / {{ profile.parsed_model }}{% endif %}{% endif %}
+        {% if profile.region_slug %}· {{ profile.region_slug }}{% endif %}
+        · {{ profile.poll_interval_minutes }} мин
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <a href="/search-profiles/{{ profile.id }}" class="btn btn-sm bg-avito-surface border-avito-border text-avito-text hover:bg-avito-elev">⚙ Редакт.</a>
+      <a href="/search-profiles/{{ profile.id }}/runs" class="btn btn-sm bg-avito-surface border-avito-border text-avito-text hover:bg-avito-elev">📜 Прогоны</a>
+    </div>
+  </div>
+
+  {% if view.placeholder %}
+    {# ─────────── placeholder when nothing collected yet ─────────── #}
+    <div class="bg-avito-surface rounded-lg border border-avito-border p-10 text-center">
+      <div class="text-4xl mb-3">📊</div>
+      <h2 class="text-lg font-semibold text-avito-text mb-1">Копится статистика</h2>
+      <p class="text-sm text-avito-text-soft max-w-md mx-auto">
+        Ещё нет ни одного снимка рынка по этому профилю. Аналитика собирается раз в сутки;
+        полноценные графики появятся после 7 прогонов аналитики.
+      </p>
+      <p class="text-xs text-avito-text-muted mt-3">
+        История: {{ view.history_days_with_data }} / {{ view.history_days }} дней · Лотов сейчас: {{ view.kpi.current_count }}
+      </p>
+    </div>
+  {% else %}
+
+    {# ─────────── KPI row ─────────── #}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+        <div class="text-[11px] uppercase tracking-wide text-avito-text-soft">Лотов / 7 дн.</div>
+        <div class="text-2xl font-semibold tabular-nums text-avito-text mt-1">{{ view.kpi.current_count }}</div>
+        <div class="text-xs text-avito-text-muted mt-1">в alert-зоне: {{ view.kpi.in_alert }}</div>
+      </div>
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+        <div class="text-[11px] uppercase tracking-wide text-avito-text-soft">Медиана (clean)</div>
+        <div class="text-2xl font-semibold tabular-nums text-avito-text mt-1">
+          {% if view.kpi.median_clean_now is not none %}{{ '{:,.0f}'.format(view.kpi.median_clean_now).replace(',', '\xa0') }}&nbsp;₽{% else %}—{% endif %}
+        </div>
+        <div class="text-xs mt-1
+          {% if view.kpi.median_clean_delta_pct is not none and view.kpi.median_clean_delta_pct < 0 %}text-avito-negative
+          {% elif view.kpi.median_clean_delta_pct is not none and view.kpi.median_clean_delta_pct > 0 %}text-avito-positive
+          {% else %}text-avito-text-muted{% endif %}">
+          {% if view.kpi.median_clean_delta_pct is not none %}
+            {% if view.kpi.median_clean_delta_pct >= 0 %}▲ {{ '+' }}{{ view.kpi.median_clean_delta_pct }}%{% else %}▼ {{ view.kpi.median_clean_delta_pct }}%{% endif %} / {{ view.history_days }}д
+          {% else %}нет истории{% endif %}
+        </div>
+      </div>
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+        <div class="text-[11px] uppercase tracking-wide text-avito-text-soft">Доля working</div>
+        <div class="text-2xl font-semibold tabular-nums text-avito-text mt-1">
+          {% if view.kpi.working_share is not none %}{{ view.kpi.working_share }}%{% else %}—{% endif %}
+        </div>
+        <div class="text-xs text-avito-text-muted mt-1">по последнему снимку</div>
+      </div>
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+        <div class="text-[11px] uppercase tracking-wide text-avito-text-soft">Alert-вилка</div>
+        <div class="text-base font-semibold tabular-nums text-avito-text mt-1">
+          {% if profile.alert_min_price and profile.alert_max_price %}
+            {{ '{:,}'.format(profile.alert_min_price).replace(',', '\xa0') }} – {{ '{:,}'.format(profile.alert_max_price).replace(',', '\xa0') }}&nbsp;₽
+          {% else %}—{% endif %}
+        </div>
+        <div class="text-xs text-avito-text-muted mt-1">текущая</div>
+      </div>
+    </div>
+
+    {# ─────────── line chart + donut ─────────── #}
+    <div class="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4 mb-4">
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-avito-text">Динамика цены — {{ view.history_days }} дней</h3>
+          <span class="text-xs text-avito-text-muted">{{ view.history_days_with_data }} точек</span>
+        </div>
+        <div style="height: 240px; position: relative;">
+          {% if view.history %}
+            <canvas id="chart-line"></canvas>
+          {% else %}
+            <div class="h-full flex items-center justify-center text-sm text-avito-text-muted">Нет истории</div>
+          {% endif %}
+        </div>
+        <div class="text-[11px] text-avito-text-muted mt-2">
+          Зелёная пунктирная зона = текущая alert-вилка.
+        </div>
+      </div>
+
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+        <h3 class="text-sm font-semibold text-avito-text mb-3">Состав по состояниям</h3>
+        <div style="height: 240px; position: relative;">
+          {% if view.donut %}
+            <canvas id="chart-donut"></canvas>
+          {% else %}
+            <div class="h-full flex items-center justify-center text-sm text-avito-text-muted">Нет лотов</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# ─────────── histogram + events ─────────── #}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+        <h3 class="text-sm font-semibold text-avito-text mb-3">Цены лотов сейчас (n={{ view.kpi.current_count }})</h3>
+        <div style="height: 220px; position: relative;">
+          {% if view.buckets %}
+            <canvas id="chart-hist"></canvas>
+          {% else %}
+            <div class="h-full flex items-center justify-center text-sm text-avito-text-muted">Нет данных</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-4">
+        <h3 class="text-sm font-semibold text-avito-text mb-3">События рынка — 7 дней</h3>
+        {% if view.events %}
+          <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+            {% for e in view.events %}
+            <div class="flex items-start gap-2 text-sm">
+              <span class="mt-1 w-1.5 h-1.5 rounded-full
+                {% if e.type in ('market_trend_down','supply_surge') %}bg-avito-negative
+                {% elif e.type == 'market_trend_up' %}bg-avito-positive
+                {% elif e.type == 'historical_low' %}bg-avito-info
+                {% else %}bg-avito-warning{% endif %}"></span>
+              <div class="flex-1">
+                <div class="text-avito-text">
+                  <span class="font-medium">{{ e.type }}</span>
+                  {% if e.payload.delta_pct is not none %}
+                    <span class="ml-1 tabular-nums {% if (e.payload.delta_pct or 0) < 0 %}text-avito-negative{% else %}text-avito-positive{% endif %}">
+                      {% set d = (e.payload.delta_pct or 0) * 100 %}
+                      {% if d >= 0 %}+{% endif %}{{ '%.1f' % d }}%
+                    </span>
+                  {% endif %}
+                </div>
+                <div class="text-[11px] text-avito-text-muted">{{ e.created_at[:16].replace('T', ' ') }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="h-[220px] flex items-center justify-center text-sm text-avito-text-muted">Событий пока нет</div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ─────────── recommended band ─────────── #}
+    {% if view.recommended_band %}
+    <div class="bg-avito-brand-soft border border-avito-brand rounded-lg p-4 flex items-center justify-between gap-4">
+      <div>
+        <div class="text-sm font-semibold text-[#5A8C00] mb-1">💡 Авто-рекомендация alert-вилки</div>
+        <div class="text-xs text-avito-text-soft">
+          Текущая:
+          <span class="tabular-nums text-avito-text font-medium">
+            {% if profile.alert_min_price and profile.alert_max_price %}
+              {{ '{:,}'.format(profile.alert_min_price).replace(',', '\xa0') }} – {{ '{:,}'.format(profile.alert_max_price).replace(',', '\xa0') }} ₽
+            {% else %}не задана{% endif %}
+          </span>
+          &nbsp;·&nbsp;
+          Рекомендую (по p10/p50 working лотов):
+          <span class="tabular-nums text-[#5A8C00] font-semibold">
+            {{ '{:,.0f}'.format(view.recommended_band.min).replace(',', '\xa0') }} – {{ '{:,.0f}'.format(view.recommended_band.max).replace(',', '\xa0') }} ₽
+          </span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  {% endif %}
+
+  {# ─────────── chart bootstrap ─────────── #}
+  {% if not view.placeholder %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script>
+    (function() {
+      const data = {{ chart_data_json | safe }};
+      const grid = 'rgba(225,228,232,0.6)';
+      const text = '#5C6878';
+      const lineColor = '#97CF26';
+      const fill = 'rgba(151,207,38,0.16)';
+      const fontFamily = "'Inter', sans-serif";
+
+      function fmtK(v) {
+        if (v === null || v === undefined) return '';
+        if (Math.abs(v) >= 1000) return (v / 1000).toFixed(0) + 'K';
+        return String(v);
+      }
+
+      // Line chart — median (clean) over time
+      const lineEl = document.getElementById('chart-line');
+      if (lineEl && data.history && data.history.length) {
+        const ctx = lineEl.getContext('2d');
+        const labels = data.history.map(h => h.d);
+        const values = data.history.map(h => h.median_clean);
+        const alertMin = data.alert_band ? data.alert_band.min : null;
+        const alertMax = data.alert_band ? data.alert_band.max : null;
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Медиана clean',
+              data: values,
+              borderColor: lineColor,
+              backgroundColor: fill,
+              borderWidth: 2,
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2.5,
+              pointHoverRadius: 5,
+              pointBackgroundColor: lineColor,
+              spanGaps: true,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: {
+                grid: { color: grid },
+                ticks: { color: text, font: { family: fontFamily, size: 10 }, callback: fmtK },
+              },
+              x: {
+                grid: { color: grid, display: false },
+                ticks: { color: text, font: { family: fontFamily, size: 10 }, maxTicksLimit: 8 },
+              }
+            }
+          },
+          plugins: [{
+            id: 'alertBand',
+            beforeDatasetsDraw(chart) {
+              if (alertMin === null || alertMax === null) return;
+              const {ctx, chartArea, scales} = chart;
+              const yMin = scales.y.getPixelForValue(alertMin);
+              const yMax = scales.y.getPixelForValue(alertMax);
+              ctx.save();
+              ctx.fillStyle = 'rgba(151,207,38,0.18)';
+              ctx.fillRect(chartArea.left, yMax, chartArea.right - chartArea.left, yMin - yMax);
+              ctx.strokeStyle = 'rgba(151,207,38,0.7)';
+              ctx.setLineDash([4,4]);
+              ctx.lineWidth = 1;
+              ctx.beginPath(); ctx.moveTo(chartArea.left, yMin); ctx.lineTo(chartArea.right, yMin); ctx.stroke();
+              ctx.beginPath(); ctx.moveTo(chartArea.left, yMax); ctx.lineTo(chartArea.right, yMax); ctx.stroke();
+              ctx.setLineDash([]);
+              ctx.fillStyle = '#5A8C00';
+              ctx.font = `10px ${fontFamily}`;
+              ctx.fillText(`alert max ${fmtK(alertMax)}`, chartArea.right - 100, yMax - 4);
+              ctx.fillText(`alert min ${fmtK(alertMin)}`, chartArea.right - 100, yMin + 12);
+              ctx.restore();
+            }
+          }]
+        });
+      }
+
+      // Histogram — current price distribution (stacked by category)
+      const histEl = document.getElementById('chart-hist');
+      if (histEl && data.buckets && data.buckets.length) {
+        const ctx = histEl.getContext('2d');
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: data.buckets.map(b => b.label),
+            datasets: [
+              { label: 'working', data: data.buckets.map(b => b.working || 0), backgroundColor: '#97CF26', stack: 's' },
+              { label: 'битые',   data: data.buckets.map(b => b.broken  || 0), backgroundColor: '#DC3545', stack: 's' },
+              { label: 'iCloud',  data: data.buckets.map(b => b.icloud  || 0), backgroundColor: '#FFB900', stack: 's' },
+              { label: 'parts',   data: data.buckets.map(b => b.parts   || 0), backgroundColor: '#9966CC', stack: 's' },
+              { label: 'unknown', data: data.buckets.map(b => b.unknown || 0), backgroundColor: '#8C95A1', stack: 's' },
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: true, labels: { color: text, font: { family: fontFamily, size: 10 } } }
+            },
+            scales: {
+              x: { stacked: true, grid: { display: false }, ticks: { color: text, font: { family: fontFamily, size: 10 } } },
+              y: { stacked: true, grid: { color: grid }, ticks: { color: text, stepSize: 1, font: { family: fontFamily, size: 10 } }, beginAtZero: true },
+            }
+          }
+        });
+      }
+
+      // Donut — condition distribution
+      const donutEl = document.getElementById('chart-donut');
+      if (donutEl && data.donut && data.donut.length) {
+        const palette = {
+          working:        '#97CF26',
+          blocked_icloud: '#FFB900',
+          blocked_account:'#FFB900',
+          not_starting:   '#FF6B35',
+          broken_screen:  '#DC3545',
+          broken_other:   '#DC3545',
+          parts_only:     '#9966CC',
+          unknown:        '#8C95A1',
+        };
+        const ctx = donutEl.getContext('2d');
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: data.donut.map(d => d.label),
+            datasets: [{
+              data: data.donut.map(d => d.count),
+              backgroundColor: data.donut.map(d => palette[d.key] || '#8C95A1'),
+              borderWidth: 0,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '65%',
+            plugins: {
+              legend: { position: 'right', labels: { color: text, font: { family: fontFamily, size: 11 } } }
+            }
+          }
+        });
+      }
+    })();
+  </script>
+  {% endif %}
+</div>
+{% endblock %}

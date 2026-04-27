@@ -315,6 +315,26 @@ async def profile_update(
     )
 
 
+@router.get("/search-profiles/{profile_id}/stats", response_class=HTMLResponse)
+async def profile_stats(
+    profile_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    profile = await svc.get_profile(session, user.id, profile_id)
+    if profile is None:
+        raise HTTPException(404, "Profile not found")
+    from app.services.profile_stats import compute_stats_view, serialize_for_template
+
+    ctx = await _layout_context(user, session, active="profiles")
+    view = await compute_stats_view(session, profile)
+    ctx["view"] = view
+    ctx["profile"] = profile
+    ctx["chart_data_json"] = json.dumps(serialize_for_template(view))
+    return templates.TemplateResponse(request, "profiles/stats.html", ctx)
+
+
 @router.get("/search-profiles/{profile_id}/runs", response_class=HTMLResponse)
 async def profile_runs(
     profile_id: uuid.UUID,
