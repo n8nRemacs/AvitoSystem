@@ -1,0 +1,17 @@
+# avito-mcp on homelab.
+#
+# network_mode: host  — picked over a custom bridge or extra_hosts:
+#   * lets the container reach xapi at localhost:8080 directly
+#   * exposes /sse, /healthz, /restart on the LAN at 192.168.31.97:9000
+#     so the phone (same LAN) can hit it without port-forwarding
+# security_opt: apparmor:unconfined — Proxmox LXC quirk, same fix used by
+# avito-xapi on this host.
+services:
+  avito-mcp:
+    build: .
+    container_name: avito-mcp-homelab
+    network_mode: host
+    env_file: .env
+    restart: unless-stopped
+    security_opt:
+      - apparmor:unconfined
