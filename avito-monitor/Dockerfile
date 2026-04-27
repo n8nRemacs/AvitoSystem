@@ -22,7 +22,9 @@ FROM base AS builder
 COPY pyproject.toml ./
 COPY uv.lock* ./
 
-RUN uv sync --no-dev --no-install-project
+# Include dev group so we can run pytest/ruff inside the dev image. Strip --no-dev
+# in a separate prod target later if image size becomes an issue.
+RUN uv sync --no-install-project
 
 # --- runtime stage ----------------------------------------------------------
 FROM base AS runtime
@@ -30,11 +32,14 @@ FROM base AS runtime
 COPY --from=builder /opt/venv /opt/venv
 
 COPY app /app/app
+COPY avito_mcp /app/avito_mcp
 COPY shared /app/shared
 COPY scripts /app/scripts
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
+# tests/ is excluded from the build context (.dockerignore) and is mounted as a
+# bind volume in docker-compose.yml so pytest can run inside the running container.
 
-EXPOSE 8000
+EXPOSE 8000 9000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

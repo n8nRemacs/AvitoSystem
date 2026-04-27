@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.api.health_full import router as health_full_api
 from app.api.search_profiles import router as search_profiles_api
 from app.config import get_settings
 from app.db.base import dispose_engine
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     app.include_router(search_profiles_api)
+    app.include_router(health_full_api)
     app.include_router(web_router)
 
     @app.get("/health", tags=["health"])

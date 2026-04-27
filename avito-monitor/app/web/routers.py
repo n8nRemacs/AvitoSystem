@@ -367,6 +367,30 @@ async def profile_run_now_web(
 
 
 # ---------------------------------------------------------------------------
+# Reliability — V2 Messenger Reliability §2 L5 / Stage 7
+# ---------------------------------------------------------------------------
+
+@router.get("/reliability", response_class=HTMLResponse)
+async def reliability_page(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    """Static shell for the Reliability dashboard.
+
+    The real status data is fetched client-side from ``/api/v1/health/full``
+    immediately on load and then every 30 s. Server-side we just render the
+    layout + the scenario letter list so the page is meaningful even before
+    the first JS fetch returns.
+    """
+    from app.api.health_full import SCENARIO_LABELS
+
+    ctx = await _layout_context(user, session, active="reliability")
+    ctx["scenario_labels"] = SCENARIO_LABELS
+    return templates.TemplateResponse(request, "reliability.html", ctx)
+
+
+# ---------------------------------------------------------------------------
 # Stubs — pages that come in later blocks
 # ---------------------------------------------------------------------------
 

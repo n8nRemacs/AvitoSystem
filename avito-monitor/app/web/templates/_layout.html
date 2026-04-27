@@ -28,12 +28,13 @@
     <aside class="w-60 bg-avito-bg border-r border-avito-border flex-shrink-0">
       <nav class="p-3 space-y-1">
         {% set _items = [
-            ('dashboard', '/',                  '📊', 'Дашборд',           None),
-            ('profiles',  '/search-profiles',   '🎯', 'Профили поиска',    sidebar_profiles_count),
-            ('listings',  '/listings',          '📦', 'Лоты',              sidebar_listings_count),
-            ('prices',    '/price-intelligence','💰', 'Ценовая разведка',  None),
-            ('logs',      '/logs',              '📜', 'Логи',              None),
-            ('settings',  '/settings',          '⚙️',  'Настройки',         None),
+            ('dashboard',   '/',                  '📊', 'Дашборд',           None),
+            ('profiles',    '/search-profiles',   '🎯', 'Профили поиска',    sidebar_profiles_count),
+            ('listings',    '/listings',          '📦', 'Лоты',              sidebar_listings_count),
+            ('prices',      '/price-intelligence','💰', 'Ценовая разведка',  None),
+            ('reliability', '/reliability',       '🩺', 'Reliability',       None),
+            ('logs',        '/logs',              '📜', 'Логи',              None),
+            ('settings',    '/settings',          '⚙️',  'Настройки',         None),
         ] %}
         {% for key, href, icon, label, badge in _items %}
         <a href="{{ href }}"

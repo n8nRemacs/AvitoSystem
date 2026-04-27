@@ -1,0 +1,407 @@
+{% extends "_layout.html" %}
+
+{% block title %}Reliability — Avito Monitor{% endblock %}
+
+{#
+  Reliability dashboard — V2 Messenger Reliability §2 L5 / Stage 7.
+
+  The page shell is rendered server-side; all live data is filled in client-side
+  by polling /api/v1/health/full every 30 s. The action buttons hit the sidecar
+  ports directly (9100 for health-checker /run-all, 9102 for messenger-bot
+  /pause /resume) — this assumes the browser runs on the same host as the
+  docker-compose stack, which is the V2 single-user homelab deployment model.
+#}
+
+{% block page_content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-avito-text">Reliability</h1>
+    <p class="text-sm text-avito-text-soft">
+      Состояние reliability-стека V2: 7 сценариев, sidecar-сервисы, 24-часовая хронология.
+    </p>
+  </div>
+  <div class="flex items-center gap-3">
+    <span id="rel-data-age" class="text-xs text-avito-text-soft tabular-nums">—</span>
+    <button id="rel-btn-refresh"
+            class="px-3 py-1.5 rounded-md border border-avito-border text-sm hover:bg-avito-elev">
+      ↻ Обновить
+    </button>
+    <button id="rel-btn-run-all"
+            class="px-3 py-1.5 rounded-md bg-avito-brand text-white text-sm font-medium hover:bg-avito-brand-hover">
+      ▶ Run All
+    </button>
+  </div>
+</div>
+
+<!-- Bot toolbar -->
+<div class="bg-avito-surface rounded-lg border border-avito-border p-4 mb-6 flex items-center gap-3 flex-wrap">
+  <div class="text-sm text-avito-text-soft">Messenger bot:</div>
+  <span id="rel-bot-status" class="inline-flex items-center gap-1.5 text-sm">
+    <span id="rel-bot-dot" class="inline-block w-2 h-2 rounded-full bg-avito-text-muted"></span>
+    <span id="rel-bot-state-text">—</span>
+  </span>
+  <div class="flex-1"></div>
+  <button id="rel-btn-pause"
+          class="px-3 py-1.5 rounded-md border border-avito-border text-sm hover:bg-avito-elev">
+    ⏸ Pause Bot
+  </button>
+  <button id="rel-btn-resume"
+          class="px-3 py-1.5 rounded-md border border-avito-border text-sm hover:bg-avito-elev">
+    ▶ Resume Bot
+  </button>
+</div>
+
+<!-- Status board -->
+<section class="mb-6">
+  <h2 class="text-base font-semibold text-avito-text mb-3">Сценарии A–G</h2>
+  <div id="rel-scenarios" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    {% for letter, label in scenario_labels.items() %}
+    <article class="rel-card bg-avito-surface rounded-lg border border-avito-border p-4 cursor-pointer hover:shadow-md transition-shadow"
+             data-scenario="{{ letter }}">
+      <header class="flex items-start gap-2 mb-1">
+        <span class="text-xs font-mono px-1.5 py-0.5 rounded bg-avito-elev text-avito-text-soft">{{ letter }}</span>
+        <span class="rel-card-status-pill text-xs px-2 py-0.5 rounded-full bg-[#F4F4F4] text-[#888]">—</span>
+        <span class="ml-auto rel-card-age text-[11px] tabular-nums text-avito-text-muted">—</span>
+      </header>
+      <div class="text-sm font-medium text-avito-text mb-1">{{ label }}</div>
+      <div class="rel-card-summary text-xs text-avito-text-soft tabular-nums truncate">—</div>
+      <div class="rel-card-latency text-[11px] tabular-nums text-avito-text-muted mt-1">—</div>
+      <div class="rel-card-history hidden mt-3 border-t border-avito-border-soft pt-2 text-[11px] text-avito-text-soft space-y-1"></div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- Services panel -->
+<section class="mb-6">
+  <h2 class="text-base font-semibold text-avito-text mb-3">Сервисы</h2>
+  <div id="rel-services" class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+    {% for svc in ['health-checker', 'messenger-bot', 'activity-simulator', 'avito-mcp', 'xapi'] %}
+    <article class="rel-svc bg-avito-surface rounded-lg border border-avito-border p-3"
+             data-service="{{ svc }}">
+      <header class="flex items-center gap-2 mb-1">
+        <span class="rel-svc-dot inline-block w-2 h-2 rounded-full bg-avito-text-muted"></span>
+        <span class="text-sm font-medium text-avito-text truncate">{{ svc }}</span>
+      </header>
+      <div class="rel-svc-metric text-xs text-avito-text-soft tabular-nums truncate">—</div>
+      <div class="rel-svc-error text-[11px] text-avito-negative truncate"></div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- 24h timeline -->
+<section class="bg-avito-surface rounded-lg border border-avito-border p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-base font-semibold text-avito-text">Хронология 24ч</h2>
+    <span class="text-xs text-avito-text-soft">pass = 1, fail = 0, skip = 0.5</span>
+  </div>
+  <div class="relative" style="height:280px">
+    <canvas id="rel-timeline"></canvas>
+  </div>
+</section>
+
+<!-- Toast container -->
+<div id="rel-toasts" class="fixed bottom-6 right-6 space-y-2 z-50"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<script>
+(() => {
+  // ---------------------------------------------------------------------
+  // Reliability dashboard glue. Pure vanilla JS — no build step.
+  // ---------------------------------------------------------------------
+
+  const SCENARIO_LETTERS = ['A','B','C','D','E','F','G'];
+
+  // Sidecar URLs the browser hits directly. Same-machine assumption (V2 homelab).
+  const HEALTH_CHECKER_URL = 'http://localhost:9100';
+  const MESSENGER_BOT_URL  = 'http://localhost:9102';
+  const HEALTH_CHECKER_HISTORY_URL = HEALTH_CHECKER_URL + '/history';
+
+  // ---------- DOM helpers ----------
+  const $  = (sel, root=document) => root.querySelector(sel);
+  const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+  const cards = new Map(SCENARIO_LETTERS.map(l => [l, $(`.rel-card[data-scenario="${l}"]`)]));
+
+  function fmtAgo(iso) {
+    if (!iso) return '—';
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 0) return 'now';
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return s + ' сек назад';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + ' мин назад';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + ' ч назад';
+    return Math.floor(h / 24) + ' д назад';
+  }
+
+  function statusPillCls(status) {
+    if (status === 'pass') return 'bg-avito-brand-soft text-[#5A8C00]';
+    if (status === 'fail') return 'bg-[#FFE4E6] text-[#A02835]';
+    if (status === 'skip') return 'bg-[#FFF4D6] text-[#A87800]';
+    return 'bg-[#F4F4F4] text-[#888]';
+  }
+
+  function statusLabel(status) {
+    if (status === 'pass') return 'PASS';
+    if (status === 'fail') return 'FAIL';
+    if (status === 'skip') return 'SKIP';
+    return '—';
+  }
+
+  function toast(msg, kind='info') {
+    const wrap = $('#rel-toasts');
+    const el = document.createElement('div');
+    const bg = kind === 'error' ? 'bg-avito-negative' :
+               kind === 'ok'    ? 'bg-avito-positive' : 'bg-avito-text';
+    el.className = `${bg} text-white px-4 py-2 rounded-md text-sm shadow-lg`;
+    el.textContent = msg;
+    wrap.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+
+  // ---------- Render ----------
+  function renderScenarios(scenarios) {
+    for (const letter of SCENARIO_LETTERS) {
+      const card = cards.get(letter);
+      if (!card) continue;
+      const row = scenarios[letter] || {};
+      const pill = $('.rel-card-status-pill', card);
+      pill.className = 'rel-card-status-pill text-xs px-2 py-0.5 rounded-full ' + statusPillCls(row.status);
+      pill.textContent = statusLabel(row.status);
+      $('.rel-card-summary', card).textContent = row.details_summary || '—';
+      $('.rel-card-latency', card).textContent =
+        row.latency_ms == null ? '—' : `${row.latency_ms} ms`;
+      $('.rel-card-age', card).textContent = fmtAgo(row.ts);
+      // Red border on fail
+      card.classList.toggle('border-avito-negative', row.status === 'fail');
+      card.classList.toggle('border-avito-border', row.status !== 'fail');
+    }
+  }
+
+  function renderServices(services) {
+    for (const svc of $$('.rel-svc')) {
+      const name = svc.dataset.service;
+      const data = services[name] || { reachable: false, error: 'no data' };
+      const dot = $('.rel-svc-dot', svc);
+      dot.classList.toggle('bg-avito-positive', !!data.reachable);
+      dot.classList.toggle('bg-avito-negative', !data.reachable);
+      dot.classList.toggle('bg-avito-text-muted', false);
+
+      let metric = '';
+      if (name === 'health-checker' && data.uptime_sec != null)
+        metric = `uptime ${Math.floor(data.uptime_sec/60)} min`;
+      else if (name === 'messenger-bot') {
+        const parts = [];
+        if (data.sse_state) parts.push(`SSE ${data.sse_state}`);
+        if (data.total_replies != null) parts.push(`${data.total_replies} replies`);
+        if (data.bot_enabled === false) parts.push('PAUSED');
+        metric = parts.join(' · ');
+      } else if (name === 'activity-simulator') {
+        const parts = [];
+        if (data.total_actions_today != null) parts.push(`${data.total_actions_today} act/24h`);
+        if (data.uptime_sec != null) parts.push(`up ${Math.floor(data.uptime_sec/60)} min`);
+        metric = parts.join(' · ');
+      } else if (name === 'avito-mcp') {
+        if (data.uptime_sec != null) metric = `uptime ${Math.floor(data.uptime_sec/60)} min`;
+        else if (data.status) metric = data.status;
+      } else if (name === 'xapi') {
+        if (data.session_ttl_hours != null) metric = `TTL ${Number(data.session_ttl_hours).toFixed(1)}h`;
+        else if (data.status) metric = data.status;
+      }
+      $('.rel-svc-metric', svc).textContent = metric || (data.reachable ? 'ok' : '');
+      $('.rel-svc-error', svc).textContent = data.reachable ? '' : (data.error || '');
+    }
+  }
+
+  function renderBotToolbar(services) {
+    const bot = services['messenger-bot'] || {};
+    const dot = $('#rel-bot-dot');
+    const text = $('#rel-bot-state-text');
+    if (!bot.reachable) {
+      dot.className = 'inline-block w-2 h-2 rounded-full bg-avito-text-muted';
+      text.textContent = 'недоступен';
+      return;
+    }
+    if (bot.bot_enabled === false) {
+      dot.className = 'inline-block w-2 h-2 rounded-full bg-avito-warning';
+      text.textContent = 'на паузе';
+    } else {
+      dot.className = 'inline-block w-2 h-2 rounded-full bg-avito-positive';
+      text.textContent = `активен · ${bot.sse_state || 'sse?'}`;
+    }
+  }
+
+  function renderDataAge(ts) {
+    $('#rel-data-age').textContent = ts ? `обновлено ${fmtAgo(ts)}` : '—';
+  }
+
+  // ---------- Fetch + poll ----------
+  let lastSnapshot = null;
+
+  async function fetchSnapshot() {
+    try {
+      const resp = await fetch('/api/v1/health/full', { credentials: 'same-origin' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      lastSnapshot = data;
+      renderScenarios(data.scenarios || {});
+      renderServices(data.services || {});
+      renderBotToolbar(data.services || {});
+      renderDataAge(data.ts);
+    } catch (err) {
+      console.warn('health/full failed', err);
+      renderDataAge(null);
+      toast('Не удалось загрузить /api/v1/health/full: ' + err, 'error');
+    }
+  }
+
+  // Refresh data-age every 5s without re-fetching the snapshot.
+  setInterval(() => {
+    if (lastSnapshot) renderDataAge(lastSnapshot.ts);
+  }, 5000);
+
+  // Background poll every 30s.
+  setInterval(fetchSnapshot, 30000);
+
+  // ---------- Card expand → fetch history ----------
+  for (const card of $$('.rel-card')) {
+    card.addEventListener('click', async () => {
+      const letter = card.dataset.scenario;
+      const hist = $('.rel-card-history', card);
+      if (!hist.classList.contains('hidden')) {
+        hist.classList.add('hidden');
+        return;
+      }
+      hist.classList.remove('hidden');
+      hist.textContent = 'загрузка...';
+      try {
+        const resp = await fetch(`/api/v1/health/scenario/${letter}?limit=5`, { credentials: 'same-origin' });
+        const data = await resp.json();
+        const rows = data.rows || [];
+        if (!rows.length) {
+          hist.textContent = 'нет данных';
+          return;
+        }
+        hist.innerHTML = rows.map(r => {
+          const cls = r.status === 'pass' ? 'text-avito-positive'
+                    : r.status === 'fail' ? 'text-avito-negative'
+                    : 'text-avito-warning';
+          const ago = fmtAgo(r.ts);
+          const lat = r.latency_ms == null ? '' : ` · ${r.latency_ms}ms`;
+          return `<div><span class="${cls} font-mono">${r.status}</span> · ${ago}${lat}</div>`;
+        }).join('');
+      } catch (err) {
+        hist.textContent = 'ошибка: ' + err;
+      }
+    });
+  }
+
+  // ---------- Timeline (Chart.js) ----------
+  let chart = null;
+
+  function statusToY(s) {
+    if (s === 'pass') return 1;
+    if (s === 'skip') return 0.5;
+    return 0; // fail or unknown
+  }
+
+  async function loadTimeline() {
+    // Pull last 24h of history straight from health-checker sidecar. If it's
+    // not reachable from the browser (different machine) we silently skip the
+    // chart — the rest of the page still works.
+    try {
+      const resp = await fetch(HEALTH_CHECKER_HISTORY_URL + '?limit=500', { mode: 'cors' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      const rows = data.rows || [];
+      const cutoff = Date.now() - 24*3600*1000;
+      const datasets = SCENARIO_LETTERS.map((letter, idx) => {
+        const palette = ['#97CF26','#1989C5','#9966CC','#FFB900','#2EBF5C','#DC3545','#5C6878'];
+        const points = rows
+          .filter(r => r.scenario === letter && r.ts && new Date(r.ts).getTime() >= cutoff)
+          .map(r => ({ x: new Date(r.ts).getTime(), y: statusToY(r.status) }))
+          .sort((a, b) => a.x - b.x);
+        return {
+          label: letter,
+          data: points,
+          borderColor: palette[idx % palette.length],
+          backgroundColor: palette[idx % palette.length] + '33',
+          stepped: true,
+          tension: 0,
+          pointRadius: 1,
+          borderWidth: 1.5,
+        };
+      });
+      const canvas = $('#rel-timeline');
+      if (chart) chart.destroy();
+      chart = new Chart(canvas, {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          parsing: false,
+          interaction: { mode: 'nearest', intersect: false },
+          scales: {
+            x: { type: 'linear',
+                 ticks: { callback: v => new Date(v).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}) },
+                 title: { display: false } },
+            y: { min: -0.1, max: 1.1, ticks: { stepSize: 0.5,
+                 callback: v => v === 1 ? 'pass' : v === 0 ? 'fail' : v === 0.5 ? 'skip' : '' } },
+          },
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+        },
+      });
+    } catch (err) {
+      console.warn('timeline load failed', err);
+      const canvas = $('#rel-timeline');
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#8C95A1';
+      ctx.font = '14px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('История недоступна — проверь, что health-checker:9100 доступен из браузера',
+                   canvas.width/2, canvas.height/2);
+    }
+  }
+
+  // ---------- Action buttons ----------
+  async function postSidecar(url, label) {
+    try {
+      const resp = await fetch(url, { method: 'POST', mode: 'cors' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      toast(`${label}: OK`, 'ok');
+      return true;
+    } catch (err) {
+      toast(`${label} failed: ${err}`, 'error');
+      return false;
+    }
+  }
+
+  $('#rel-btn-refresh').addEventListener('click', () => {
+    fetchSnapshot();
+    loadTimeline();
+  });
+  $('#rel-btn-run-all').addEventListener('click', async () => {
+    const ok = await postSidecar(HEALTH_CHECKER_URL + '/run-all', 'Run All');
+    if (ok) {
+      // Wait briefly for new rows to land and then refresh.
+      setTimeout(() => { fetchSnapshot(); loadTimeline(); }, 1500);
+    }
+  });
+  $('#rel-btn-pause').addEventListener('click', async () => {
+    const ok = await postSidecar(MESSENGER_BOT_URL + '/pause', 'Pause Bot');
+    if (ok) setTimeout(fetchSnapshot, 500);
+  });
+  $('#rel-btn-resume').addEventListener('click', async () => {
+    const ok = await postSidecar(MESSENGER_BOT_URL + '/resume', 'Resume Bot');
+    if (ok) setTimeout(fetchSnapshot, 500);
+  });
+
+  // ---------- Initial load ----------
+  fetchSnapshot();
+  loadTimeline();
+})();
+</script>
+{% endblock %}

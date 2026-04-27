@@ -9,14 +9,20 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://avito:avito@db:5432/avito_monitor
       REDIS_URL: redis://redis:6379/0
+      AVITO_XAPI_URL: ${AVITO_XAPI_URL:-http://host.docker.internal:8080}
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY:-test_dev_key_123}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
       - ./app:/app/app
+      - ./avito_mcp:/app/avito_mcp
       - ./shared:/app/shared
       - ./scripts:/app/scripts
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./tests:/app/tests
     depends_on:
       db:
         condition: service_healthy
@@ -41,6 +47,124 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+
+  health-checker:
+    build:
+      context: .
+      target: runtime
+    image: avito-monitor-app:dev
+    command: python -m app.services.health_checker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://avito:avito@db:5432/avito_monitor
+      REDIS_URL: redis://redis:6379/0
+      AVITO_XAPI_URL: ${AVITO_XAPI_URL:-http://host.docker.internal:8080}
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY:-test_dev_key_123}
+      HEALTH_CHECKER_API_PORT: "9100"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9100:9100"
+    volumes:
+      - ./app:/app/app
+      - ./avito_mcp:/app/avito_mcp
+      - ./shared:/app/shared
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  activity-simulator:
+    build:
+      context: .
+      target: runtime
+    image: avito-monitor-app:dev
+    command: python -m app.services.activity_simulator
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://avito:avito@db:5432/avito_monitor
+      REDIS_URL: redis://redis:6379/0
+      AVITO_XAPI_URL: ${AVITO_XAPI_URL:-http://host.docker.internal:8080}
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY:-test_dev_key_123}
+      ACTIVITY_SIM_API_PORT: "9101"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9101:9101"
+    volumes:
+      - ./app:/app/app
+      - ./avito_mcp:/app/avito_mcp
+      - ./shared:/app/shared
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  messenger-bot:
+    build:
+      context: .
+      target: runtime
+    image: avito-monitor-app:dev
+    command: python -m app.services.messenger_bot
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://avito:avito@db:5432/avito_monitor
+      REDIS_URL: redis://redis:6379/0
+      AVITO_XAPI_URL: ${AVITO_XAPI_URL:-http://host.docker.internal:8080}
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY:-test_dev_key_123}
+      MESSENGER_BOT_API_PORT: "9102"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9102:9102"
+    volumes:
+      - ./app:/app/app
+      - ./avito_mcp:/app/avito_mcp
+      - ./shared:/app/shared
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  avito-mcp:
+    build:
+      context: .
+      target: runtime
+    image: avito-monitor-app:dev
+    command: python -m avito_mcp
+    env_file: .env
+    environment:
+      AVITO_XAPI_URL: ${AVITO_XAPI_URL:-http://host.docker.internal:8080}
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY:-test_dev_key_123}
+      AVITO_MCP_TRANSPORT: ${AVITO_MCP_TRANSPORT:-sse}
+      AVITO_MCP_HTTP_HOST: 0.0.0.0
+      AVITO_MCP_HTTP_PORT: "9000"
+      AVITO_MCP_AUTH_TOKEN: ${AVITO_MCP_AUTH_TOKEN:-dev-mcp-token-change-me}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./app:/app/app
+      - ./avito_mcp:/app/avito_mcp
+      - ./shared:/app/shared
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      - redis
     restart: unless-stopped
 
 volumes:
