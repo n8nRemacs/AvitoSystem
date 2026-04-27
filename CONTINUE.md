@@ -36,12 +36,19 @@
 
 ### В работе / следующий шаг
 
-**Hand-off для юзера прямо сейчас:**
-1. **Собрать APK** (`AvitoAll/AvitoSessionManager/`) с новым `commandPollJob` и `handleRefreshToken`. Команда: `gradlew.bat assembleDebug`, потом `adb install -r app/build/outputs/apk/debug/app-debug.apk`. JAVA_HOME = JBR из `Android Studio4`.
-2. В UI приложения убедиться что Auto-launch ON и сервис запущен (Foreground Service).
-3. APK сразу начнёт long-poll'ить `/api/v1/devices/me/commands?wait=60` на `serverUrl` из настроек (по умолчанию `http://155.212.221.189:8080` — поменяй на homelab `http://213.108.170.194:8080`).
-4. Сервер уже создаёт `refresh_token` команды (видно в `avito_device_commands`); как только APK с новым кодом подключится — first long-poll вернёт команду, APK откроет Avito, скроллит, обновит токен, закроет.
-5. Через 90с health-checker проверит — если новый exp пришёл, strikes=0; если 3 раза подряд no_refresh → TG-алерт «открой Avito вручную».
+**Что задеплоено на homelab прямо сейчас:**
+- APK `com.avitobridge.sessionmanager` установлен на OnePlus 8T (`110139ce`), serverUrl=`http://213.108.170.194:8080`, api_key=`test_dev_key_123`. SessionMonitorService running.
+- xapi на homelab бежит с `docker-compose.homelab.yml` overlay (apparmor=unconfined + bind-mount `./src` + `--reload` — нет rebuild на хосте).
+- avito-monitor health-checker: `token_refresher.py` тикает 30с; baseline берёт из server-supplied `payload.prev_exp` (фикс `dd5a29d`).
+- avito_device_commands таблица создана в self-hosted Supabase, миграция `006` применена.
+- Текущая Avito-сессия свежая: `ttl ≈ 23h`. Token-refresh-loop спит до завтра.
+
+**Завтрашняя проверка (≈ 2026-04-28 14:00 UTC):**
+- Когда `ttl ≤ 180s`, health-checker создаст `refresh_token` команду с `prev_exp=<текущий exp>`.
+- APK long-poll вернёт её (~50ms), откроет Avito (root `monkey`), 90с скроллит, читает SharedPrefs.
+- Bug пофикшен: baseline = `min(server payload.prev_exp, prefs.cachedExpiresAt, fresh self-read)`, плюс альтернативная проверка по сравнению самого JWT-string. Так что Avito-internal-refresh не угонит baseline.
+- Ожидаем: `refreshed=true` → `am force-stop com.avito.android` → POST /sessions с свежим JWT → ack `ok=true`.
+- Если 3 неудачи подряд → TG-алерт «открой Avito вручную».
 
 **Block 7 — Price Intelligence (полные market triggers).** ТЗ в `DOCS/V1_BLOCKS_TZ.md` §4 «Block 7».
 
