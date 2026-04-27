@@ -10,7 +10,7 @@
 
 **Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito + ценовой разведки. Single-user, homelab-deploy, Avito-Cosplay UI.
 
-**Дата последнего обновления:** 2026-04-27.
+**Дата последнего обновления:** 2026-04-27 (Block 4 closed).
 
 ### Готово (закоммичено в git)
 
@@ -29,20 +29,22 @@
 | **V1 Block 4.1 (worker core)** | TaskIQ broker (Redis) + scheduler (минутный тик) + `poll_profile` (upsert listings/profile_listings, disappear-detection, price-change), worker+scheduler контейнеры | `9786e72` |
 | **V1 Block 4.2 (LLM dispatch + Gemini default)** | `analyze_listing` (stage-1 classify) + `match_listing` (stage-2 + Notification создание), polling enqueue, расширенный pricing catalog (gpt-5/gemini/deepseek/qwen), bench_models.py — **дефолт переключён на `google/gemini-2.5-flash-lite` (~11× дешевле haiku при 100% accuracy на 8 mock-листингах)** | `92f09ff` |
 | chore (timezone) | health-checker alerts рендерятся в `Europe/Astrakhan` вместо UTC | `46a4250` |
+| **V1 Block 4.3 (analytics + cleanup + notifications stub)** | `compute_market_stats` (median/p25/p75/working_share/condition_distribution + триггеры `market_trend_*`/`supply_surge`/`condition_mix_change`, daily 00:05 UTC tick) + `cleanup_old_listings` (ADR-009 retention 30/90/∞, daily 03:30 UTC) + `send_notification` stub с `dispatch_pending` каждые 2 мин. **Block 4 closed.** | `a291050` |
 
 ### В работе / следующий шаг
 
-**Block 4.3 — analytics + cleanup + notifications stub.** Частично сделано:
-- ✅ `app/tasks/notifications.py` написан (stub `send_notification` + `dispatch_pending` каждые 2 мин) — **untracked, не закоммичено** — посмотри `git status`
-- ❌ `app/tasks/analytics.py` — `compute_market_stats(profile_id, granularity='day')`. Считает median/p25/p75 + working_share + condition_distribution → пишет в `profile_market_stats`. Триггеры (`market_trend_*`, `supply_surge`, `condition_mix_change`, `historical_low`) — minimal версия, полная логика в Block 7
-- ❌ `app/tasks/cleanup.py` — `cleanup_old_listings`. market_data → 30 дней, analyzed → 90 дней, notified → бессрочно
-- ❌ Зарегистрировать `analytics`/`cleanup`/`notifications` в `app/tasks/broker.py::_register_tasks` (сейчас только `polling`+`scheduler`+`analysis`)
-- ❌ Smoke на одном профиле: poll → analyze → match → notification PENDING → dispatch_pending → SENT
+**Block 5 — Telegram bot (aiogram 3.x).** ТЗ в `DOCS/V1_BLOCKS_TZ.md` §4 «Block 5».
 
-После 4.3 → **Block 4 closed**, далее по плану `DOCS/V1_BLOCKS_TZ.md`:
-- Block 5 (Telegram bot, aiogram, заменяет stub в `notifications.py`)
+Кратко:
+- Pluggable провайдер: `MessengerProvider` Protocol + `TelegramProvider` impl сейчас + заглушка `MaxProvider` на потом (см. memory `project_messengers.md`).
+- Заменить stub в `app/tasks/notifications.py::send_notification` — реальная отправка через провайдер из `Notification.channel`.
+- Шаблоны для 9 типов: `new_listing`, `price_drop_listing`, `price_dropped_into_alert`, `market_trend_down/up`, `historical_low`, `supply_surge`, `condition_mix_change`, `error`. Markdown-core, per-provider адаптация.
+- Whitelist `TELEGRAM_ALLOWED_USER_IDS` (CSV в env), long-polling (homelab без публичного HTTPS).
+- `bot` сервис в docker-compose уже заглушкой — заменяем content/command.
+
+После Block 5:
 - Block 6 (stats dashboard, Chart.js)
-- Block 7 (price intelligence, полные market triggers)
+- Block 7 (price intelligence, полные market triggers + `historical_low`)
 - Block 8 (polish + 72h soak)
 
 ### Operational заметки (важно при рестарте)
