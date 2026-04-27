@@ -19,8 +19,8 @@ log = logging.getLogger(__name__)
 
 # (input_per_million_usd, output_per_million_usd)
 PRICING: dict[str, tuple[float, float]] = {
-    # Anthropic — primary models for V1.
-    "anthropic/claude-haiku-4.5": (0.25, 1.25),
+    # Anthropic — primary models for V1. (USD per 1M tokens, input/output)
+    "anthropic/claude-haiku-4.5": (1.00, 5.00),
     "anthropic/claude-sonnet-4.6": (3.00, 15.00),
     "anthropic/claude-sonnet-4.7": (3.00, 15.00),
     "anthropic/claude-opus-4.6": (15.00, 75.00),
@@ -28,6 +28,20 @@ PRICING: dict[str, tuple[float, float]] = {
     # Backup / non-Anthropic — kept for compare/Telegram-summary fallback.
     "openai/gpt-4.1-mini": (0.40, 1.60),
     "openai/gpt-4o-mini": (0.15, 0.60),
+    "openai/gpt-5-mini": (0.25, 2.00),
+    "openai/gpt-5-nano": (0.05, 0.40),
+    # DeepSeek — strong reasoning, very cheap.
+    "deepseek/deepseek-chat-v3.1": (0.15, 0.75),
+    "deepseek/deepseek-v3.2-exp": (0.27, 0.41),
+    # Google Gemini — native vision; per-image pricing handled separately.
+    "google/gemini-2.5-flash-lite": (0.10, 0.40),
+    "google/gemini-2.0-flash-lite-001": (0.075, 0.30),
+    "google/gemini-2.0-flash-001": (0.10, 0.40),
+    "google/gemini-2.5-flash": (0.30, 2.50),
+    "google/gemini-3.1-flash-lite-preview": (0.25, 1.50),
+    "google/gemini-3-flash-preview": (0.50, 3.00),
+    # Qwen — for completeness.
+    "qwen/qwen3-235b-a22b": (0.455, 1.82),
 }
 
 

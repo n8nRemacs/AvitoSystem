@@ -51,7 +51,11 @@ scheduler = TaskiqScheduler(
 # the @broker.task decorator. Keep these imports at the bottom.
 def _register_tasks() -> None:
     # noqa: F401 — imports for side-effect registration.
-    from app.tasks import polling, scheduler as _sched  # noqa: F401
+    from app.tasks import (  # noqa: F401
+        analysis,
+        polling,
+        scheduler as _sched,
+    )
 
 
 _register_tasks()

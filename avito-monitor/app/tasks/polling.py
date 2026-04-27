@@ -228,6 +228,7 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
         return {"status": "failed", "reason": "fetch_failed"}
 
     blocked = set(profile.blocked_sellers or [])
+    to_analyze: list[uuid.UUID] = []
 
     async with sessionmaker() as session:
         for item in page.items:
@@ -254,10 +255,14 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                 discovered_at=started_at,
             )
 
-            # TODO(Block 4.2): for new lots OR lots whose price just dropped
-            # into the alert zone, enqueue analyze_listing(listing_id, profile_id)
-            # in the LLM classify queue. Block 4.1 stops at DB sync so we can
-            # ship + smoke the polling loop without OpenRouter spend.
+            # Stage-1 LLM dispatch (Block 4.2).
+            # Trigger conditions:
+            #  - brand-new listing (always classify so we can route it
+            #    into market-data even if it's outside alert zone), OR
+            #  - existing listing whose price just dropped into the
+            #    alert zone (we re-classify because match might change).
+            if is_new or (price_changed and in_alert):
+                to_analyze.append(listing_id)
 
         closed = await _close_disappeared(
             session, profile_id=pid, run_started_at=started_at
@@ -277,14 +282,32 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                     "closed_disappeared": closed,
                     "page_total": page.total,
                     "applied_query": page.applied_query,
+                    "queued_for_analysis": len(to_analyze),
                 },
             )
         )
         await session.commit()
 
+    # Enqueue stage-1 classifications AFTER the polling commit. Doing it
+    # outside the DB session keeps the transaction short and lets the
+    # worker pull them up immediately from Redis.
+    enqueued_for_analysis = 0
+    if to_analyze:
+        from app.tasks.analysis import analyze_listing
+
+        for lid in to_analyze:
+            try:
+                await analyze_listing.kiq(str(lid), str(pid))
+                enqueued_for_analysis += 1
+            except Exception:
+                log.exception(
+                    "polling.enqueue_analyze_failed listing_id=%s", lid
+                )
+
     log.info(
-        "polling.success profile_id=%s seen=%d new=%d in_alert=%d closed=%d",
+        "polling.success profile_id=%s seen=%d new=%d in_alert=%d closed=%d analyze=%d",
         profile_id, listings_seen, listings_new, listings_in_alert, closed,
+        enqueued_for_analysis,
     )
     return {
         "status": "success",
@@ -293,4 +316,5 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
         "listings_in_alert": listings_in_alert,
         "price_changes": price_changed_count,
         "closed_disappeared": closed,
+        "enqueued_for_analysis": enqueued_for_analysis,
     }
