@@ -1,0 +1,24 @@
+# Homelab dev override — apply with:
+#   docker compose -f docker-compose.yml -f docker-compose.homelab.yml up -d
+#
+# Why we need this on homelab:
+# 1. Bind-mount ``./src`` so iteration doesn't require a rebuild. The
+#    Proxmox LXC blocks AF_UNIX socketpair() under the default docker
+#    apparmor profile, which kills ``uv`` mid-resolve and makes a full
+#    ``docker compose build`` impossible. Mounting the source lets us
+#    iterate against the working pip-installed image instead.
+# 2. ``--reload`` so saved files take effect without a manual restart.
+services:
+  xapi:
+    volumes:
+      - ./src:/app/src
+    command:
+      - uvicorn
+      - src.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --loop
+      - asyncio
+      - --reload
