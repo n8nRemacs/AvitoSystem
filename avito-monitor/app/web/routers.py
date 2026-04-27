@@ -434,19 +434,113 @@ async def reliability_page(
 # ---------------------------------------------------------------------------
 
 @router.get("/listings", response_class=HTMLResponse)
-async def listings_stub(
+async def listings_feed(
     request: Request,
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> HTMLResponse:
+    """Listings feed (UI Spec §4.5). Filter chips + lazy load via querystring."""
+    from app.services.listings_view import (
+        ListingFilters,
+        filter_summary,
+        query_listings,
+    )
+    qp = request.query_params
+
+    # Multi-select chips: profile / condition support repeated query keys.
+    profile_ids: list[uuid.UUID] = []
+    for raw in qp.getlist("profile"):
+        if raw:
+            try:
+                profile_ids.append(uuid.UUID(raw))
+            except ValueError:
+                pass
+    conditions = [c for c in qp.getlist("condition") if c]
+    zone = qp.get("zone") or "all"
+    period = qp.get("period") or "7d"
+    sort = qp.get("sort") or "date"
+    try:
+        offset = max(0, int(qp.get("offset") or 0))
+    except ValueError:
+        offset = 0
+    limit = 30
+
+    filters = ListingFilters(
+        profile_ids=profile_ids or None,
+        condition_classes=conditions or None,
+        zone=zone,
+        period=period,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+    )
+
+    rows, total = await query_listings(session, user.id, filters)
+    summary = await filter_summary(session, user.id)
+
+    # Total without filters — for the "238 / 1820" hint in the header.
+    total_all_filters = ListingFilters(zone="all", period="all", limit=1, offset=0)
+    _, total_all = await query_listings(session, user.id, total_all_filters)
+
+    def qs_builder(**overrides: str) -> str:
+        """Rewrite the current query string with the given overrides.
+
+        Keys with empty value are dropped (used for "Все" chips that
+        clear a multi-select). Resets ``offset`` on any filter change
+        so the user lands back on page 1.
+        """
+        from urllib.parse import urlencode
+        keep = {
+            "profile": [str(p) for p in (filters.profile_ids or [])],
+            "condition": list(filters.condition_classes or []),
+            "zone": filters.zone,
+            "period": filters.period,
+            "sort": filters.sort,
+            "offset": str(filters.offset),
+        }
+        # Apply overrides.
+        for k, v in overrides.items():
+            if v == "":
+                # Empty means "clear this dimension" (multi-select).
+                if k in ("profile", "condition"):
+                    keep[k] = []
+                else:
+                    keep[k] = ""
+            else:
+                if k in ("profile", "condition"):
+                    # Toggle behaviour for multi-select chips.
+                    cur = list(keep.get(k, []))
+                    if v in cur:
+                        cur.remove(v)
+                    else:
+                        cur.append(v)
+                    keep[k] = cur
+                else:
+                    keep[k] = v
+        # Reset offset if anything other than offset itself changed.
+        if "offset" not in overrides:
+            keep["offset"] = "0"
+
+        flat: list[tuple[str, str]] = []
+        for k, v in keep.items():
+            if isinstance(v, list):
+                for item in v:
+                    flat.append((k, item))
+            elif v not in (None, ""):
+                flat.append((k, str(v)))
+        return "/listings" + ("?" + urlencode(flat) if flat else "")
+
     ctx = await _layout_context(user, session, active="listings")
     ctx.update({
-        "section_title": "Лоты",
-        "section_icon": "📦",
-        "section_description": "Лента собранных объявлений с фильтрами по состоянию и alert-зоне.",
-        "next_block": 4,
+        "rows": rows,
+        "total": total,
+        "total_all": total_all,
+        "f": filters,
+        "summary": summary,
+        "has_more": offset + len(rows) < total,
+        "qs": qs_builder,
     })
-    return templates.TemplateResponse(request, "_stub.html", ctx)
+    return templates.TemplateResponse(request, "listings.html", ctx)
 
 
 @router.get("/price-intelligence", response_class=HTMLResponse)
@@ -604,35 +698,285 @@ async def prices_delete_web(
 
 
 @router.get("/logs", response_class=HTMLResponse)
-async def logs_stub(
+async def logs_view(
     request: Request,
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> HTMLResponse:
+    """Unified event log: profile_runs + notifications + audit + activity_log + errors."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import desc, select
+
+    from app.db.models import (
+        ActivityLog,
+        AuditLog,
+        Notification,
+        ProfileRun,
+        SearchProfile,
+    )
+
+    source = request.query_params.get("source") or ""
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=24)
+    events: list[dict[str, Any]] = []
+
+    def _ts_local(dt) -> str:
+        return dt.strftime("%d.%m %H:%M:%S") if dt else "—"
+
+    if source in ("", "runs"):
+        stmt = (
+            select(ProfileRun, SearchProfile.name)
+            .join(SearchProfile, SearchProfile.id == ProfileRun.profile_id)
+            .where(SearchProfile.user_id == user.id, ProfileRun.started_at >= cutoff)
+            .order_by(desc(ProfileRun.started_at))
+            .limit(60)
+        )
+        for run, p_name in (await session.execute(stmt)).all():
+            details_bits = []
+            if run.listings_seen:
+                details_bits.append(f"seen={run.listings_seen}")
+            if run.listings_new:
+                details_bits.append(f"new={run.listings_new}")
+            if run.listings_in_alert:
+                details_bits.append(f"alert={run.listings_in_alert}")
+            events.append({
+                "ts": run.started_at,
+                "ts_local": _ts_local(run.started_at),
+                "source": "runs",
+                "title": f"Прогон профиля «{p_name}»",
+                "details": ", ".join(details_bits) or run.error_message or "",
+                "status": run.status,
+                "latency_ms": int((run.finished_at - run.started_at).total_seconds() * 1000)
+                    if run.finished_at and run.started_at else None,
+            })
+
+    if source in ("", "notifications", "errors"):
+        stmt = (
+            select(Notification)
+            .where(
+                Notification.user_id == user.id,
+                Notification.created_at >= cutoff,
+            )
+            .order_by(desc(Notification.created_at))
+            .limit(60)
+        )
+        for n in (await session.execute(stmt)).scalars():
+            if source == "errors" and n.status != "failed":
+                continue
+            events.append({
+                "ts": n.created_at,
+                "ts_local": _ts_local(n.created_at),
+                "source": "notif" if n.type != "error" else "error",
+                "title": f"{n.type} → {n.channel}",
+                "details": (n.error_message or "")[:140] if n.status != "sent"
+                    else (n.payload or {}).get("title", ""),
+                "status": n.status,
+                "latency_ms": None,
+            })
+
+    if source in ("", "audit"):
+        stmt = (
+            select(AuditLog)
+            .where(AuditLog.user_id == user.id, AuditLog.created_at >= cutoff)
+            .order_by(desc(AuditLog.created_at))
+            .limit(40)
+        )
+        for a in (await session.execute(stmt)).scalars():
+            events.append({
+                "ts": a.created_at,
+                "ts_local": _ts_local(a.created_at),
+                "source": "audit",
+                "title": a.action,
+                "details": f"{a.entity_type}:{a.entity_id}" if a.entity_type else "",
+                "status": "ok",
+                "latency_ms": None,
+            })
+
+    if source in ("", "activity"):
+        stmt = (
+            select(ActivityLog)
+            .where(ActivityLog.ts >= cutoff)
+            .order_by(desc(ActivityLog.ts))
+            .limit(40)
+        )
+        for a in (await session.execute(stmt)).scalars():
+            events.append({
+                "ts": a.ts,
+                "ts_local": _ts_local(a.ts),
+                "source": a.source or "activity",
+                "title": a.action or "—",
+                "details": a.target or "",
+                "status": a.status,
+                "latency_ms": a.latency_ms,
+            })
+
+    events.sort(key=lambda e: e["ts"], reverse=True)
+
     ctx = await _layout_context(user, session, active="logs")
-    ctx.update({
-        "section_title": "Логи",
-        "section_icon": "📜",
-        "section_description": "Структурные события системы.",
-        "next_block": 8,
-    })
-    return templates.TemplateResponse(request, "_stub.html", ctx)
+    ctx.update({"events": events, "source": source})
+    return templates.TemplateResponse(request, "logs.html", ctx)
 
 
 @router.get("/settings", response_class=HTMLResponse)
-async def settings_stub(
+async def settings_view(
     request: Request,
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> HTMLResponse:
+    """Read-mostly settings page (UI Spec §4.8 — V1 simplified)."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, select
+
+    from app.config import get_settings
+    from app.db.models import LLMAnalysis
+    from app.services.runtime_state import is_paused, silent_until
+
+    s = get_settings()
+
+    # LLM 24h spend
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=24)
+    spend_stmt = select(
+        func.coalesce(func.sum(LLMAnalysis.cost_usd), 0.0),
+        func.count(LLMAnalysis.id),
+    ).where(LLMAnalysis.created_at >= cutoff)
+    spent, calls = (await session.execute(spend_stmt)).one()
+    spent = float(spent or 0.0)
+    avg_per_call = (spent / calls) if calls else 0.0
+
+    # Avito session
+    avito_status = {
+        "session_active": False,
+        "session_ttl_human": None,
+        "session_error": None,
+    }
+    try:
+        from app.services.health_checker.xapi_client import XapiClient
+        client = XapiClient(base_url=s.avito_xapi_url, api_key=s.avito_xapi_api_key)
+        res = await client.get("/api/v1/sessions/current")
+        if res.ok and isinstance(res.body, dict):
+            avito_status["session_active"] = bool(res.body.get("is_active"))
+            avito_status["session_ttl_human"] = res.body.get("ttl_human")
+        else:
+            avito_status["session_error"] = f"HTTP {res.status_code}"
+    except Exception as exc:
+        avito_status["session_error"] = f"{type(exc).__name__}: {exc}"
+
+    paused = await is_paused()
+    silent = await silent_until()
+
     ctx = await _layout_context(user, session, active="settings")
     ctx.update({
-        "section_title": "Настройки",
-        "section_icon": "⚙️",
-        "section_description": "Глобальные параметры: модели LLM, лимиты, мессенджеры.",
-        "next_block": 8,
+        "message": request.query_params.get("msg"),
+        "system_paused": paused,
+        "silent_until": silent,
+        "timezone": s.timezone,
+        "app_env": s.app_env,
+        "llm": {
+            "text_model": s.openrouter_default_text_model,
+            "vision_model": s.openrouter_default_vision_model,
+            "api_key_masked": s.openrouter_api_key or "",
+            "daily_limit": s.openrouter_daily_usd_limit,
+            "spent_24h": spent,
+            "calls_24h": calls,
+            "avg_per_call": avg_per_call,
+        },
+        "avito": {
+            "xapi_url": s.avito_xapi_url,
+            "api_key": s.avito_xapi_api_key,
+            **avito_status,
+        },
+        "tg": {
+            "token": s.telegram_bot_token or "",
+            "proxy_url": s.telegram_proxy_url,
+            "allowed_ids": s.telegram_allowed_user_ids,
+        },
     })
-    return templates.TemplateResponse(request, "_stub.html", ctx)
+    return templates.TemplateResponse(request, "settings.html", ctx)
+
+
+@router.post("/settings/system/pause", response_model=None)
+async def settings_pause(
+    user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    from app.services.runtime_state import set_paused
+    await set_paused(True)
+    return RedirectResponse(
+        "/settings?msg=Система+поставлена+на+паузу",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/settings/system/resume", response_model=None)
+async def settings_resume(
+    user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    from app.services.runtime_state import set_paused
+    await set_paused(False)
+    return RedirectResponse(
+        "/settings?msg=Система+возобновлена",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/settings/silent/set", response_model=None)
+async def settings_silent_set(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    from app.services.runtime_state import set_silent_for
+    form = await request.form()
+    try:
+        minutes = max(1, min(1440, int(form.get("minutes") or 60)))
+    except ValueError:
+        minutes = 60
+    await set_silent_for(minutes)
+    return RedirectResponse(
+        f"/settings?msg=Silent+на+{minutes}+минут",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/settings/silent/clear", response_model=None)
+async def settings_silent_clear(
+    user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    from app.services.runtime_state import clear_silent
+    await clear_silent()
+    return RedirectResponse(
+        "/settings?msg=Silent+режим+снят",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/settings/test-telegram", response_model=None)
+async def settings_test_telegram(
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    from app.config import get_settings
+    from app.integrations.messenger.base import MessengerError, MessengerMessage
+    from app.integrations.messenger.factory import get_provider
+    from urllib.parse import quote_plus
+
+    s = get_settings()
+    chat = (s.telegram_allowed_user_ids or "").split(",")[0].strip()
+    if not chat or chat == "*":
+        return RedirectResponse(
+            "/settings?msg=" + quote_plus("TELEGRAM_ALLOWED_USER_IDS пуст"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    try:
+        provider = get_provider("telegram")
+        await provider.send(MessengerMessage(
+            chat_id=chat,
+            text="🟢 *Avito Monitor* — тестовое сообщение из настроек.",
+        ))
+        msg = "Тестовое сообщение отправлено в TG"
+    except MessengerError as e:
+        msg = f"Ошибка: {e}"
+    return RedirectResponse(
+        "/settings?msg=" + quote_plus(msg),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,82 @@
+{% extends "_layout.html" %}
+{% block title %}Логи — Avito Monitor{% endblock %}
+
+{% macro chip(href, label, active) %}
+  <a href="{{ href }}"
+     class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+       {% if active %}bg-avito-brand text-white{% else %}bg-avito-surface border border-avito-border text-avito-text hover:bg-avito-elev{% endif %}">
+    {{ label }}
+  </a>
+{% endmacro %}
+
+{% block page_content %}
+<div class="max-w-[1280px]">
+  <div class="flex items-center justify-between gap-3 mb-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-avito-text">📜 Логи</h1>
+      <p class="text-sm text-avito-text-soft mt-1">Структурные события системы за последние 24 часа.</p>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-2 mb-4">
+    <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1">Источник:</span>
+    {{ chip('/logs', 'Все', not source) }}
+    {{ chip('/logs?source=runs',         '🎯 Прогоны',     source == 'runs') }}
+    {{ chip('/logs?source=notifications','📨 Уведомления', source == 'notifications') }}
+    {{ chip('/logs?source=errors',       '⚠ Ошибки',       source == 'errors') }}
+    {{ chip('/logs?source=audit',        '👤 Действия',    source == 'audit') }}
+    {{ chip('/logs?source=activity',     '⚡ Активность',  source == 'activity') }}
+  </div>
+
+  {% if not events %}
+    <div class="bg-avito-surface rounded-lg border border-avito-border p-12 text-center">
+      <div class="text-5xl mb-3">📜</div>
+      <h2 class="text-lg font-medium text-avito-text mb-2">Тишина за последние 24 часа</h2>
+      <p class="text-sm text-avito-text-soft max-w-md mx-auto">Под выбранный источник событий нет.</p>
+    </div>
+  {% else %}
+    <div class="bg-avito-surface rounded-lg border border-avito-border overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-avito-elev border-b border-avito-border">
+          <tr class="text-[10px] uppercase tracking-wide text-avito-text-soft">
+            <th class="text-left px-3 py-2 w-32">Время</th>
+            <th class="text-left px-3 py-2 w-28">Источник</th>
+            <th class="text-left px-3 py-2">Событие</th>
+            <th class="text-left px-3 py-2 w-24">Статус</th>
+            <th class="text-right px-3 py-2 w-20">⌛ ms</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in events %}
+            <tr class="border-b border-avito-border-soft last:border-0 hover:bg-avito-elev/40">
+              <td class="px-3 py-2 tabular-nums text-xs text-avito-text-soft whitespace-nowrap">{{ e.ts_local }}</td>
+              <td class="px-3 py-2 text-xs">
+                <span class="px-1.5 py-0.5 rounded bg-avito-elev text-avito-text-soft">{{ e.source }}</span>
+              </td>
+              <td class="px-3 py-2">
+                <div class="text-avito-text font-medium">{{ e.title }}</div>
+                {% if e.details %}<div class="text-xs text-avito-text-soft mt-0.5">{{ e.details }}</div>{% endif %}
+              </td>
+              <td class="px-3 py-2 text-xs">
+                {% if e.status == 'ok' or e.status == 'success' or e.status == 'sent' %}
+                  <span class="text-avito-positive">● {{ e.status }}</span>
+                {% elif e.status == 'failed' or e.status == 'error' %}
+                  <span class="text-avito-negative">● {{ e.status }}</span>
+                {% elif e.status == 'pending' or e.status == 'running' %}
+                  <span class="text-amber-700">● {{ e.status }}</span>
+                {% else %}
+                  <span class="text-avito-text-muted">{{ e.status or '—' }}</span>
+                {% endif %}
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums text-xs text-avito-text-soft">
+                {% if e.latency_ms is not none %}{{ e.latency_ms }}{% else %}—{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs text-avito-text-muted mt-2">Показано {{ events|length }} событий. Полные структурные логи — в `docker logs`.</p>
+  {% endif %}
+</div>
+{% endblock %}

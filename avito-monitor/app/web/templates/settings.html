@@ -1,0 +1,185 @@
+{% extends "_layout.html" %}
+{% block title %}Настройки — Avito Monitor{% endblock %}
+
+{% macro money(v, suffix='₽') -%}
+  {% if v is none %}—{% else %}{{ '{:,}'.format(v|int).replace(',', '\xa0') }}&nbsp;{{ suffix }}{% endif %}
+{%- endmacro %}
+
+{% macro mask(s) -%}
+  {% if s and s|length > 8 %}{{ s[:4] }}…{{ s[-4:] }}{% elif s %}<set>{% else %}—{% endif %}
+{%- endmacro %}
+
+{% block page_content %}
+<div class="max-w-[960px]">
+  <h1 class="text-2xl font-semibold text-avito-text mb-1">⚙️ Настройки</h1>
+  <p class="text-sm text-avito-text-soft mb-6">
+    Глобальные параметры. Большинство значений берутся из <code class="text-xs bg-avito-elev px-1 rounded">.env</code>;
+    меняются через перезапуск контейнеров. Здесь — read-only обзор + быстрые действия.
+  </p>
+
+  {% if message %}
+    <div class="bg-avito-brand-soft border border-[#cae39d] rounded-md px-4 py-2 mb-4 text-sm text-[#3f6500]">{{ message }}</div>
+  {% endif %}
+
+  <div class="space-y-4">
+    {# ─────────── System ─────────── #}
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <h2 class="text-base font-semibold text-avito-text mb-3 flex items-center gap-2">
+        🖥 Система
+        {% if system_paused %}
+          <span class="text-[10px] uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">на паузе</span>
+        {% else %}
+          <span class="text-[10px] uppercase px-2 py-0.5 rounded-full bg-avito-brand-soft text-[#5A8C00]">работает</span>
+        {% endif %}
+      </h2>
+      <dl class="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt class="text-xs text-avito-text-soft">Версия</dt>
+          <dd class="text-avito-text font-medium">V1.2 / Block 7</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">TZ</dt>
+          <dd class="text-avito-text font-medium tabular-nums">{{ timezone }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">Окружение</dt>
+          <dd class="text-avito-text font-medium">{{ app_env }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">Тихие часы до</dt>
+          <dd class="text-avito-text font-medium tabular-nums">
+            {% if silent_until %}{{ silent_until.strftime('%d.%m %H:%M') }}{% else %}—{% endif %}
+          </dd>
+        </div>
+      </dl>
+      <div class="flex gap-2 mt-4">
+        {% if system_paused %}
+          <form method="post" action="/settings/system/resume" class="inline">
+            <button class="btn btn-sm bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00] px-4 py-1.5 rounded-md text-sm">▶ Возобновить</button>
+          </form>
+        {% else %}
+          <form method="post" action="/settings/system/pause" class="inline"
+                onsubmit="return confirm('Поставить всю систему на паузу? Polling и нотификации остановятся.')">
+            <button class="btn btn-sm bg-avito-surface border-avito-border text-avito-negative hover:bg-red-50 px-4 py-1.5 rounded-md text-sm">⏸ Пауза</button>
+          </form>
+        {% endif %}
+        {% if silent_until %}
+          <form method="post" action="/settings/silent/clear" class="inline">
+            <button class="btn btn-sm bg-avito-surface border-avito-border text-avito-text hover:bg-avito-elev px-4 py-1.5 rounded-md text-sm">🔔 Снять silent</button>
+          </form>
+        {% else %}
+          <form method="post" action="/settings/silent/set" class="inline flex gap-1">
+            <input type="number" name="minutes" value="60" min="1" max="1440"
+                   class="w-20 px-2 py-1 rounded-md border border-avito-border text-sm tabular-nums">
+            <button class="btn btn-sm bg-avito-surface border-avito-border text-avito-text hover:bg-avito-elev px-3 py-1.5 rounded-md text-sm">🔕 Silent N мин</button>
+          </form>
+        {% endif %}
+      </div>
+    </section>
+
+    {# ─────────── LLM ─────────── #}
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <h2 class="text-base font-semibold text-avito-text mb-3">🤖 LLM (OpenRouter)</h2>
+      <dl class="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt class="text-xs text-avito-text-soft">Classify (этап 1)</dt>
+          <dd class="text-avito-text font-medium font-mono text-xs">{{ llm.text_model }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">Match с фото (этап 2)</dt>
+          <dd class="text-avito-text font-medium font-mono text-xs">{{ llm.vision_model }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">API key</dt>
+          <dd class="text-avito-text font-medium tabular-nums">{{ mask(llm.api_key_masked) | safe }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">Дневной лимит</dt>
+          <dd class="text-avito-text font-medium tabular-nums">${{ llm.daily_limit }}</dd>
+        </div>
+      </dl>
+      <div class="mt-4 pt-4 border-t border-avito-border-soft">
+        <div class="text-xs text-avito-text-soft mb-1">Расход за 24ч</div>
+        <div class="flex items-center gap-3">
+          <div class="text-2xl font-semibold tabular-nums text-avito-text">${{ '%.4f'|format(llm.spent_24h) }}</div>
+          <div class="flex-1 h-2 bg-avito-elev rounded-full overflow-hidden">
+            {% set pct = (llm.spent_24h * 100 / llm.daily_limit) if llm.daily_limit else 0 %}
+            <div class="h-full {% if pct > 80 %}bg-avito-negative{% elif pct > 50 %}bg-amber-500{% else %}bg-avito-brand{% endif %}"
+                 style="width: {{ [pct, 100] | min }}%;"></div>
+          </div>
+          <div class="text-xs text-avito-text-soft tabular-nums">{{ '%.0f'|format(pct) }}%</div>
+        </div>
+        <div class="text-xs text-avito-text-muted mt-1">Запросов: {{ llm.calls_24h }} · средний $ за вызов: ${{ '%.5f'|format(llm.avg_per_call) }}</div>
+      </div>
+    </section>
+
+    {# ─────────── Avito ─────────── #}
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <h2 class="text-base font-semibold text-avito-text mb-3">🛒 Avito (xapi + сессия)</h2>
+      <dl class="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt class="text-xs text-avito-text-soft">xapi URL</dt>
+          <dd class="text-avito-text font-medium font-mono text-xs">{{ avito.xapi_url }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">API key</dt>
+          <dd class="text-avito-text font-medium tabular-nums">{{ mask(avito.api_key) | safe }}</dd>
+        </div>
+        <div class="col-span-2">
+          <dt class="text-xs text-avito-text-soft">Статус сессии</dt>
+          <dd class="text-avito-text font-medium">
+            {% if avito.session_active %}
+              <span class="text-avito-positive">● активна</span>
+              {% if avito.session_ttl_human %}<span class="text-xs text-avito-text-soft ml-2">TTL: {{ avito.session_ttl_human }}</span>{% endif %}
+            {% else %}
+              <span class="text-avito-negative">● нет сессии</span>
+              {% if avito.session_error %}<span class="text-xs text-avito-text-soft ml-2">{{ avito.session_error }}</span>{% endif %}
+            {% endif %}
+          </dd>
+        </div>
+      </dl>
+    </section>
+
+    {# ─────────── Telegram ─────────── #}
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <h2 class="text-base font-semibold text-avito-text mb-3">✈ Telegram</h2>
+      <dl class="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt class="text-xs text-avito-text-soft">Bot token</dt>
+          <dd class="text-avito-text font-medium tabular-nums">{{ mask(tg.token) | safe }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">Прокси</dt>
+          <dd class="text-avito-text font-medium font-mono text-xs">
+            {{ tg.proxy_url or 'без прокси' }}
+            {% if tg.proxy_url %}<span class="ml-1 text-[10px] uppercase px-1.5 py-0.5 rounded bg-avito-brand-soft text-[#5A8C00]">RU mode</span>{% endif %}
+          </dd>
+        </div>
+        <div class="col-span-2">
+          <dt class="text-xs text-avito-text-soft">Whitelist (chat_id)</dt>
+          <dd class="text-avito-text font-medium tabular-nums">{{ tg.allowed_ids or 'пусто (никто не получит)' }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-avito-text-soft">Max (alt-канал)</dt>
+          <dd class="text-avito-text-muted text-xs">скоро (V2)</dd>
+        </div>
+      </dl>
+      <div class="mt-4">
+        <form method="post" action="/settings/test-telegram" class="inline">
+          <button type="submit"
+                  class="btn btn-sm bg-avito-surface border-avito-border text-avito-text hover:bg-avito-elev px-4 py-1.5 rounded-md text-sm">
+            📤 Тестовая отправка
+          </button>
+        </form>
+      </div>
+    </section>
+
+    {# ─────────── Where to change ─────────── #}
+    <section class="bg-avito-elev rounded-lg p-4 text-xs text-avito-text-soft">
+      <strong class="text-avito-text">Менять значения:</strong>
+      редактируй <code>avito-monitor/.env</code> на homelab + <code>docker compose up -d</code> для пересоздания контейнеров.
+      Полная процедура — в <code>DOCS/V1_BLOCKS_TZ.md</code>.
+    </section>
+  </div>
+</div>
+{% endblock %}
