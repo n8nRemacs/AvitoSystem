@@ -431,19 +431,157 @@ async def listings_stub(
 
 
 @router.get("/price-intelligence", response_class=HTMLResponse)
-async def prices_stub(
+async def prices_list(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    """List all PriceAnalysis configs for the current user."""
+    from app.services import price_intelligence as pi_svc
+    analyses = await pi_svc.list_analyses(session, user.id)
+    latest_runs: dict = {}
+    for a in analyses:
+        latest_runs[str(a.id)] = await pi_svc.get_latest_run(session, a.id)
+    ctx = await _layout_context(user, session, active="prices")
+    ctx.update({"analyses": analyses, "latest_runs": latest_runs})
+    return templates.TemplateResponse(request, "prices/list.html", ctx)
+
+
+@router.get("/price-intelligence/new", response_class=HTMLResponse)
+async def prices_new_form(
     request: Request,
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> HTMLResponse:
     ctx = await _layout_context(user, session, active="prices")
+    ctx.update({"errors": {}, "form": {}})
+    return templates.TemplateResponse(request, "prices/new.html", ctx)
+
+
+@router.post("/price-intelligence/new", response_model=None)
+async def prices_new_submit(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse | RedirectResponse:
+    from app.schemas.price_analysis import PriceAnalysisCreate
+    from app.services import price_intelligence as pi_svc
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    reference_url = (form.get("reference_listing_url") or "").strip() or None
+    ref_price_raw = (form.get("reference_price") or "").strip()
+    ref_title = (form.get("reference_title") or "").strip() or None
+    search_url = (form.get("competitor_search_url") or "").strip()
+    search_region = (form.get("search_region") or "").strip() or None
+    max_competitors = int((form.get("max_competitors") or "30").strip() or 30)
+
+    errors: dict[str, str] = {}
+    if not name:
+        errors["name"] = "Название обязательно"
+    if not search_url:
+        errors["competitor_search_url"] = "URL поиска конкурентов обязателен"
+
+    reference_data: dict[str, Any] = {}
+    if ref_price_raw:
+        try:
+            reference_data["price"] = int(ref_price_raw)
+        except ValueError:
+            errors["reference_price"] = "Цена должна быть числом"
+    if ref_title:
+        reference_data["title"] = ref_title
+    if not reference_url and "price" not in reference_data:
+        errors["reference_price"] = (
+            "Без URL эталона нужна хотя бы цена для сравнения"
+        )
+
+    if errors:
+        ctx = await _layout_context(user, session, active="prices")
+        ctx.update({"errors": errors, "form": dict(form)})
+        return templates.TemplateResponse(
+            request, "prices/new.html", ctx, status_code=400
+        )
+
+    a = await pi_svc.create_analysis(
+        session, user.id,
+        PriceAnalysisCreate(
+            name=name,
+            reference_listing_url=reference_url,
+            reference_data=reference_data,
+            search_region=search_region,
+            competitor_filters={"search_url": search_url},
+            max_competitors=max_competitors,
+        ),
+    )
+    await session.commit()
+    return RedirectResponse(
+        f"/price-intelligence/{a.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.get("/price-intelligence/{analysis_id}", response_class=HTMLResponse)
+async def prices_report(
+    analysis_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    from app.schemas.price_analysis import PriceReport
+    from app.services import price_intelligence as pi_svc
+    analysis = await pi_svc.get_analysis(session, user.id, analysis_id)
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    latest = await pi_svc.get_latest_run(session, analysis.id)
+    report: PriceReport | None = None
+    if latest is not None and latest.report:
+        try:
+            report = PriceReport.model_validate(latest.report)
+        except Exception:
+            report = None
+    ctx = await _layout_context(user, session, active="prices")
     ctx.update({
-        "section_title": "Ценовая разведка",
-        "section_icon": "💰",
-        "section_description": "Анализ конкурентов: вилка цен, топ-5 дешевле/дороже, рекомендация.",
-        "next_block": 7,
+        "analysis": analysis,
+        "run": latest,
+        "report": report,
     })
-    return templates.TemplateResponse(request, "_stub.html", ctx)
+    return templates.TemplateResponse(request, "prices/report.html", ctx)
+
+
+@router.post("/price-intelligence/{analysis_id}/run", response_model=None)
+async def prices_run_now_web(
+    analysis_id: uuid.UUID,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    from app.api.price_analyses import _build_analyzer
+    from app.integrations.avito_mcp_client.client import AvitoMcpClient
+    from app.services import price_intelligence as pi_svc
+    a = await pi_svc.get_analysis(session, user.id, analysis_id)
+    if a is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    analyzer = _build_analyzer()
+    async with AvitoMcpClient() as mcp:
+        await pi_svc.run_analysis(session, a, mcp=mcp, analyzer=analyzer)
+    await session.commit()
+    return RedirectResponse(
+        f"/price-intelligence/{analysis_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post("/price-intelligence/{analysis_id}/delete", response_model=None)
+async def prices_delete_web(
+    analysis_id: uuid.UUID,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    from app.services import price_intelligence as pi_svc
+    a = await pi_svc.get_analysis(session, user.id, analysis_id)
+    if a is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    await pi_svc.delete_analysis(session, a)
+    await session.commit()
+    return RedirectResponse(
+        "/price-intelligence", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @router.get("/logs", response_class=HTMLResponse)

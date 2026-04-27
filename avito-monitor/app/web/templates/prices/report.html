@@ -1,0 +1,249 @@
+{% extends "_layout.html" %}
+{% block title %}{{ analysis.name }} — Ценовая разведка{% endblock %}
+
+{% macro money(v) -%}
+  {% if v is none %}—{% else %}{{ '{:,}'.format(v|int).replace(',', '\xa0') }}&nbsp;₽{% endif %}
+{%- endmacro %}
+
+{% block page_content %}
+<div class="max-w-[1280px]">
+  {# ─────────── header ─────────── #}
+  <div class="flex items-center justify-between gap-3 mb-4">
+    <div>
+      <a href="/price-intelligence" class="text-xs text-avito-text-soft hover:text-avito-text">← К списку запросов</a>
+      <h1 class="text-2xl font-semibold text-avito-text mt-1">{{ analysis.name }}</h1>
+      <div class="text-xs text-avito-text-soft mt-1">
+        {% if run %}
+          Прогон: {{ run.started_at.strftime('%d.%m %H:%M') }}
+          {% if run.competitors_found %} · конкурентов: {{ run.competitors_found }}{% endif %}
+          {% if run.comparable_count %} / сопоставимых: {{ run.comparable_count }}{% endif %}
+        {% else %}
+          Прогонов ещё не было
+        {% endif %}
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <form method="post" action="/price-intelligence/{{ analysis.id }}/run" class="inline">
+        <button type="submit"
+                class="btn btn-md bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00] font-medium px-4 py-2 rounded-md text-sm">
+          🔄 {% if run %}Перезапустить{% else %}Запустить{% endif %}
+        </button>
+      </form>
+      <form method="post" action="/price-intelligence/{{ analysis.id }}/delete" class="inline"
+            onsubmit="return confirm('Удалить запрос «{{ analysis.name }}»?')">
+        <button type="submit"
+                class="btn btn-sm bg-avito-surface border-avito-border text-avito-negative hover:bg-red-50 px-3 py-2 rounded-md text-sm">
+          Удалить
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {% if run is none %}
+    {# ─────────── empty: no run yet ─────────── #}
+    <div class="bg-avito-surface rounded-lg border border-avito-border p-10 text-center">
+      <div class="text-4xl mb-3">🚀</div>
+      <h2 class="text-lg font-semibold text-avito-text mb-1">Запрос настроен</h2>
+      <p class="text-sm text-avito-text-soft max-w-md mx-auto">
+        Нажми «Запустить» — система найдёт до {{ analysis.max_competitors }} конкурентов,
+        прогонит через LLM-сравнение (~2–3 мин) и построит отчёт.
+      </p>
+    </div>
+  {% elif run.status == 'failed' %}
+    {# ─────────── failed run ─────────── #}
+    <div class="bg-red-50 border border-red-200 rounded-lg p-6">
+      <h2 class="text-base font-semibold text-avito-negative mb-2">⚠ Прогон завершился с ошибкой</h2>
+      <pre class="text-sm text-avito-text whitespace-pre-wrap break-words">{{ run.error_message or 'без сообщения' }}</pre>
+    </div>
+  {% elif run.status == 'running' %}
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-6">
+      <h2 class="text-base font-semibold text-amber-800">⏳ Прогон ещё идёт…</h2>
+    </div>
+  {% elif report is none %}
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-6">
+      <h2 class="text-base font-semibold text-amber-800">⚠ Отчёт повреждён</h2>
+      <p class="text-sm mt-1">Перезапусти прогон, чтобы пересобрать данные.</p>
+    </div>
+  {% else %}
+    {# ─────────── success — full report ─────────── #}
+
+    {# Reference summary + price-range card #}
+    <div class="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-4 mb-4">
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-5">
+        <h3 class="text-sm font-semibold text-avito-text mb-3">📌 Эталон</h3>
+        {% if report.reference.title %}
+          <div class="text-base text-avito-text mb-2">{{ report.reference.title }}</div>
+        {% endif %}
+        <div class="text-3xl font-semibold tabular-nums text-avito-text">
+          {{ money(report.reference.price) }}
+          <span class="text-base text-avito-text-soft">★ моя цена</span>
+        </div>
+        {% if report.reference.region %}
+          <div class="text-xs text-avito-text-muted mt-2">Регион: {{ report.reference.region }}</div>
+        {% endif %}
+        {% if report.reference.url %}
+          <a href="{{ report.reference.url }}" target="_blank" rel="noopener"
+             class="inline-block text-xs mt-3 text-avito-brand hover:underline">
+            → Открыть на Avito
+          </a>
+        {% endif %}
+      </div>
+
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-5">
+        <h3 class="text-sm font-semibold text-avito-text mb-3">📊 Вилка по сопоставимым</h3>
+        <div class="grid grid-cols-5 gap-2 text-center mb-4">
+          <div>
+            <div class="text-[10px] uppercase text-avito-text-soft">Минимум</div>
+            <div class="text-sm font-semibold tabular-nums text-avito-text mt-1">{{ money(report.range.min) }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase text-avito-text-soft">P25</div>
+            <div class="text-sm font-semibold tabular-nums text-avito-text mt-1">{{ money(report.range.p25) }}</div>
+          </div>
+          <div class="bg-avito-brand-soft rounded-md py-1">
+            <div class="text-[10px] uppercase text-[#5A8C00]">Медиана</div>
+            <div class="text-sm font-semibold tabular-nums text-[#5A8C00] mt-1">{{ money(report.range.median) }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase text-avito-text-soft">P75</div>
+            <div class="text-sm font-semibold tabular-nums text-avito-text mt-1">{{ money(report.range.p75) }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase text-avito-text-soft">Максимум</div>
+            <div class="text-sm font-semibold tabular-nums text-avito-text mt-1">{{ money(report.range.max) }}</div>
+          </div>
+        </div>
+
+        {% if report.recommended_price %}
+          <div class="bg-avito-brand-soft border border-[#cae39d] rounded-md p-3 flex items-center justify-between">
+            <div>
+              <div class="text-[10px] uppercase text-[#5A8C00] tracking-wide">💡 Рекомендую</div>
+              <div class="text-2xl font-semibold tabular-nums text-[#3f6500] mt-1">{{ money(report.recommended_price) }}</div>
+            </div>
+            {% if report.reference.price %}
+              {% set delta = report.recommended_price - report.reference.price %}
+              <div class="text-xs text-avito-text">
+                {% if delta > 0 %}
+                  <span class="text-avito-positive">▲ +{{ '{:,}'.format(delta).replace(',', '\xa0') }}&nbsp;₽</span>
+                {% elif delta < 0 %}
+                  <span class="text-avito-negative">▼ {{ '{:,}'.format(delta).replace(',', '\xa0') }}&nbsp;₽</span>
+                {% else %}
+                  без изменений
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Histogram (text-mode bars — keep V1 simple, no Chart.js here for now) #}
+    {% if report.histogram_bins %}
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-5 mb-4">
+        <h3 class="text-sm font-semibold text-avito-text mb-3">Распределение цен</h3>
+        {% set max_count = (report.histogram_bins | map(attribute='count') | max) %}
+        <div class="space-y-1">
+          {% for bin in report.histogram_bins %}
+            {% set width_pct = (bin.count * 100 // max_count) if max_count else 0 %}
+            <div class="flex items-center gap-2 text-xs">
+              <div class="w-32 tabular-nums text-avito-text-soft text-right">
+                {{ '{:,}'.format(bin.low).replace(',', '\xa0') }}–{{ '{:,}'.format(bin.high).replace(',', '\xa0') }}
+              </div>
+              <div class="flex-1 bg-avito-bg rounded h-5 relative overflow-hidden">
+                <div class="h-full {% if bin.is_ref %}bg-avito-brand{% else %}bg-[#cae39d]{% endif %}" style="width: {{ width_pct }}%;"></div>
+                {% if bin.is_ref %}
+                  <span class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-white font-semibold">★ моя</span>
+                {% endif %}
+              </div>
+              <div class="w-8 tabular-nums text-avito-text">{{ bin.count }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    {# Top-5 cheaper / pricier #}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-5">
+        <h3 class="text-sm font-semibold text-avito-text mb-3">🔻 Дешевле меня (топ-5)</h3>
+        {% if report.cheaper_top5 %}
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-[10px] uppercase text-avito-text-soft border-b border-avito-border">
+                <th class="text-left py-2">Цена</th>
+                <th class="text-left">Score</th>
+                <th class="text-left">Минусы</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in report.cheaper_top5 %}
+                <tr class="border-b border-avito-border-soft last:border-0">
+                  <td class="py-2 tabular-nums font-medium">{{ money(r.price) }}</td>
+                  <td class="tabular-nums text-avito-text-soft">{{ r.score }}</td>
+                  <td class="text-xs text-avito-text-soft">{{ r.disadvantages | join(', ') if r.disadvantages else '—' }}</td>
+                  <td class="text-right">
+                    {% if r.url %}
+                      <a href="{{ r.url }}" target="_blank" rel="noopener" class="text-avito-brand hover:underline text-xs">→</a>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="text-sm text-avito-text-muted">Нет конкурентов дешевле твоей цены.</p>
+        {% endif %}
+      </div>
+
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-5">
+        <h3 class="text-sm font-semibold text-avito-text mb-3">🔺 Дороже меня (топ-5)</h3>
+        {% if report.pricier_top5 %}
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-[10px] uppercase text-avito-text-soft border-b border-avito-border">
+                <th class="text-left py-2">Цена</th>
+                <th class="text-left">Score</th>
+                <th class="text-left">Плюсы</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in report.pricier_top5 %}
+                <tr class="border-b border-avito-border-soft last:border-0">
+                  <td class="py-2 tabular-nums font-medium">{{ money(r.price) }}</td>
+                  <td class="tabular-nums text-avito-text-soft">{{ r.score }}</td>
+                  <td class="text-xs text-avito-text-soft">{{ r.advantages | join(', ') if r.advantages else '—' }}</td>
+                  <td class="text-right">
+                    {% if r.url %}
+                      <a href="{{ r.url }}" target="_blank" rel="noopener" class="text-avito-brand hover:underline text-xs">→</a>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="text-sm text-avito-text-muted">Нет конкурентов дороже твоей цены.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Conclusion #}
+    {% if report.conclusion %}
+      <div class="bg-avito-surface rounded-lg border border-avito-border p-5 mb-4">
+        <h3 class="text-sm font-semibold text-avito-text mb-2">💬 Заключение</h3>
+        <p class="text-sm text-avito-text leading-relaxed">{{ report.conclusion }}</p>
+        <div class="mt-4 flex gap-2">
+          <form method="post" action="/api/price-analyses/{{ analysis.id }}/runs/{{ run.id }}/send-to-telegram">
+            <button type="submit"
+                    class="btn btn-sm bg-avito-surface border-avito-border text-avito-text hover:bg-avito-elev px-3 py-1.5 rounded-md text-xs">
+              📤 Отправить в Telegram
+            </button>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

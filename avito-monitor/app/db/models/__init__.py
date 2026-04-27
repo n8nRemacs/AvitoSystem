@@ -7,6 +7,8 @@ from app.db.models.llm_analysis import LLMAnalysis
 from app.db.models.messenger_chat import MessengerChat
 from app.db.models.messenger_message import MessengerMessage
 from app.db.models.notification import Notification
+from app.db.models.price_analysis import PriceAnalysis
+from app.db.models.price_analysis_run import PriceAnalysisRun
 from app.db.models.profile_listing import ProfileListing
 from app.db.models.profile_market_stats import ProfileMarketStats
 from app.db.models.profile_run import ProfileRun
@@ -24,6 +26,8 @@ __all__ = [
     "MessengerChat",
     "MessengerMessage",
     "Notification",
+    "PriceAnalysis",
+    "PriceAnalysisRun",
     "ProfileListing",
     "ProfileMarketStats",
     "ProfileRun",

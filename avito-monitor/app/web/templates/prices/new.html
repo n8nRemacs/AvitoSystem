@@ -1,0 +1,99 @@
+{% extends "_layout.html" %}
+{% block title %}Новый запрос — Ценовая разведка{% endblock %}
+
+{% block page_content %}
+<div class="max-w-[800px]">
+  <a href="/price-intelligence" class="text-xs text-avito-text-soft hover:text-avito-text">← К списку запросов</a>
+  <h1 class="text-2xl font-semibold text-avito-text mt-1 mb-1">Новый запрос ценовой разведки</h1>
+  <p class="text-sm text-avito-text-soft mb-6">
+    Скажи системе, что сравнивать (твоё объявление) и где искать конкурентов.
+    LLM сравнит каждого аналога с эталоном и построит вилку цен + рекомендацию.
+  </p>
+
+  <form method="post" action="/price-intelligence/new" class="space-y-5">
+    <div class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <h3 class="text-sm font-semibold text-avito-text mb-4">📌 Эталон</h3>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-avito-text-soft mb-1">Название запроса <span class="text-avito-negative">*</span></label>
+          <input name="name" type="text" required
+                 value="{{ form.get('name', '') }}"
+                 class="w-full bg-avito-bg border border-avito-border rounded-md px-3 py-2 text-sm text-avito-text focus:border-avito-brand focus:outline-none"
+                 placeholder="iPhone 13 128GB Москва — моё объявление">
+          {% if errors.get('name') %}<p class="text-xs text-avito-negative mt-1">{{ errors.name }}</p>{% endif %}
+        </div>
+
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-avito-text-soft mb-1">URL твоего объявления <span class="text-avito-text-muted">(опционально)</span></label>
+          <input name="reference_listing_url" type="url"
+                 value="{{ form.get('reference_listing_url', '') }}"
+                 class="w-full bg-avito-bg border border-avito-border rounded-md px-3 py-2 text-sm text-avito-text focus:border-avito-brand focus:outline-none"
+                 placeholder="https://www.avito.ru/moskva/telefony/iphone_13_128gb_4823999">
+          <p class="text-xs text-avito-text-muted mt-1">Если есть — система сама подтянет цену, регион и описание для эталона.</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs uppercase tracking-wide text-avito-text-soft mb-1">Цена эталона, ₽</label>
+            <input name="reference_price" type="number" min="0"
+                   value="{{ form.get('reference_price', '') }}"
+                   class="w-full bg-avito-bg border border-avito-border rounded-md px-3 py-2 text-sm tabular-nums text-avito-text focus:border-avito-brand focus:outline-none"
+                   placeholder="23500">
+            {% if errors.get('reference_price') %}<p class="text-xs text-avito-negative mt-1">{{ errors.reference_price }}</p>{% endif %}
+            <p class="text-xs text-avito-text-muted mt-1">Обязательна, если URL не указан.</p>
+          </div>
+          <div>
+            <label class="block text-xs uppercase tracking-wide text-avito-text-soft mb-1">Описание эталона</label>
+            <input name="reference_title" type="text"
+                   value="{{ form.get('reference_title', '') }}"
+                   class="w-full bg-avito-bg border border-avito-border rounded-md px-3 py-2 text-sm text-avito-text focus:border-avito-brand focus:outline-none"
+                   placeholder="iPhone 13 128GB Midnight, акк 92%">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <h3 class="text-sm font-semibold text-avito-text mb-4">🔎 Поиск конкурентов</h3>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-avito-text-soft mb-1">URL поиска на Avito <span class="text-avito-negative">*</span></label>
+          <input name="competitor_search_url" type="url" required
+                 value="{{ form.get('competitor_search_url', '') }}"
+                 class="w-full bg-avito-bg border border-avito-border rounded-md px-3 py-2 text-sm text-avito-text focus:border-avito-brand focus:outline-none"
+                 placeholder="https://www.avito.ru/moskva/telefony?q=iphone+13+128">
+          {% if errors.get('competitor_search_url') %}<p class="text-xs text-avito-negative mt-1">{{ errors.competitor_search_url }}</p>{% endif %}
+          <p class="text-xs text-avito-text-muted mt-1">Скопируй из адресной строки браузера после применения нужных фильтров.</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs uppercase tracking-wide text-avito-text-soft mb-1">Регион <span class="text-avito-text-muted">(опц.)</span></label>
+            <input name="search_region" type="text"
+                   value="{{ form.get('search_region', '') }}"
+                   class="w-full bg-avito-bg border border-avito-border rounded-md px-3 py-2 text-sm text-avito-text focus:border-avito-brand focus:outline-none"
+                   placeholder="moskva">
+          </div>
+          <div>
+            <label class="block text-xs uppercase tracking-wide text-avito-text-soft mb-1">Макс. конкурентов</label>
+            <input name="max_competitors" type="number" min="1" max="200"
+                   value="{{ form.get('max_competitors', '30') }}"
+                   class="w-full bg-avito-bg border border-avito-border rounded-md px-3 py-2 text-sm tabular-nums text-avito-text focus:border-avito-brand focus:outline-none">
+            <p class="text-xs text-avito-text-muted mt-1">30 — оптимум по бюджету и точности.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between gap-3 pt-2">
+      <a href="/price-intelligence" class="text-sm text-avito-text-soft hover:text-avito-text">Отмена</a>
+      <button type="submit"
+              class="btn btn-md bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00] font-medium px-5 py-2 rounded-md text-sm">
+        Сохранить
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

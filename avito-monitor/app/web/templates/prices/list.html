@@ -1,0 +1,71 @@
+{% extends "_layout.html" %}
+{% block title %}Ценовая разведка — Avito Monitor{% endblock %}
+
+{% block page_content %}
+<div class="max-w-[1280px]">
+  <div class="flex items-center justify-between gap-3 mb-5">
+    <div>
+      <h1 class="text-2xl font-semibold text-avito-text flex items-center gap-2">
+        💰 Ценовая разведка
+      </h1>
+      <p class="text-sm text-avito-text-soft mt-1">
+        Сравнение твоих объявлений с конкурентами на Avito.
+        Вилка цен · топ-5 дешевле/дороже · рекомендация.
+      </p>
+    </div>
+    <a href="/price-intelligence/new"
+       class="btn btn-md bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00] font-medium px-4 py-2 rounded-md text-sm">
+      + Создать запрос
+    </a>
+  </div>
+
+  {% if not analyses %}
+    <div class="bg-avito-surface rounded-lg border border-avito-border p-10 text-center">
+      <div class="text-4xl mb-3">💰</div>
+      <h2 class="text-lg font-semibold text-avito-text mb-1">Ещё нет запросов</h2>
+      <p class="text-sm text-avito-text-soft max-w-md mx-auto">
+        Создай первый запрос: дай URL своего объявления (или ручную цену) +
+        URL поиска конкурентов на Avito. Система найдёт аналоги, прогонит
+        через LLM-сравнение и выдаст рекомендацию по цене.
+      </p>
+    </div>
+  {% else %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for a in analyses %}
+        {% set run = latest_runs.get(a.id|string) %}
+        <a href="/price-intelligence/{{ a.id }}"
+           class="block bg-avito-surface rounded-lg border border-avito-border p-4 hover:border-avito-brand-soft hover:shadow-sm transition-all">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <h3 class="font-medium text-avito-text leading-tight">{{ a.name }}</h3>
+            {% if run and run.status == 'success' %}
+              <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-avito-brand-soft text-[#5A8C00]">готово</span>
+            {% elif run and run.status == 'failed' %}
+              <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-50 text-avito-negative">ошибка</span>
+            {% elif run %}
+              <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">{{ run.status }}</span>
+            {% else %}
+              <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-avito-elev text-avito-text-muted">не запускался</span>
+            {% endif %}
+          </div>
+
+          <div class="text-xs text-avito-text-soft space-y-1">
+            {% if a.search_region %}<div>Регион: {{ a.search_region }}</div>{% endif %}
+            <div>Конкурентов: до {{ a.max_competitors }}</div>
+            {% if a.reference_listing_url %}
+              <div class="truncate">URL эталона: {{ a.reference_listing_url }}</div>
+            {% elif a.reference_data and a.reference_data.get('price') %}
+              <div>Эталонная цена: {{ '{:,}'.format(a.reference_data['price']).replace(',', '\xa0') }}&nbsp;₽</div>
+            {% endif %}
+          </div>
+
+          {% if run and run.status == 'success' and run.comparable_count %}
+            <div class="text-xs text-avito-text-muted mt-3 pt-3 border-t border-avito-border-soft">
+              Сопоставимых: {{ run.comparable_count }} / {{ run.competitors_found }}
+            </div>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
