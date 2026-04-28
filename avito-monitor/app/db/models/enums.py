@@ -30,10 +30,19 @@ class ProcessingStatus(StrEnum):
 
 
 class UserAction(StrEnum):
+    """User-driven funnel state for a profile_listings link.
+
+    The simplified V1 funnel: every new lot starts ``pending``, the user
+    either ``accepted`` it (moves to «В работе» tab) or ``rejected`` it
+    (gone from the feed). ``viewed`` / ``hidden`` / ``flagged`` are kept
+    for backwards compat with prior callback handlers.
+    """
     PENDING = "pending"
     VIEWED = "viewed"
-    HIDDEN = "hidden"
-    FLAGGED = "flagged"
+    ACCEPTED = "accepted"   # «принят в работу»
+    REJECTED = "rejected"   # «отклонён», скрыт из ленты навсегда
+    HIDDEN = "hidden"       # legacy
+    FLAGGED = "flagged"     # legacy
 
 
 class SellerType(StrEnum):

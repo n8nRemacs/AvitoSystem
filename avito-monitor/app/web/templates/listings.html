@@ -30,15 +30,27 @@
     <div>
       <h1 class="text-2xl font-semibold text-avito-text">📦 Лоты</h1>
       <p class="text-sm text-avito-text-soft mt-1">
-        Лента собранных объявлений. Найдено: <strong class="tabular-nums">{{ total }}</strong>
+        Найдено: <strong class="tabular-nums">{{ total }}</strong>
         {% if total_all and total != total_all %}<span class="text-avito-text-muted">/ всего {{ total_all }}</span>{% endif %}
       </p>
     </div>
   </div>
 
-  {# ─────────── Filter chips ─────────── #}
-  <div class="bg-avito-surface rounded-lg border border-avito-border p-4 mb-4 space-y-3">
-    {# Профили #}
+  {# ─────────── Tabs ─────────── #}
+  <div class="flex items-center gap-2 mb-4 border-b border-avito-border">
+    {% set tabs = [('new', 'Новые', tab_counts.new), ('in_progress', 'В работе', tab_counts.in_progress), ('rejected', 'Отклонённые', tab_counts.rejected)] %}
+    {% for key, label, badge in tabs %}
+      <a href="{{ qs(tab=key, offset='0') }}"
+         class="px-4 py-2.5 -mb-px text-sm font-medium border-b-2 transition-colors
+           {% if f.tab == key %}border-avito-brand text-avito-text{% else %}border-transparent text-avito-text-soft hover:text-avito-text{% endif %}">
+        {{ label }}
+        {% if badge %}<span class="ml-1 text-xs tabular-nums {% if f.tab == key %}text-avito-brand{% else %}text-avito-text-muted{% endif %}">{{ badge }}</span>{% endif %}
+      </a>
+    {% endfor %}
+  </div>
+
+  {# ─────────── Filter chips (compact) ─────────── #}
+  <div class="bg-avito-surface rounded-lg border border-avito-border p-3 mb-4 space-y-2">
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1">Профиль:</span>
       {{ chip(qs(profile=''), 'Все', not f.profile_ids) }}
@@ -46,8 +58,6 @@
         {{ chip(qs(profile=p.id|string), p.name, (f.profile_ids and p.id in f.profile_ids)) }}
       {% endfor %}
     </div>
-
-    {# Состояния #}
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1">Состояние:</span>
       {{ chip(qs(condition=''), 'Все', not f.condition_classes) }}
@@ -57,21 +67,17 @@
         {% endif %}
       {% endfor %}
     </div>
-
-    {# Зона + Период + Сортировка одной строкой #}
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1">Зона:</span>
       {{ chip(qs(zone='alert'),  '● Alert',       f.zone == 'alert') }}
       {{ chip(qs(zone='market'), '○ Market data', f.zone == 'market') }}
       {{ chip(qs(zone='all'),    '⊙ Все',         f.zone == 'all') }}
-
       <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1 ml-3">Период:</span>
       {{ chip(qs(period='24h'), '24ч', f.period == '24h') }}
       {{ chip(qs(period='7d'),  '7д',  f.period == '7d') }}
       {{ chip(qs(period='30d'), '30д', f.period == '30d') }}
       {{ chip(qs(period='all'), 'Все', f.period == 'all') }}
-
-      <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1 ml-3">Сортировка:</span>
+      <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1 ml-3">Сорт:</span>
       {{ chip(qs(sort='date'),       'По дате',  f.sort == 'date') }}
       {{ chip(qs(sort='price_asc'),  '↑ Цена',   f.sort == 'price_asc') }}
       {{ chip(qs(sort='price_desc'), '↓ Цена',   f.sort == 'price_desc') }}
@@ -82,23 +88,30 @@
   {# ─────────── List ─────────── #}
   {% if not rows %}
     <div class="bg-avito-surface rounded-lg border border-avito-border p-12 text-center">
-      <div class="text-5xl mb-3">📦</div>
-      <h2 class="text-lg font-medium text-avito-text mb-2">Под фильтр ничего не подходит</h2>
+      <div class="text-5xl mb-3">
+        {% if f.tab == 'in_progress' %}💼{% elif f.tab == 'rejected' %}🗑{% else %}📦{% endif %}
+      </div>
+      <h2 class="text-lg font-medium text-avito-text mb-2">
+        {% if f.tab == 'in_progress' %}В работе пока пусто
+        {% elif f.tab == 'rejected' %}Отклонённых нет
+        {% else %}Новых лотов нет{% endif %}
+      </h2>
       <p class="text-sm text-avito-text-soft max-w-md mx-auto">
         {% if total_all == 0 %}
-          Пока нет ни одного лота. Создай профиль и подожди пары прогонов.
+          Создай профиль и подожди пары прогонов.
+        {% elif f.tab == 'new' %}
+          Все лоты разобраны — посмотри во вкладке «В работе».
         {% else %}
-          Попробуй ослабить фильтры — например, расширь период или зону.
+          Попробуй ослабить фильтры (период / зона).
         {% endif %}
       </p>
     </div>
   {% else %}
     <div class="space-y-2">
       {% for r in rows %}
-        <a href="{{ r.web_url }}" target="_blank" rel="noopener"
-           class="block bg-avito-surface rounded-lg border border-avito-border p-3 hover:border-avito-brand-soft hover:shadow-sm transition-all
-             {% if not r.in_alert_zone %}opacity-60 hover:opacity-100{% endif %}">
-          <div class="flex gap-3">
+        <details class="group bg-avito-surface rounded-lg border border-avito-border overflow-hidden hover:border-avito-brand-soft transition-all
+                  {% if not r.in_alert_zone %}opacity-70 hover:opacity-100{% endif %}">
+          <summary class="flex gap-3 p-3 cursor-pointer list-none select-none">
             <div class="flex-shrink-0 w-20 h-20 bg-avito-elev rounded-md overflow-hidden">
               {% if r.image_url %}
                 <img src="{{ r.image_url }}" alt="" class="w-full h-full object-cover" loading="lazy">
@@ -109,12 +122,15 @@
 
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-2">
-                <h3 class="text-sm font-medium text-avito-text leading-tight truncate">{{ r.title }}</h3>
-                {% if r.in_alert_zone %}
-                  <span class="text-[10px] uppercase px-2 py-0.5 rounded-full bg-avito-brand-soft text-[#5A8C00] flex-shrink-0">alert</span>
-                {% else %}
-                  <span class="text-[10px] uppercase px-2 py-0.5 rounded-full bg-avito-elev text-avito-text-soft flex-shrink-0">market</span>
-                {% endif %}
+                <h3 class="text-sm font-medium text-avito-text leading-tight">{{ r.title }}</h3>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  {% if r.in_alert_zone %}
+                    <span class="text-[10px] uppercase px-2 py-0.5 rounded-full bg-avito-brand-soft text-[#5A8C00]">alert</span>
+                  {% else %}
+                    <span class="text-[10px] uppercase px-2 py-0.5 rounded-full bg-avito-elev text-avito-text-soft">market</span>
+                  {% endif %}
+                  <span class="text-avito-text-muted text-xs ml-1 group-open:rotate-180 transition-transform">▾</span>
+                </div>
               </div>
 
               <div class="flex items-baseline gap-3 mt-1">
@@ -130,26 +146,90 @@
 
               <div class="flex items-center gap-2 text-xs text-avito-text-soft mt-1.5 flex-wrap">
                 <span class="px-1.5 py-0.5 rounded bg-avito-elev">{{ CONDITION_LABELS.get(r.condition_class, r.condition_class) }}</span>
-                {% if r.condition_confidence and r.condition_confidence < 0.7 %}
-                  <span class="text-avito-text-muted text-[10px]">({{ '%.0f'|format(r.condition_confidence * 100) }}%)</span>
-                {% endif %}
                 <span class="text-avito-text-muted">·</span>
                 <span class="truncate max-w-[160px]">{{ r.profile_name }}</span>
                 {% if r.region %}<span class="text-avito-text-muted">·</span><span>{{ r.region }}</span>{% endif %}
                 {% if r.seller_type == 'company' %}<span class="text-avito-text-muted">·</span><span>🏢 компания</span>
                 {% elif r.seller_type == 'private' %}<span class="text-avito-text-muted">·</span><span>👤 частник</span>{% endif %}
+                {% if r.discovered_at %}<span class="text-avito-text-muted">·</span><span>{{ r.discovered_at.strftime('%d.%m %H:%M') }}</span>{% endif %}
               </div>
+            </div>
+          </summary>
 
-              <div class="flex items-center gap-3 text-[11px] text-avito-text-muted mt-1.5">
-                <span title="Найдено системой">⏱ {{ r.discovered_at.strftime('%d.%m %H:%M') if r.discovered_at else '—' }}</span>
-                <span title="Статус обработки">{{ r.processing_status }}</span>
-                {% if r.user_action and r.user_action != 'pending' %}
-                  <span title="Твоя пометка">{{ {'viewed':'👁 просмотрено','hidden':'🚫 скрыто','flagged':'🚩'}[r.user_action] or r.user_action }}</span>
+          {# ───── expanded body ───── #}
+          <div class="border-t border-avito-border-soft p-4 bg-avito-elev/30">
+            {% if r.description %}
+              <div class="text-sm text-avito-text whitespace-pre-line mb-3 leading-relaxed">{{ r.description }}</div>
+            {% else %}
+              <div class="text-xs text-avito-text-muted italic mb-3">Описание не подгружено (LLM ещё не классифицировал лот)</div>
+            {% endif %}
+
+            {% if r.condition_reasoning %}
+              <div class="bg-avito-surface rounded-md p-3 mb-3 border border-avito-border-soft">
+                <div class="text-[11px] uppercase text-avito-text-soft mb-1">🤖 LLM verdict</div>
+                <div class="text-xs text-avito-text leading-relaxed">{{ r.condition_reasoning }}</div>
+                {% if r.condition_confidence %}
+                  <div class="text-[10px] text-avito-text-muted mt-1">уверенность: {{ '%.0f'|format(r.condition_confidence * 100) }}%</div>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            {% if r.images and r.images|length > 1 %}
+              <div class="grid grid-cols-4 gap-2 mb-3">
+                {% for img in r.images[:8] %}
+                  <a href="{{ img.url }}" target="_blank" rel="noopener" class="block aspect-square bg-avito-elev rounded overflow-hidden">
+                    <img src="{{ img.url }}" alt="" class="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy">
+                  </a>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            <div class="flex items-center justify-between gap-2 pt-2 border-t border-avito-border-soft flex-wrap">
+              <div class="flex items-center gap-2">
+                <a href="{{ r.web_url }}" target="_blank" rel="noopener"
+                   class="text-xs text-avito-brand hover:underline">→ Открыть на Avito</a>
+              </div>
+              <div class="flex items-center gap-2">
+                {% if f.tab in ('new', 'all') %}
+                  <form method="post" action="/listings/{{ r.profile_id }}/{{ r.listing_id }}/action" class="inline">
+                    <input type="hidden" name="action" value="reject">
+                    <input type="hidden" name="from_tab" value="{{ f.tab }}">
+                    <button type="submit"
+                            class="btn btn-sm bg-avito-surface border border-avito-border text-avito-negative hover:bg-red-50 px-3 py-1.5 rounded-md text-sm font-medium">
+                      ✗ Отклонить
+                    </button>
+                  </form>
+                  <form method="post" action="/listings/{{ r.profile_id }}/{{ r.listing_id }}/action" class="inline">
+                    <input type="hidden" name="action" value="accept">
+                    <input type="hidden" name="from_tab" value="{{ f.tab }}">
+                    <button type="submit"
+                            class="btn btn-sm bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00] px-4 py-1.5 rounded-md text-sm font-medium">
+                      ✓ В работу
+                    </button>
+                  </form>
+                {% elif f.tab == 'in_progress' %}
+                  <form method="post" action="/listings/{{ r.profile_id }}/{{ r.listing_id }}/action" class="inline">
+                    <input type="hidden" name="action" value="undo">
+                    <input type="hidden" name="from_tab" value="{{ f.tab }}">
+                    <button type="submit"
+                            class="btn btn-sm bg-avito-surface border border-avito-border text-avito-text-soft hover:bg-avito-elev px-3 py-1.5 rounded-md text-sm">
+                      ↶ Вернуть в новые
+                    </button>
+                  </form>
+                {% elif f.tab == 'rejected' %}
+                  <form method="post" action="/listings/{{ r.profile_id }}/{{ r.listing_id }}/action" class="inline">
+                    <input type="hidden" name="action" value="undo">
+                    <input type="hidden" name="from_tab" value="{{ f.tab }}">
+                    <button type="submit"
+                            class="btn btn-sm bg-avito-surface border border-avito-border text-avito-text-soft hover:bg-avito-elev px-3 py-1.5 rounded-md text-sm">
+                      ↶ Вернуть в новые
+                    </button>
+                  </form>
                 {% endif %}
               </div>
             </div>
           </div>
-        </a>
+        </details>
       {% endfor %}
     </div>
 
@@ -157,7 +237,7 @@
       <div class="mt-4 text-center">
         <a href="{{ qs(offset=(f.offset + f.limit)|string) }}"
            class="inline-block px-5 py-2 rounded-md bg-avito-surface border border-avito-border text-sm font-medium text-avito-text hover:bg-avito-elev">
-          Загрузить ещё {{ rows|length }} → ({{ total - f.offset - rows|length }} осталось)
+          Загрузить ещё → ({{ total - f.offset - rows|length }} осталось)
         </a>
       </div>
     {% endif %}

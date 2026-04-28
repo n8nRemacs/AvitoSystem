@@ -439,15 +439,15 @@ async def listings_feed(
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> HTMLResponse:
-    """Listings feed (UI Spec §4.5). Filter chips + lazy load via querystring."""
+    """Listings feed. Tabs «Новые / В работе» + filter chips + lazy load."""
     from app.services.listings_view import (
         ListingFilters,
         filter_summary,
         query_listings,
+        tab_counts,
     )
     qp = request.query_params
 
-    # Multi-select chips: profile / condition support repeated query keys.
     profile_ids: list[uuid.UUID] = []
     for raw in qp.getlist("profile"):
         if raw:
@@ -459,6 +459,9 @@ async def listings_feed(
     zone = qp.get("zone") or "all"
     period = qp.get("period") or "7d"
     sort = qp.get("sort") or "date"
+    tab = qp.get("tab") or "new"
+    if tab not in ("new", "in_progress", "rejected", "all"):
+        tab = "new"
     try:
         offset = max(0, int(qp.get("offset") or 0))
     except ValueError:
@@ -471,15 +474,17 @@ async def listings_feed(
         zone=zone,
         period=period,
         sort=sort,
+        tab=tab,
         limit=limit,
         offset=offset,
     )
 
     rows, total = await query_listings(session, user.id, filters)
     summary = await filter_summary(session, user.id)
+    counts = await tab_counts(session, user.id)
 
     # Total without filters — for the "238 / 1820" hint in the header.
-    total_all_filters = ListingFilters(zone="all", period="all", limit=1, offset=0)
+    total_all_filters = ListingFilters(zone="all", period="all", tab="all", limit=1, offset=0)
     _, total_all = await query_listings(session, user.id, total_all_filters)
 
     def qs_builder(**overrides: str) -> str:
@@ -491,6 +496,7 @@ async def listings_feed(
         """
         from urllib.parse import urlencode
         keep = {
+            "tab": filters.tab,
             "profile": [str(p) for p in (filters.profile_ids or [])],
             "condition": list(filters.condition_classes or []),
             "zone": filters.zone,
@@ -537,10 +543,69 @@ async def listings_feed(
         "total_all": total_all,
         "f": filters,
         "summary": summary,
+        "tab_counts": counts,
         "has_more": offset + len(rows) < total,
         "qs": qs_builder,
     })
     return templates.TemplateResponse(request, "listings.html", ctx)
+
+
+@router.post("/listings/{profile_id}/{listing_id}/action", response_model=None)
+async def listing_action(
+    profile_id: uuid.UUID,
+    listing_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    """User accepts (→ В работу) or rejects (→ скрыт) a lot.
+
+    Both transitions are permanent from the UI's perspective; the row stays
+    in the DB so we keep history and can offer an undo path later.
+    """
+    from sqlalchemy import select, update
+    from app.db.models import ProfileListing, SearchProfile
+    from app.db.models.enums import UserAction
+
+    form = await request.form()
+    action_raw = (form.get("action") or "").strip().lower()
+    new_action: str | None = None
+    if action_raw == "accept":
+        new_action = UserAction.ACCEPTED.value
+    elif action_raw == "reject":
+        new_action = UserAction.REJECTED.value
+    elif action_raw == "undo":
+        new_action = UserAction.PENDING.value
+    if new_action is None:
+        raise HTTPException(400, "action must be 'accept' | 'reject' | 'undo'")
+
+    # Verify ownership before touching the link row.
+    own = (await session.execute(
+        select(SearchProfile.id).where(
+            SearchProfile.id == profile_id, SearchProfile.user_id == user.id
+        )
+    )).scalar_one_or_none()
+    if own is None:
+        raise HTTPException(404, "Profile not found")
+
+    res = await session.execute(
+        update(ProfileListing)
+        .where(
+            ProfileListing.profile_id == profile_id,
+            ProfileListing.listing_id == listing_id,
+        )
+        .values(user_action=new_action)
+    )
+    await session.commit()
+    if res.rowcount == 0:
+        raise HTTPException(404, "Listing link not found")
+
+    # After the action keep the user on the same tab they came from.
+    target_tab = (form.get("from_tab") or "new").strip() or "new"
+    return RedirectResponse(
+        f"/listings?tab={target_tab}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @router.get("/price-intelligence", response_class=HTMLResponse)

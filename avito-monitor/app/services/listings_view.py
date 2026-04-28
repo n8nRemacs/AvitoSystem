@@ -39,6 +39,13 @@ SORT_KEYS = {
 
 
 @dataclass
+class ListingImage:
+    url: str
+    width: int | None = None
+    height: int | None = None
+
+
+@dataclass
 class ListingRow:
     """One card on the /listings page."""
     listing_id: uuid.UUID
@@ -54,12 +61,15 @@ class ListingRow:
     seller_name: str | None
     condition_class: str
     condition_confidence: float | None
+    condition_reasoning: str | None
+    description: str | None
     in_alert_zone: bool
     processing_status: str
     user_action: str | None
     discovered_at: datetime | None
     last_seen_at: datetime | None
     image_url: str | None
+    images: list[ListingImage]
     url: str | None
 
     @property
@@ -88,8 +98,22 @@ class ListingFilters:
     zone: str = ZONE_ALL
     period: str = "7d"
     sort: str = "date"
+    # Tab filter — translated below into a SQL ``user_action IN (...)`` clause.
+    # ``new`` = pending+viewed (still to triage),
+    # ``in_progress`` = accepted (taken into работу),
+    # ``rejected`` = explicitly rejected (hidden by default; opt-in for review),
+    # ``all`` = no filter on user_action.
+    tab: str = "new"
     limit: int = 30
     offset: int = 0
+
+
+_TAB_TO_USER_ACTIONS: dict[str, list[str] | None] = {
+    "new": ["pending", "viewed"],
+    "in_progress": ["accepted"],
+    "rejected": ["rejected"],
+    "all": None,
+}
 
 
 def _first_image_url(images_jsonb: Any) -> str | None:
@@ -99,6 +123,20 @@ def _first_image_url(images_jsonb: Any) -> str | None:
     if isinstance(first, dict):
         return first.get("url")
     return None
+
+
+def _images_list(images_jsonb: Any) -> list[ListingImage]:
+    if not isinstance(images_jsonb, list):
+        return []
+    out: list[ListingImage] = []
+    for img in images_jsonb:
+        if isinstance(img, dict) and img.get("url"):
+            out.append(ListingImage(
+                url=img["url"],
+                width=img.get("width"),
+                height=img.get("height"),
+            ))
+    return out
 
 
 async def query_listings(
@@ -128,6 +166,20 @@ async def query_listings(
         stmt = stmt.where(ProfileListing.in_alert_zone.is_(True))
     elif f.zone == ZONE_MARKET:
         stmt = stmt.where(ProfileListing.in_alert_zone.is_(False))
+
+    actions = _TAB_TO_USER_ACTIONS.get(f.tab, _TAB_TO_USER_ACTIONS["new"])
+    if actions is not None:
+        # ``user_action`` may be NULL for very old links; treat NULL as
+        # ``pending`` so they show up in the «Новые» tab without a backfill.
+        if "pending" in actions:
+            stmt = stmt.where(
+                or_(
+                    ProfileListing.user_action.in_(actions),
+                    ProfileListing.user_action.is_(None),
+                )
+            )
+        else:
+            stmt = stmt.where(ProfileListing.user_action.in_(actions))
 
     hours = PERIOD_TO_HOURS.get(f.period)
     if hours is not None:
@@ -172,15 +224,40 @@ async def query_listings(
             seller_name=getattr(listing, "seller_name", None),
             condition_class=listing.condition_class,
             condition_confidence=listing.condition_confidence,
+            condition_reasoning=listing.condition_reasoning,
+            description=listing.description,
             in_alert_zone=link.in_alert_zone,
             processing_status=link.processing_status,
             user_action=link.user_action,
             discovered_at=link.discovered_at,
             last_seen_at=listing.last_seen_at,
             image_url=_first_image_url(listing.images),
+            images=_images_list(listing.images),
             url=listing.url,
         ))
     return out, total
+
+
+async def tab_counts(
+    session: AsyncSession, user_id: uuid.UUID
+) -> dict[str, int]:
+    """Count of lots per tab — used to render badges on the tabs row."""
+    stmt = (
+        select(
+            func.coalesce(ProfileListing.user_action, "pending").label("ua"),
+            func.count(),
+        )
+        .select_from(ProfileListing)
+        .join(SearchProfile, SearchProfile.id == ProfileListing.profile_id)
+        .where(SearchProfile.user_id == user_id)
+        .group_by("ua")
+    )
+    raw = {ua: int(cnt) for ua, cnt in (await session.execute(stmt)).all()}
+    return {
+        "new": raw.get("pending", 0) + raw.get("viewed", 0),
+        "in_progress": raw.get("accepted", 0),
+        "rejected": raw.get("rejected", 0),
+    }
 
 
 async def filter_summary(
