@@ -106,3 +106,67 @@ async def test_dead_state_does_nothing():
     await account_tick_iteration(pool=pool, now=NOW, tg=AsyncMock())
     pool.trigger_refresh_cycle.assert_not_called()
     pool.patch_state.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_consecutive_5_alert_emitted_once():
+    """First call sends alert; second call (same state) does NOT re-emit."""
+    # Reset module-level set between tests
+    from app.services.health_checker import account_tick as mod
+    mod._alerted_24h.clear()
+
+    pool = AsyncMock()
+    pool.list_all_accounts.return_value = [{
+        "id": "acc-1", "state": "cooldown", "nickname": "Clone",
+        "consecutive_cooldowns": 5,
+        "cooldown_until": (NOW + timedelta(hours=24)).isoformat(),
+    }]
+    pool.trigger_refresh_cycle = AsyncMock()
+    tg = AsyncMock()
+
+    # First tick — alert fires
+    await account_tick_iteration(pool=pool, now=NOW, tg=tg)
+    assert tg.await_count == 1
+
+    # Second tick — same data, alert does NOT fire again
+    await account_tick_iteration(pool=pool, now=NOW, tg=tg)
+    assert tg.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_consecutive_resets_after_recovery():
+    """After consecutive_cooldowns drops to 0, alert state resets and can fire again."""
+    from app.services.health_checker import account_tick as mod
+    mod._alerted_24h.clear()
+
+    pool = AsyncMock()
+    pool.trigger_refresh_cycle = AsyncMock()
+    tg = AsyncMock()
+
+    # Phase 1: consecutive=5 → alert fires
+    pool.list_all_accounts.return_value = [{
+        "id": "acc-1", "state": "cooldown", "nickname": "Clone",
+        "consecutive_cooldowns": 5,
+        "cooldown_until": (NOW + timedelta(hours=24)).isoformat(),
+    }]
+    await account_tick_iteration(pool=pool, now=NOW, tg=tg)
+    assert tg.await_count == 1
+    assert "acc-1" in mod._alerted_24h
+
+    # Phase 2: consecutive=0 → alert state resets
+    pool.list_all_accounts.return_value = [{
+        "id": "acc-1", "state": "active", "nickname": "Clone",
+        "consecutive_cooldowns": 0,
+        "expires_at": (NOW + timedelta(hours=23)).isoformat(),
+    }]
+    await account_tick_iteration(pool=pool, now=NOW, tg=tg)
+    assert "acc-1" not in mod._alerted_24h
+
+    # Phase 3: consecutive=5 again → alert fires AGAIN (it was reset)
+    pool.list_all_accounts.return_value = [{
+        "id": "acc-1", "state": "cooldown", "nickname": "Clone",
+        "consecutive_cooldowns": 5,
+        "cooldown_until": (NOW + timedelta(hours=24)).isoformat(),
+    }]
+    await account_tick_iteration(pool=pool, now=NOW, tg=tg)
+    assert tg.await_count == 2

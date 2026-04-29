@@ -7,6 +7,10 @@ from app.services.account_pool import AccountPool
 
 log = logging.getLogger(__name__)
 
+# Module-level set: tracks accounts that have been alerted for consecutive_cooldowns >= 5.
+# Reset when consecutive_cooldowns drops to 0.
+_alerted_24h: set[str] = set()
+
 
 def _parse_ts(s: str | None) -> datetime | None:
     if not s:
@@ -18,6 +22,7 @@ async def account_tick_iteration(*, pool: AccountPool, now: datetime, tg) -> Non
     accounts = await pool.list_all_accounts()
     for acc in accounts:
         await _process_account(acc, pool=pool, now=now, tg=tg)
+        await _maybe_emit_consecutive_alert(acc, tg=tg)
 
 
 async def _process_account(acc: dict, *, pool: AccountPool, now: datetime, tg) -> None:
@@ -54,3 +59,23 @@ async def _process_account(acc: dict, *, pool: AccountPool, now: datetime, tg) -
             except Exception as e:
                 log.warning("proactive refresh failed for %s: %s", aid, e)
         return
+
+
+async def _maybe_emit_consecutive_alert(acc: dict, *, tg) -> None:
+    """Idempotent TG-alert: fires once when consecutive_cooldowns >= 5,
+    resets when account recovers (consecutive=0)."""
+    aid = acc["id"]
+    consec = acc.get("consecutive_cooldowns") or 0
+
+    if consec >= 5 and aid not in _alerted_24h:
+        # Alert fires once
+        await tg(
+            f"🚨 Account {acc.get('nickname')} лежит в 24h cooldown "
+            f"(consecutive={consec}). Проверь вручную."
+        )
+        _alerted_24h.add(aid)
+        return
+
+    if consec == 0 and aid in _alerted_24h:
+        # Reset alert state on recovery
+        _alerted_24h.discard(aid)
