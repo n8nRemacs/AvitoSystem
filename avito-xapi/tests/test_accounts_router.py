@@ -196,6 +196,23 @@ def test_session_for_sync_409_when_not_active(client, accounts_in_db):
     assert body["detail"]["id"] == "acc-1"
 
 
+def test_session_for_sync_409_when_no_session(client, accounts_in_db):
+    """Active account but no active session row → 409 with detail.state='no_session'."""
+    # Query 1: SELECT from avito_accounts — returns active account
+    accounts_in_db([
+        {"id": "acc-1", "state": "active"},
+    ])
+    # Query 2: SELECT from avito_sessions — returns empty (no active session)
+    accounts_in_db([])
+
+    r = client.get("/api/v1/accounts/acc-1/session-for-sync",
+                   headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["detail"]["state"] == "no_session"
+    assert body["detail"]["id"] == "acc-1"
+
+
 def test_session_for_sync_404_when_unknown(client, accounts_in_db):
     """Unknown account_id → 404."""
     # Query 1: SELECT from avito_accounts — returns empty
