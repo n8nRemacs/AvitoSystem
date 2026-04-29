@@ -18,8 +18,9 @@ from src.middleware.auth import require_feature
 from src.models.search import SearchResponse
 from src.models.tenant import TenantContext
 from src.routers.search import _normalize_item_card
+from src.storage.supabase import get_supabase
 from src.workers.http_client import AvitoHttpClient
-from src.workers.session_reader import load_active_session
+from src.workers.session_reader import load_active_session, load_session_for_account
 
 router = APIRouter(prefix="/api/v1/subscriptions", tags=["Subscriptions"])
 
@@ -28,6 +29,31 @@ def _get_client(ctx: TenantContext) -> AvitoHttpClient:
     session = load_active_session(ctx.tenant.id)
     if not session:
         raise HTTPException(status_code=404, detail="No active Avito session")
+    return AvitoHttpClient(session)
+
+
+async def _resolve_client(
+    ctx: TenantContext,
+    account_id: str | None,
+) -> AvitoHttpClient:
+    """Resolve an AvitoHttpClient using pool-aware or legacy session loading.
+
+    When ``account_id`` is provided, loads the session for that specific account
+    (pool-aware path). Otherwise falls back to the legacy ``load_active_session``
+    behaviour (any active session for the tenant).
+    """
+    if account_id:
+        sb = get_supabase()
+        session = await load_session_for_account(sb, account_id)
+        if session is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"account {account_id} has no active session",
+            )
+    else:
+        session = load_active_session(ctx.tenant.id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="No active Avito session")
     return AvitoHttpClient(session)
 
 
@@ -58,6 +84,7 @@ def _parse_deeplink_to_search_params(deeplink: str) -> dict[str, Any]:
 @router.get("")
 async def list_subscriptions(
     request: Request,
+    account_id: str | None = Query(None, description="Pool account id; omit for legacy any-active fallback"),
     ctx: TenantContext = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Return the user's saved searches.
@@ -67,7 +94,7 @@ async def list_subscriptions(
     pushFrequency, editAction, openAction, deepLink}, ...]}``.
     """
     require_feature(request, "avito.search")
-    client = _get_client(ctx)
+    client = await _resolve_client(ctx, account_id)
     items = await client.list_subscriptions()
     return {"items": items, "count": len(items)}
 
@@ -76,6 +103,7 @@ async def list_subscriptions(
 async def get_subscription_search_params(
     request: Request,
     filter_id: int = Path(..., description="Avito subscription/filter id (numeric)"),
+    account_id: str | None = Query(None, description="Pool account id; omit for legacy any-active fallback"),
     ctx: TenantContext = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Return the parsed structured search params for a single autosearch.
@@ -100,7 +128,7 @@ async def get_subscription_search_params(
         }
     """
     require_feature(request, "avito.search")
-    client = _get_client(ctx)
+    client = await _resolve_client(ctx, account_id)
     deeplink = await client.get_subscription_deeplink(filter_id)
     if not deeplink:
         raise HTTPException(status_code=404, detail="Subscription not found")
@@ -118,6 +146,7 @@ async def get_subscription_items(
     filter_id: int = Path(..., description="Avito subscription/filter id"),
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
+    account_id: str | None = Query(None, description="Pool account id; omit for legacy any-active fallback"),
     ctx: TenantContext = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Items for one autosearch — the chairs-free feed.
@@ -128,7 +157,7 @@ async def get_subscription_items(
     ``/11/items`` mobile endpoint. Result schema matches /api/v1/search/items.
     """
     require_feature(request, "avito.search")
-    client = _get_client(ctx)
+    client = await _resolve_client(ctx, account_id)
     deeplink = await client.get_subscription_deeplink(filter_id)
     if not deeplink:
         raise HTTPException(status_code=404, detail="Subscription not found")

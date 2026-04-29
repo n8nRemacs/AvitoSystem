@@ -117,6 +117,7 @@ async def avito_fetch_subscription_items_impl(
     page: int = 1,
     *,
     client: XapiClient | None = None,
+    account_id: str | None = None,
 ) -> SearchPage:
     """Fetch one page of items for an Avito autosearch (saved search).
 
@@ -126,10 +127,15 @@ async def avito_fetch_subscription_items_impl(
     Returns the same ``SearchPage`` shape as ``avito_fetch_search_page_impl``
     so polling can swap between URL-based and autosearch-based without
     knowing the difference.
+
+    ``account_id``: when provided, forwarded as a query param so xapi loads
+    the session for that specific pool account (T17a pool-aware routing).
     """
     xapi = client or XapiClient()
-    data = await xapi._get(f"/api/v1/subscriptions/{int(filter_id)}/items",
-                           {"page": page})
+    params: dict[str, Any] = {"page": page}
+    if account_id:
+        params["account_id"] = account_id
+    data = await xapi._get(f"/api/v1/subscriptions/{int(filter_id)}/items", params)
     raw_items = data.get("items") or []
     items = [_normalise_listing(it) for it in raw_items if isinstance(it, dict)]
     return SearchPage(

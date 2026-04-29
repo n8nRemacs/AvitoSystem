@@ -45,10 +45,20 @@ class AvitoMcpClient:
             page = await client.fetch_search_page(url)
             for item in page.items:
                 detail = await client.get_listing(item.id)
+
+    Pass ``account_id`` to pin all subscription fetches to a specific pool
+    account (T17a pool-aware routing).  Omit to use the legacy any-active-session
+    fallback in xapi.
     """
 
-    def __init__(self, settings: McpSettings | None = None) -> None:
+    def __init__(
+        self,
+        settings: McpSettings | None = None,
+        *,
+        account_id: str | None = None,
+    ) -> None:
         self._settings = settings or get_mcp_settings()
+        self._account_id = account_id
         self._http: httpx.AsyncClient | None = None
         self._xapi: XapiClient | None = None
 
@@ -88,7 +98,7 @@ class AvitoMcpClient:
         from avito_mcp.tools.search import avito_fetch_subscription_items_impl
 
         return await avito_fetch_subscription_items_impl(
-            filter_id, page, client=self._client()
+            filter_id, page, client=self._client(), account_id=self._account_id
         )
 
     async def get_listing(self, item_id_or_url: int | str) -> ListingDetail:
