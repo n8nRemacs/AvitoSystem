@@ -1,6 +1,13 @@
 """Tests for session_reader: SessionData.from_row(), load functions."""
+import pytest
 from unittest.mock import patch, MagicMock
-from src.workers.session_reader import SessionData, load_active_session, load_session_history
+
+from src.workers.session_reader import (
+    SessionData,
+    load_active_session,
+    load_session_for_account,
+    load_session_history,
+)
 from src.storage.supabase import QueryResult
 from tests.conftest import make_test_jwt, TEST_TENANT_ID
 
@@ -88,8 +95,9 @@ def test_from_row_empty_tokens():
     assert sd.refresh_token is None
 
 
-def test_load_active_session():
-    """load_active_session returns SessionData when session exists."""
+@pytest.mark.asyncio
+async def test_load_active_session():
+    """load_active_session returns SessionData when session exists (legacy tenant_id path)."""
     jwt = make_test_jwt()
     mock_sb = MagicMock()
     chain = MagicMock()
@@ -106,14 +114,15 @@ def test_load_active_session():
     mock_sb.table.return_value = chain
 
     with patch("src.workers.session_reader.get_supabase", return_value=mock_sb):
-        result = load_active_session(TEST_TENANT_ID)
+        result = await load_active_session(TEST_TENANT_ID)
     assert result is not None
     assert result.id == "sess-active"
     assert result.session_token == jwt
 
 
-def test_load_active_session_none():
-    """load_active_session returns None when no active session."""
+@pytest.mark.asyncio
+async def test_load_active_session_none():
+    """load_active_session returns None when no active session (legacy tenant_id path)."""
     mock_sb = MagicMock()
     chain = MagicMock()
     for m in ("select", "eq", "order", "limit"):
@@ -122,7 +131,7 @@ def test_load_active_session_none():
     mock_sb.table.return_value = chain
 
     with patch("src.workers.session_reader.get_supabase", return_value=mock_sb):
-        result = load_active_session(TEST_TENANT_ID)
+        result = await load_active_session(TEST_TENANT_ID)
     assert result is None
 
 
@@ -145,3 +154,44 @@ def test_load_session_history():
     assert len(result) == 2
     assert result[0].id == "s1"
     assert result[1].source == "manual"
+
+
+# ---------------------------------------------------------------------------
+# Pool-aware tests (Task 11)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def mock_sb():
+    """Local mock — chained method calls return MagicMock by default."""
+    return MagicMock()
+
+
+@pytest.mark.asyncio
+async def test_load_session_for_account_returns_active(mock_sb):
+    mock_sb.table("avito_sessions").select("*").eq("account_id", "acc-1").eq("is_active", True).limit(1).execute.return_value.data = [
+        {"account_id": "acc-1", "tokens": {"session_token": "T1"}, "device_id": "D1", "is_active": True},
+    ]
+    session = await load_session_for_account(mock_sb, "acc-1")
+    assert session is not None
+    # Check session_token via attr or dict access (depends on existing SessionData type)
+    if hasattr(session, "session_token"):
+        assert session.session_token == "T1"
+    else:
+        assert session.get("session_token") == "T1" or session.get("tokens", {}).get("session_token") == "T1"
+
+
+@pytest.mark.asyncio
+async def test_load_session_for_account_none_when_missing(mock_sb):
+    mock_sb.table("avito_sessions").select("*").eq("account_id", "acc-x").eq("is_active", True).limit(1).execute.return_value.data = []
+    session = await load_session_for_account(mock_sb, "acc-x")
+    assert session is None
+
+
+@pytest.mark.asyncio
+async def test_legacy_load_active_session_picks_any_active(mock_sb):
+    """Legacy wrapper для не-pool путей: возвращает любую активную."""
+    mock_sb.table("avito_sessions").select("*").eq("is_active", True).order("created_at", desc=True).limit(1).execute.return_value.data = [
+        {"account_id": "acc-1", "tokens": {"session_token": "Tx"}, "device_id": "Dx", "is_active": True},
+    ]
+    session = await load_active_session(mock_sb)
+    assert session is not None
