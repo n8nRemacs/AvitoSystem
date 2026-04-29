@@ -150,3 +150,57 @@ def test_report_404_when_account_missing(client, accounts_in_db):
                     headers={"X-Api-Key": "test_dev_key_123"},
                     json={"status_code": 200})
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# T8: GET /api/v1/accounts/{account_id}/session-for-sync
+# ---------------------------------------------------------------------------
+
+def test_session_for_sync_returns_active(client, accounts_in_db):
+    """Active account with a session → 200 with session_token."""
+    # Query 1: SELECT from avito_accounts
+    accounts_in_db([
+        {"id": "acc-1", "state": "active", "consecutive_cooldowns": 0,
+         "cooldown_until": None, "waiting_since": None},
+    ])
+    # Query 2: SELECT from avito_sessions WHERE account_id=acc-1 AND is_active=true
+    accounts_in_db([
+        {"id": "sess-1", "account_id": "acc-1", "is_active": True,
+         "device_id": "deadbeefdeadbeef", "fingerprint": "A1.fp.payload",
+         "tokens": {"session_token": "JWT_FOR_ACC1"}},
+    ])
+
+    r = client.get("/api/v1/accounts/acc-1/session-for-sync",
+                   headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["account_id"] == "acc-1"
+    assert body["session_token"] == "JWT_FOR_ACC1"
+    assert body["device_id"] == "deadbeefdeadbeef"
+    assert body["fingerprint"] == "A1.fp.payload"
+
+
+def test_session_for_sync_409_when_not_active(client, accounts_in_db):
+    """Non-active account → 409 with detail.state = account's current state."""
+    # Query 1: SELECT from avito_accounts — returns cooldown account
+    accounts_in_db([
+        {"id": "acc-1", "state": "cooldown",
+         "cooldown_until": "2026-04-28T13:00:00Z"},
+    ])
+
+    r = client.get("/api/v1/accounts/acc-1/session-for-sync",
+                   headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["detail"]["state"] == "cooldown"
+    assert body["detail"]["id"] == "acc-1"
+
+
+def test_session_for_sync_404_when_unknown(client, accounts_in_db):
+    """Unknown account_id → 404."""
+    # Query 1: SELECT from avito_accounts — returns empty
+    accounts_in_db([])
+
+    r = client.get("/api/v1/accounts/unknown/session-for-sync",
+                   headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 404, r.text

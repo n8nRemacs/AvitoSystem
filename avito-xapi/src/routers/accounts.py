@@ -159,3 +159,45 @@ async def report(account_id: str, payload: ReportPayload):
             "account %s consecutive_cooldowns=%d, manual review needed",
             account_id, next_s.consecutive_cooldowns,
         )
+
+
+# ---------------------------------------------------------------------------
+# Session-for-sync endpoint (read-only, no last_polled_at update)
+# ---------------------------------------------------------------------------
+
+@router.get("/{account_id}/session-for-sync")
+async def session_for_sync(account_id: str):
+    """Return the active session for a specific account.
+
+    Unlike /poll-claim this does NOT update last_polled_at — autosearch_sync
+    is owner-specific and must not compete with round-robin polling workers.
+    """
+    sb = get_supabase()
+
+    res = sb.table("avito_accounts").select("*").eq("id", account_id).limit(1).execute()
+    if not res.data:
+        raise HTTPException(404, "account not found")
+
+    row = res.data[0]
+    if row["state"] != "active":
+        raise HTTPException(409, detail={"state": row["state"], "id": account_id})
+
+    s = (
+        sb.table("avito_sessions")
+        .select("*")
+        .eq("account_id", account_id)
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if not s.data:
+        raise HTTPException(409, detail={"state": "no_session", "id": account_id})
+
+    sd = s.data[0]
+    tokens = sd.get("tokens") or {}
+    return {
+        "account_id": account_id,
+        "session_token": tokens.get("session_token"),
+        "device_id": sd.get("device_id"),
+        "fingerprint": sd.get("fingerprint"),
+    }
