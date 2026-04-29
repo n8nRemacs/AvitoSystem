@@ -204,7 +204,7 @@ async def test_scenario_d_fail_on_slow_latency() -> None:
     async def slow_get(self, path: str, params=None):
         result = await real_get(self, path, params)
         # mutate via dataclass replace-style assignment
-        result.latency_ms = 1800
+        result.latency_ms = 2100
         return result
 
     respx.get(f"{XAPI_BASE}/api/v1/messenger/unread-count").mock(
@@ -215,8 +215,8 @@ async def test_scenario_d_fail_on_slow_latency() -> None:
         result = await scenario_d(make_client())
 
     assert result.status == "fail"
-    assert result.latency_ms == 1800
-    assert "latency 1800ms" in result.details["reason"]
+    assert result.latency_ms == 2100
+    assert "latency 2100ms" in result.details["reason"]
 
 
 # ----------------------------------------------------------------------
@@ -417,8 +417,8 @@ async def test_scenario_e_pass_connected_then_keepalive() -> None:
     assert result.scenario == "E"
     assert result.status == "pass"
     assert result.details["connected_ms"] is not None
-    assert result.details["keepalive_ms"] is not None
-    assert result.details["connected_ms"] <= result.details["keepalive_ms"]
+    assert result.details["second_event_ms"] is not None
+    assert result.details["connected_ms"] <= result.details["second_event_ms"]
 
 
 @pytest.mark.asyncio
@@ -469,8 +469,8 @@ async def test_scenario_e_fail_when_no_keepalive(monkeypatch) -> None:
     assert result.scenario == "E"
     assert result.status == "fail"
     assert result.details["connected_ms"] is not None
-    assert result.details["keepalive_ms"] is None
-    assert "keepalive" in result.details["reason"]
+    assert result.details["second_event_ms"] is None
+    assert "post-connected event" in result.details["reason"]
 
 
 @respx.mock

@@ -38,6 +38,7 @@ def _settings(
     return SimpleNamespace(
         telegram_bot_token=token,
         telegram_allowed_user_ids=chat_ids,
+        telegram_proxy_url=None,
         reliability_tg_alert_enabled=enabled,
         reliability_tg_alert_fail_threshold=threshold,
         reliability_tg_alert_daily_summary_hour=summary_hour,
@@ -200,8 +201,8 @@ async def test_alert_fires_on_threshold_reached(monkeypatch) -> None:
 
     sender.assert_awaited_once()
     text = sender.await_args.args[0]
-    assert "scenario `A`" in text
-    assert "3 consecutive" in text
+    assert "сценарий `A`" in text
+    assert "3 подряд" in text
     assert "boom" in text
     assert "A" in FIRED_SENTINELS
 
@@ -251,7 +252,7 @@ async def test_recovery_alert_fires_on_pass_after_fire(monkeypatch) -> None:
 
     sender.assert_awaited_once()
     text = sender.await_args.args[0]
-    assert "recovered" in text.lower()
+    assert "восстановлен" in text.lower()
     assert "A" not in FIRED_SENTINELS  # cleared
 
 
@@ -398,8 +399,8 @@ def test_build_daily_summary_basic_shape() -> None:
         _FakeHealthCheck("C", "pass", 210, now - timedelta(minutes=10)),
     ]
     text = build_daily_summary_text(rows, window_hours=24, now=now)
-    assert "Reliability daily summary" in text
-    assert "last 24 h" in text
+    assert "Сводка надёжности" in text
+    assert "за 24 ч" in text
     assert "A " in text  # padded scenario column
     assert "C " in text
     # A: 2/3 pass = 66.7%
@@ -407,7 +408,7 @@ def test_build_daily_summary_basic_shape() -> None:
     # C: 2/2 pass = 100.0%
     assert "100.0%" in text
     # No unreachable events recorded
-    assert "No service-unreachable events" in text
+    assert "Сервисы доступны весь период" in text
 
 
 def test_build_daily_summary_lists_unreachable() -> None:
@@ -430,7 +431,7 @@ def test_build_daily_summary_lists_unreachable() -> None:
         _FakeHealthCheck("A", "pass", 50, now - timedelta(minutes=5)),
     ]
     text = build_daily_summary_text(rows, window_hours=24, now=now)
-    assert "Service-unreachable events" in text
+    assert "События недоступности сервисов" in text
     assert "`C`" in text
     assert "`D`" in text
     assert "ConnectError" in text or "unreachable" in text
@@ -453,7 +454,7 @@ def test_build_daily_summary_drops_old_rows() -> None:
 def test_build_daily_summary_empty() -> None:
     now = datetime(2026, 4, 26, 9, 0, tzinfo=UTC)
     text = build_daily_summary_text([], window_hours=24, now=now)
-    assert "(no rows)" in text
+    assert "(данных нет)" in text
 
 
 # ---------------------------------------------------------------------------
