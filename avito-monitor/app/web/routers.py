@@ -1093,6 +1093,35 @@ async def settings_test_telegram(
 
 
 # ---------------------------------------------------------------------------
+# Account pool — read-only view (T21)
+# ---------------------------------------------------------------------------
+
+async def _get_pool_for_request():
+    """Return the shared singleton AccountPool.  Module-level so tests can monkey-patch."""
+    from app.services.account_pool_factory import get_account_pool
+
+    return get_account_pool()
+
+
+@router.get("/settings/accounts", response_class=HTMLResponse)
+async def settings_accounts(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    """Read-only pool state page."""
+    pool = await _get_pool_for_request()
+    accounts: list[dict] = []
+    try:
+        accounts = await pool.list_all_accounts()
+    except Exception as exc:
+        log.warning("settings_accounts.pool_error", error=str(exc))
+    ctx = await _layout_context(user, session, active="settings")
+    ctx["accounts"] = accounts
+    return templates.TemplateResponse(request, "settings/accounts.html", ctx)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

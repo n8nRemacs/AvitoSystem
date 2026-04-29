@@ -102,7 +102,7 @@ async def upload_farm_token(body: TokenUploadRequest, request: Request,
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid session_token")
 
-    user_id = payload.get("user_id") or payload.get("sub")
+    user_id = payload.get("u") or payload.get("user_id") or payload.get("sub")
     exp = payload.get("exp")
     expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat() if exp else None
 

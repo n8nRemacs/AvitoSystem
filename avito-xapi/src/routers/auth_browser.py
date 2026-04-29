@@ -164,7 +164,7 @@ async def _save_browser_session(tenant_id: str, token_data: dict) -> bool:
         expires_at = None
         try:
             payload = jwt_parser.decode_jwt_payload(session_token)
-            user_id = payload.get("user_id") or payload.get("sub")
+            user_id = payload.get("u") or payload.get("user_id") or payload.get("sub")
             exp = payload.get("exp")
             if exp:
                 expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()

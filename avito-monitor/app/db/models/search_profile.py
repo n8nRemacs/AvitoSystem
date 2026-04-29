@@ -67,3 +67,10 @@ class SearchProfile(Base, TimestampMixin):
     # parsed structured search params from Avito mobile API
     # (categoryId, locationId, params[N][N]=…, priceMin/Max, sort, withDeliveryOnly)
     search_params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    # account pool: который Avito-аккаунт является «владельцем» этого autosearch
+    # на стороне Avito. UUID на avito_accounts.id в Supabase (cross-DB → no FK).
+    # Используется sync /5/subscriptions (per-account) и V2 messenger flow.
+    owner_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), index=True
+    )

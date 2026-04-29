@@ -8,6 +8,7 @@ from src.models.session import (
     SessionUploadRequest, SessionStatus, TokenInfo,
     SessionHistoryItem, SessionHistoryResponse, AlertInfo, AlertsResponse,
 )
+from src.services.account_resolver import resolve_or_create_account
 from src.storage.supabase import get_supabase
 from src.workers import jwt_parser
 from src.workers.session_reader import load_active_session, load_session_history
@@ -37,15 +38,24 @@ async def upload_session(body: SessionUploadRequest, request: Request,
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid session_token: not a valid JWT")
 
-    user_id = payload.get("user_id") or payload.get("sub")
+    # Avito's mobile JWT uses short keys (`u` for user_id); fall back to
+    # standard JWT keys (`user_id`, `sub`) for backward-compat with other sources.
+    user_id = payload.get("u") or payload.get("user_id") or payload.get("sub")
     exp = payload.get("exp")
     expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat() if exp else None
 
     sb = get_supabase()
 
-    # Deactivate previous active sessions for this tenant
+    # Resolve or create account record scoped to this avito user
+    account = resolve_or_create_account(
+        sb,
+        avito_user_id=user_id,
+        device_id=body.device_id,
+    )
+
+    # Deactivate previous active sessions for THIS account only (not all tenant)
     sb.table("avito_sessions").update({"is_active": False}).eq(
-        "tenant_id", ctx.tenant.id
+        "account_id", account["id"]
     ).eq("is_active", True).execute()
 
     # Build tokens JSONB
@@ -60,7 +70,8 @@ async def upload_session(body: SessionUploadRequest, request: Request,
     }
 
     row = {
-        "tenant_id": ctx.tenant.id,
+        "account_id": account["id"],
+        "tenant_id": ctx.tenant.id,  # legacy field, kept for backward-compat
         "tokens": tokens,
         "fingerprint": body.fingerprint,
         "device_id": body.device_id,
@@ -72,14 +83,27 @@ async def upload_session(body: SessionUploadRequest, request: Request,
 
     resp = sb.table("avito_sessions").insert(row).execute()
 
+    # Transition account from waiting_refresh → active when a fresh session arrives
+    if account.get("state") == "waiting_refresh":
+        sb.table("avito_accounts").update({
+            "state": "active",
+            "waiting_since": None,
+            "last_session_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", account["id"]).execute()
+
     # Audit log
     sb.table("audit_log").insert({
         "tenant_id": ctx.tenant.id,
         "action": "session.upload",
-        "details": {"source": body.source, "user_id": user_id},
+        "details": {"source": body.source, "user_id": user_id, "account_id": account["id"]},
     }).execute()
 
-    return {"status": "ok", "session_id": resp.data[0]["id"], "user_id": user_id}
+    return {
+        "status": "ok",
+        "session_id": resp.data[0]["id"],
+        "user_id": user_id,
+        "account_id": account["id"],
+    }
 
 
 @router.get("/current", response_model=SessionStatus)
@@ -167,7 +191,7 @@ async def get_token_details(request: Request,
         payload=payload,
         expires_at=datetime.fromtimestamp(exp, tz=timezone.utc) if exp else None,
         issued_at=datetime.fromtimestamp(iat, tz=timezone.utc) if iat else None,
-        user_id=payload.get("user_id") or payload.get("sub"),
+        user_id=payload.get("u") or payload.get("user_id") or payload.get("sub"),
         ttl_seconds=jwt_parser.time_left(session.session_token),
         is_expired=jwt_parser.is_expired(session.session_token),
     )

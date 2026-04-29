@@ -16,6 +16,7 @@ wired up.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -35,7 +36,10 @@ from app.db.models import (
 )
 from app.db.models.enums import ListingStatus, ProfileRunStatus
 from app.integrations.avito_mcp_client.client import AvitoMcpClient
+from app.services.account_pool import AccountPool, NoAvailableAccountError
+from app.services.account_pool_factory import get_account_pool
 from app.tasks.broker import broker
+from avito_mcp.integrations.xapi_client import XapiError
 from shared.models.avito import ListingShort
 
 log = logging.getLogger(__name__)
@@ -171,6 +175,53 @@ async def _close_disappeared(
     return len(rows)
 
 
+async def fetch_with_pool(
+    *,
+    fetcher_fn,
+    pool: AccountPool,
+    max_attempts: int = 2,
+):
+    """Wraps fetcher_fn(account_claim) → result, with retry on 403/401/5xx.
+
+    fetcher_fn receives the account claim dict and returns the fetch result,
+    or raises XapiError on HTTP errors.
+
+    Returns None if the pool is fully drained (NoAvailableAccountError on the
+    very first claim attempt).  Re-raises the last XapiError once max_attempts
+    are exhausted.
+
+    After every attempt (success or failure) pool.report() is called so the
+    xapi account state machine stays up to date.
+    """
+    last_error: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            async with pool.claim_for_poll() as acc:
+                try:
+                    result = await fetcher_fn(acc)
+                except XapiError as exc:
+                    body = getattr(exc, "detail", None)
+                    body_str = str(body) if body is not None else None
+                    await pool.report(acc["account_id"], exc.status_code or 0, body_str)
+                    if exc.status_code in (401, 403) and attempt < max_attempts - 1:
+                        last_error = exc
+                        continue
+                    if exc.status_code is not None and exc.status_code >= 500 and attempt < max_attempts - 1:
+                        last_error = exc
+                        await asyncio.sleep(5)
+                        continue
+                    raise
+                else:
+                    await pool.report(acc["account_id"], 200)
+                    return result
+        except NoAvailableAccountError:
+            log.warning("fetch_with_pool: pool drained — skipping")
+            return None
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("fetch_with_pool exhausted without error")  # pragma: no cover
+
+
 @broker.task(task_name="app.tasks.polling.poll_profile")
 async def poll_profile(profile_id: str) -> dict[str, Any]:
     """Fetch one search page for a profile and sync listings into DB.
@@ -207,17 +258,22 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     price_changed_count = 0
     error_message: str | None = None
 
-    try:
-        async with AvitoMcpClient() as mcp:
+    # --- fetch via account pool (rotates on 403/401/5xx) ---
+    pool = get_account_pool()
+
+    async def _fetcher(acc: dict):
+        async with AvitoMcpClient(account_id=acc["account_id"]) as mcp:
             if (
                 profile.import_source == "autosearch_sync"
                 and profile.avito_autosearch_id
             ):
-                page = await mcp.fetch_subscription_items(
+                return await mcp.fetch_subscription_items(
                     int(profile.avito_autosearch_id)
                 )
-            else:
-                page = await mcp.fetch_search_page(profile.avito_search_url)
+            return await mcp.fetch_search_page(profile.avito_search_url)
+
+    try:
+        page = await fetch_with_pool(fetcher_fn=_fetcher, pool=pool)
     except Exception as exc:  # pragma: no cover — covered by health-checker
         log.exception(
             "polling.fetch_failed profile_id=%s url=%s",
@@ -235,6 +291,22 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
             )
             await session.commit()
         return {"status": "failed", "reason": "fetch_failed"}
+
+    if page is None:
+        # Pool fully drained — no account available right now, skip this tick.
+        log.warning("polling.pool_drained profile_id=%s", profile_id)
+        async with sessionmaker() as session:
+            await session.execute(
+                update(ProfileRun)
+                .where(ProfileRun.id == run_id)
+                .values(
+                    finished_at=datetime.now(timezone.utc),
+                    status=ProfileRunStatus.FAILED.value,
+                    error_message="pool_drained: no available account",
+                )
+            )
+            await session.commit()
+        return {"status": "skipped", "reason": "pool_drained"}
 
     blocked = set(profile.blocked_sellers or [])
     to_analyze: list[uuid.UUID] = []

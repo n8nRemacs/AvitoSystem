@@ -17,7 +17,9 @@ import uvicorn
 
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.services.health_checker.alerts import daily_summary_loop
+from app.services.account_pool_factory import get_account_pool
+from app.services.health_checker.account_loop import account_loop
+from app.services.health_checker.alerts import daily_summary_loop, send_alert
 from app.services.health_checker.api import app as fastapi_app
 from app.services.health_checker.runner import start_scheduler
 from app.services.health_checker.token_refresher import loop as token_refresh_loop
@@ -55,6 +57,16 @@ async def amain() -> None:
     )
     loop_tasks.append(refresh_task)
 
+    # 1d. account-pool tick — auto-recovery after cooldown, dead-detection,
+    # proactive token refresh. Runs every 30 s in a separate task so it is
+    # independent of the per-scenario reliability loops.
+    _stop_event = asyncio.Event()
+    account_task = asyncio.create_task(
+        account_loop(get_account_pool(), send_alert, _stop_event),
+        name="hc-account-tick",
+    )
+    loop_tasks.append(account_task)
+
     # 2. uvicorn server in the same event loop
     api_port = int(os.environ.get("HEALTH_CHECKER_API_PORT", DEFAULT_API_PORT))
     config = uvicorn.Config(
@@ -69,6 +81,7 @@ async def amain() -> None:
     async def _shutdown() -> None:
         log.info("health_checker.shutdown.signal_received")
         server.should_exit = True
+        _stop_event.set()  # wake account_loop immediately
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
