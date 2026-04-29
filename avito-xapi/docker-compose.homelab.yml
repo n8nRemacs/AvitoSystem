@@ -12,6 +12,11 @@ services:
   xapi:
     volumes:
       - ./src:/app/src
+      # Bind-mount /dev/bus/usb (not just devices:) so adb sees phones
+      # that get re-plugged after container start (hot-plug).
+      - /dev/bus/usb:/dev/bus/usb
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
     command:
       - uvicorn
       - src.main:app
