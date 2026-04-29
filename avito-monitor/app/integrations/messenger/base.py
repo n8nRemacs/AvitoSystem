@@ -46,13 +46,16 @@ class MessengerMessage:
 
     ``text`` is Markdown (Telegram Markdown V1 — same flavour the
     health-checker alerts already use). ``buttons`` is a list of rows;
-    each row is a list of buttons rendered side-by-side.
+    each row is a list of buttons rendered side-by-side. ``images``
+    are URLs sent as a media group preceding the text/buttons message;
+    Telegram caps a media group at 10.
     """
 
     chat_id: str
     text: str
     buttons: list[list[InlineButton]] = field(default_factory=list)
     disable_preview: bool = True
+    images: list[str] = field(default_factory=list)
 
 
 @runtime_checkable

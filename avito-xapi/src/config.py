@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
 
-    # Rate Limiting
-    rate_limit_rps: float = 5.0
-    rate_limit_burst: int = 10
+    # Rate Limiting — keep low: Avito mobile API anti-fraud trips on bursts.
+    rate_limit_rps: float = 1.0
+    rate_limit_burst: int = 3
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

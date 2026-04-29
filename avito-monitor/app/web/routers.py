@@ -123,8 +123,37 @@ async def profiles_list(
 ) -> HTMLResponse:
     ctx = await _layout_context(user, session, active="profiles")
     ctx["profiles"] = await svc.list_profiles(session, user.id)
+    ctx["archived"] = await svc.list_archived_profiles(session, user.id)
     ctx["message"] = request.query_params.get("msg")
     return templates.TemplateResponse(request, "profiles/list.html", ctx)
+
+
+@router.post("/search-profiles/sync", response_model=None)
+async def profiles_sync(
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    """Pull autosearches from Avito and reconcile with local profiles (ADR-011)."""
+    from urllib.parse import quote_plus
+    from app.services.autosearch_sync import sync_autosearches_for_user
+
+    try:
+        result = await sync_autosearches_for_user(user.id, session=session)
+    except Exception as exc:  # pragma: no cover — surfaced to user
+        return RedirectResponse(
+            f"/search-profiles?msg={quote_plus(f'Sync failed: {exc}')}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    msg = (
+        f"Sync OK: создано {result.created}, обновлено {result.updated}, "
+        f"архивировано {result.archived} (всего на Avito {result.fetched})"
+    )
+    if result.failed:
+        msg += f", не удалось получить параметры: {', '.join(result.failed)}"
+    return RedirectResponse(
+        f"/search-profiles?msg={quote_plus(msg)}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @router.get("/search-profiles/new", response_class=HTMLResponse)
@@ -563,8 +592,9 @@ async def listing_action(
     Both transitions are permanent from the UI's perspective; the row stays
     in the DB so we keep history and can offer an undo path later.
     """
-    from sqlalchemy import select, update
-    from app.db.models import ProfileListing, SearchProfile
+    from sqlalchemy import select, update, delete
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from app.db.models import ProfileListing, SearchProfile, UserListingBlacklist
     from app.db.models.enums import UserAction
 
     form = await request.form()
@@ -596,6 +626,24 @@ async def listing_action(
         )
         .values(user_action=new_action)
     )
+
+    # Reject propagates to a per-user global blacklist so the listing never
+    # appears as "Новые" again — even in a different profile or after a
+    # criteria change. Undo lifts the blacklist; Accept doesn't touch it.
+    if action_raw == "reject":
+        await session.execute(
+            pg_insert(UserListingBlacklist)
+            .values(user_id=user.id, listing_id=listing_id, reason="rejected")
+            .on_conflict_do_nothing(index_elements=["user_id", "listing_id"])
+        )
+    elif action_raw == "undo":
+        await session.execute(
+            delete(UserListingBlacklist).where(
+                UserListingBlacklist.user_id == user.id,
+                UserListingBlacklist.listing_id == listing_id,
+            )
+        )
+
     await session.commit()
     if res.rowcount == 0:
         raise HTTPException(404, "Listing link not found")

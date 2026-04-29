@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,3 +58,12 @@ class SearchProfile(Base, TimestampMixin):
     notification_channels: Mapped[list[str]] = mapped_column(
         JSONB, default=lambda: ["telegram"]
     )
+
+    # autosearch sync (ADR-011)
+    avito_autosearch_id: Mapped[str | None] = mapped_column(Text)
+    import_source: Mapped[str] = mapped_column(String(32), default="manual_url")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # parsed structured search params from Avito mobile API
+    # (categoryId, locationId, params[N][N]=…, priceMin/Max, sort, withDeliveryOnly)
+    search_params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

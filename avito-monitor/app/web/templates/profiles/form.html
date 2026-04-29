@@ -17,7 +17,26 @@
   {% endif %}
 
   <form method="post" action="{{ form_action }}" class="space-y-5">
-    <!-- Step 1: URL -->
+    <!-- Step 1: URL / Source -->
+    {% if profile and profile.import_source == 'autosearch_sync' %}
+    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+      <h2 class="text-sm font-semibold text-avito-text mb-1">🔗 Источник — autosearch Avito</h2>
+      <p class="text-xs text-avito-text-soft mb-3">
+        Этот профиль синхронизирован с сохранённым поиском Avito.
+        Параметры фильтра (категория, бренд, модель, цена, регион) читаются с Avito автоматически и обновляются при «🔄 Синхронизировать с Avito».
+      </p>
+      <div class="bg-avito-elev rounded-md p-3 text-xs text-avito-text-soft space-y-1">
+        <div>🆔 filterId: <strong class="text-avito-text font-mono">{{ profile.avito_autosearch_id }}</strong></div>
+        {% if profile.last_synced_at %}<div>🕒 Последний sync: <strong class="text-avito-text">{{ profile.last_synced_at.strftime('%Y-%m-%d %H:%M UTC') }}</strong></div>{% endif %}
+        {% if profile.search_params %}
+          {% if profile.search_params.get('categoryId') %}<div>📂 categoryId: <strong class="text-avito-text font-mono">{{ profile.search_params['categoryId'] }}</strong></div>{% endif %}
+          {% if profile.search_params.get('locationId') %}<div>🌍 locationId: <strong class="text-avito-text font-mono">{{ profile.search_params['locationId'] }}</strong></div>{% endif %}
+          {% if profile.search_params.get('priceMin') or profile.search_params.get('priceMax') %}<div>💰 Цена: <strong class="text-avito-text">{{ profile.search_params.get('priceMin', '–') }} — {{ profile.search_params.get('priceMax', '–') }} ₽</strong></div>{% endif %}
+        {% endif %}
+      </div>
+      <input type="hidden" name="avito_search_url" value="{{ profile.avito_search_url }}">
+    </section>
+    {% else %}
     <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
       <h2 class="text-sm font-semibold text-avito-text mb-1">URL поиска Avito <span class="text-red-500">*</span></h2>
       <p class="text-xs text-avito-text-soft mb-3">
@@ -52,6 +71,7 @@
         {% endif %}
       </div>
     </section>
+    {% endif %}
 
     <!-- Step 2: Name -->
     <section class="bg-avito-surface rounded-lg border border-avito-border p-5">

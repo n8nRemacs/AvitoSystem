@@ -320,6 +320,22 @@ async def match_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
         if is_hit:
             channels = profile.notification_channels or ["telegram"]
             for channel in channels:
+                # Pull up to 10 image URLs (Telegram media-group limit) so
+                # the messenger provider can attach them to the alert. Tolerate
+                # both shapes seen in the wild: list of dicts ``{"url": ...}``
+                # and list of bare strings.
+                raw_imgs = listing.images or []
+                images: list[str] = []
+                for it in raw_imgs[:10]:
+                    if isinstance(it, dict):
+                        u = it.get("url")
+                    elif isinstance(it, str):
+                        u = it
+                    else:
+                        u = None
+                    if u:
+                        images.append(u)
+
                 payload = {
                     "listing_id": str(lid),
                     "avito_id": listing.avito_id,
@@ -331,6 +347,7 @@ async def match_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
                     "key_cons": match_res.key_cons,
                     "reasoning": match_res.reasoning,
                     "condition_class": listing.condition_class,
+                    "images": images,
                 }
                 session.add(
                     Notification(

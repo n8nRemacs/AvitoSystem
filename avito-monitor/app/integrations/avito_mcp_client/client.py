@@ -82,6 +82,15 @@ class AvitoMcpClient:
     async def fetch_search_page(self, url: str, page: int = 1) -> SearchPage:
         return await avito_fetch_search_page_impl(url, page, client=self._client())
 
+    async def fetch_subscription_items(
+        self, filter_id: int, page: int = 1
+    ) -> SearchPage:
+        from avito_mcp.tools.search import avito_fetch_subscription_items_impl
+
+        return await avito_fetch_subscription_items_impl(
+            filter_id, page, client=self._client()
+        )
+
     async def get_listing(self, item_id_or_url: int | str) -> ListingDetail:
         return await avito_get_listing_impl(item_id_or_url, client=self._client())
 

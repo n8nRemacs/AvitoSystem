@@ -77,11 +77,32 @@ def _fill_from_url(profile: SearchProfile, *, only_when_empty: bool = True) -> N
         profile.search_max_price = s_max
 
 
-async def list_profiles(session: AsyncSession, user_id: uuid.UUID) -> list[SearchProfile]:
+async def list_profiles(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    include_archived: bool = False,
+) -> list[SearchProfile]:
     stmt = (
         select(SearchProfile)
         .where(SearchProfile.user_id == user_id)
         .order_by(SearchProfile.created_at.desc())
+    )
+    if not include_archived:
+        stmt = stmt.where(SearchProfile.archived_at.is_(None))
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def list_archived_profiles(
+    session: AsyncSession, user_id: uuid.UUID
+) -> list[SearchProfile]:
+    stmt = (
+        select(SearchProfile)
+        .where(
+            SearchProfile.user_id == user_id,
+            SearchProfile.archived_at.is_not(None),
+        )
+        .order_by(SearchProfile.archived_at.desc())
     )
     return list((await session.execute(stmt)).scalars().all())
 
@@ -143,15 +164,25 @@ async def toggle_profile(
 async def schedule_run_now(
     session: AsyncSession, profile: SearchProfile
 ) -> ProfileRun:
-    """Create a placeholder ProfileRun row (Block 4 will hook up the real worker)."""
+    """Enqueue an immediate poll_profile run via TaskIQ.
+
+    Returns a marker ``ProfileRun`` row so the UI has something to render
+    while the worker picks up the task. The worker creates its own
+    authoritative ``ProfileRun`` row keyed by its actual ``started_at``;
+    these two coexist in ``profile_runs`` (this one as a manual trigger
+    record, the worker's as the real execution).
+    """
+    from app.tasks.polling import poll_profile
+
     run = ProfileRun(
         profile_id=profile.id,
         started_at=datetime.now(tz=timezone.utc),
-        status=ProfileRunStatus.SKIPPED.value,
-        error_message="Worker pipeline ещё не реализован (см. Блок 4 V1_EXECUTION_PLAN.md)",
+        status=ProfileRunStatus.RUNNING.value,
+        error_message=None,
     )
     session.add(run)
     await session.flush()
+    await poll_profile.kiq(str(profile.id))
     return run
 
 

@@ -229,3 +229,41 @@ class AvitoHttpClient(BaseAvitoClient):
         )
         resp.raise_for_status()
         return resp.json()
+
+    # ── Subscriptions / autosearches ─────────────────────
+
+    async def list_subscriptions(self) -> list[dict[str, Any]]:
+        """List the user's saved searches (autosearches).
+
+        Returns the items array straight from `/5/subscriptions`. Each item:
+        ``{id: Long, ssid: Long, title, description, hasNewItems, pushFrequency,
+        editAction, openAction, deepLink}``. Note that the response carries
+        only human-readable ``description`` — no structured search params.
+        Use ``get_subscription_deeplink`` for the precise filter.
+        """
+        await self.rate_limiter.wait_and_acquire()
+        resp = self.http.get(
+            f"{self.BASE_URL}/5/subscriptions",
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return (data.get("success") or {}).get("items") or []
+
+    async def get_subscription_deeplink(self, filter_id: int) -> str:
+        """Fetch the search-deeplink for one autosearch.
+
+        Calls ``/2/subscriptions/{filter_id}`` and returns the raw deeplink
+        string from ``result.deepLink``. The query-string of that deeplink
+        is the canonical structured representation of the subscription's
+        filter (categoryId, locationId, params[110617][0]=…, priceMin/Max,
+        sort, withDeliveryOnly, etc.) — exactly what the mobile app passes
+        to ``/11/items`` to get the chairs-free result page.
+        """
+        await self.rate_limiter.wait_and_acquire()
+        resp = self.http.get(
+            f"{self.BASE_URL}/2/subscriptions/{filter_id}",
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return ((resp.json().get("result") or {}).get("deepLink") or "")

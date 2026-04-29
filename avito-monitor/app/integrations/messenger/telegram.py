@@ -21,7 +21,12 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    LinkPreviewOptions,
+)
 
 
 def _no_preview() -> LinkPreviewOptions:
@@ -96,6 +101,17 @@ class TelegramProvider(MessengerProvider):
     async def send(self, message: MessengerMessage) -> str:
         keyboard = _to_keyboard(message.buttons)
         try:
+            # Send a media group first if we have photos (Telegram caps at 10
+            # per group, no inline keyboard support, caption only on the first
+            # item — so we keep the photos and the rich text/buttons separate).
+            if message.images:
+                photos = [
+                    InputMediaPhoto(media=url) for url in message.images[:10]
+                ]
+                await self._bot.send_media_group(
+                    chat_id=message.chat_id,
+                    media=photos,
+                )
             sent = await self._bot.send_message(
                 chat_id=message.chat_id,
                 text=message.text,

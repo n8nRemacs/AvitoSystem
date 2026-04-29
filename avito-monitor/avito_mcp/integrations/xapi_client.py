@@ -116,6 +116,18 @@ class XapiClient:
         """Call GET /api/v1/search/items/{id}. Returns ItemDetail dict."""
         return await self._get(f"/api/v1/search/items/{int(item_id)}")
 
+    async def list_subscriptions(self) -> list[dict[str, Any]]:
+        """Call GET /api/v1/subscriptions. Returns the autosearches list."""
+        data = await self._get("/api/v1/subscriptions")
+        return data.get("items") or []
+
+    async def get_subscription_search_params(self, filter_id: int) -> dict[str, Any]:
+        """Call GET /api/v1/subscriptions/{id}/search-params.
+
+        Returns ``{"deeplink": str, "search_params": dict[str, str]}``.
+        """
+        return await self._get(f"/api/v1/subscriptions/{int(filter_id)}/search-params")
+
     async def health(self) -> dict[str, Any]:
         """Call GET /api/v1/sessions/current. Returns session status dict.
 

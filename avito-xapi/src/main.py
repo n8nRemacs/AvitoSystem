@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
 from src.middleware.auth import ApiKeyAuthMiddleware
 from src.middleware.error_handler import ErrorHandlerMiddleware
-from src.routers import health, sessions, messenger, calls, search, farm, auth_browser, realtime, notifications, device_commands
+from src.routers import health, sessions, messenger, calls, search, farm, auth_browser, realtime, notifications, device_commands, subscriptions
 from src.workers.ws_manager import ws_manager
 
 logging.basicConfig(
@@ -56,3 +56,4 @@ app.include_router(auth_browser.router)
 app.include_router(realtime.router)
 app.include_router(notifications.router)
 app.include_router(device_commands.router)
+app.include_router(subscriptions.router)

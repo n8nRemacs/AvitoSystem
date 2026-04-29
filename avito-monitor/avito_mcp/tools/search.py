@@ -112,6 +112,36 @@ def _normalise_listing(raw: dict[str, Any]) -> ListingShort:
     )
 
 
+async def avito_fetch_subscription_items_impl(
+    filter_id: int,
+    page: int = 1,
+    *,
+    client: XapiClient | None = None,
+) -> SearchPage:
+    """Fetch one page of items for an Avito autosearch (saved search).
+
+    The xapi side pulls ``/2/subscriptions/{id}.deepLink``, parses its
+    structured params, and forwards them to ``/11/items`` — exactly the
+    feed the Avito mobile app shows when the user opens that subscription.
+    Returns the same ``SearchPage`` shape as ``avito_fetch_search_page_impl``
+    so polling can swap between URL-based and autosearch-based without
+    knowing the difference.
+    """
+    xapi = client or XapiClient()
+    data = await xapi._get(f"/api/v1/subscriptions/{int(filter_id)}/items",
+                           {"page": page})
+    raw_items = data.get("items") or []
+    items = [_normalise_listing(it) for it in raw_items if isinstance(it, dict)]
+    return SearchPage(
+        items=items,
+        total=data.get("total"),
+        page=int(data.get("page") or page),
+        has_more=bool(data.get("has_more", False)),
+        source_url=f"avito://subscription/{filter_id}",
+        applied_query=f"subscription:{filter_id}",
+    )
+
+
 async def avito_fetch_search_page_impl(
     url: str,
     page: int = 1,

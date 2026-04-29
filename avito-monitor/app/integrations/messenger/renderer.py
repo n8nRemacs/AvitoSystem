@@ -112,4 +112,9 @@ def render(notification: Notification, *, chat_id: str) -> MessengerMessage:
         seller_id=payload.get("seller_id"),
     )
 
-    return MessengerMessage(chat_id=chat_id, text=text, buttons=rows)
+    raw_imgs = payload.get("images") or []
+    images: list[str] = [u for u in raw_imgs if isinstance(u, str) and u][:10]
+
+    return MessengerMessage(
+        chat_id=chat_id, text=text, buttons=rows, images=images,
+    )

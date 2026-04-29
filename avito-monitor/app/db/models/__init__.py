@@ -15,6 +15,7 @@ from app.db.models.profile_run import ProfileRun
 from app.db.models.search_profile import SearchProfile
 from app.db.models.system_setting import SystemSetting
 from app.db.models.user import User
+from app.db.models.user_listing_blacklist import UserListingBlacklist
 
 __all__ = [
     "ActivityLog",
@@ -34,4 +35,5 @@ __all__ = [
     "SearchProfile",
     "SystemSetting",
     "User",
+    "UserListingBlacklist",
 ]

@@ -299,3 +299,45 @@ fetch_search_page (URL с применённым overlay)
 - 10 МБ XML в репо как fixtures (приемлемо)
 - В V2 — sync-задача через autoload API раз в сутки (`AVITO_MCP_CACHE_TTL_SECONDS=86400` уже в `.env`)
 - Документация структуры — в `DOCS/avito_api_snapshots/README.md`
+
+---
+
+## ADR-011 — Autosearch sync как канонический источник параметров поиска
+
+**Дата:** 2026-04-28
+**Статус:** Accepted (supersedes ADR-001 для синканных профилей)
+
+**Контекст.** Эксплуатационный опыт после фиксов `91c542a` показал, что мобильный API Avito (`/web/11/items`, который мы хакаем через xapi) и веб-API (www.avito.ru) — **разные бэкенды с разными протоколами фильтрации**:
+
+- Веб упаковывает все фильтры (бренд, модель, цена, ёмкость, цвет, состояние) в base64-binary `f=` blob внутри URL — protobuf-like структура, не документирована.
+- Мобильный API ждёт **structured parameters**: `params[110000]=apple_id&params[110001]=iphone_12pm_id&priceMin=11000&priceMax=13500`.
+
+Юзер копирует URL из веба → наш парсер вытаскивает path-сегменты + `?pmin=&pmax=` (которых там нет, всё в `f=`) → отправляет в мобильный API с ампутированным фильтром (`query="Apple"+categoryId=87`). Avito делает fuzzy text-search и подмешивает мусор: чехлы, кабели и спам-объявления, которые продавцы заливают в неправильную категорию (классическая Avito-помойка).
+
+Конкретный баг живой выдачи (профиль iPhone 12 Pro Max 11000-13500 ₽): чайники в `/listings`, цены вне вилки. Фикс `91c542a` (category_id pass-through + brand+category model hint) снимает только часть боли — fuzzy match всё равно подмешивает посторонние лоты, ценовой фильтр игнорится мобильным API.
+
+**Решение.** Точкой синхронизации параметров поиска становится `https://www.avito.ru/autosearch` (сохранённые поиски на стороне Avito), а не URL в URL-баре браузера.
+
+Поток:
+1. Юзер настраивает поиск в веб-интерфейсе Avito (там фильтры точные, `f=` blob корректный).
+2. Сохраняет его как autosearch (Avito сам это умеет — это штатная фича подписок на новые лоты).
+3. По кнопке «🔄 Синхронизировать» в нашей админке наша система через мобильный API Avito (доступный нашему APK через залогиненный аккаунт юзера) тянет **список autosearches с их структурированными фильтрами и `autosearch_id`**.
+4. Для каждого autosearch создаётся / обновляется `SearchProfile` в нашей БД с маппингом 1:1 по `avito_autosearch_id`.
+5. Для polling используется новый xapi endpoint `/api/v1/autosearches/{id}/items` который дёргает мобильный API **по autosearch_id напрямую** — Avito возвращает items, отфильтрованные точно теми же критериями, что веб-юзер настраивал. Никакого ручного построения query/category на нашей стороне.
+
+**Re-sync семантика** (полное зеркало с защитой разобранных лотов):
+- Появился autosearch на Avito, нет у нас → создаётся новый профиль (`is_active=true`, `import_source='autosearch_sync'`).
+- Есть у нас, есть на Avito → обновляются параметры; `ProfileListing` со `user_action IN ('pending', 'viewed')` удаляются (новые «Новые» придут с правильными параметрами); `accepted` и `rejected` остаются нетронутыми.
+- Есть у нас, удалён на Avito → soft-delete (`archived_at=now()`, `is_active=false`); профиль скрывается из основной ленты, попадает в архив; `accepted`-лоты доступны для просмотра через архив.
+- `import_source='manual_url'` профили (созданные до этой фичи) sync **не трогает** — они живут параллельно.
+
+**Глобальный rejected-blacklist:** новая таблица `user_listing_blacklist(user_id, listing_id, reason, created_at)`. При нажатии ✗ Reject в `/listings` лот добавляется в blacklist на уровне юзера. Polling **любого** профиля (включая будущие) делает LEFT JOIN с этой таблицей и исключает blacklisted-лоты. Это значит: один раз отсеянный лот никогда больше не появится в выдаче, даже если юзер пересоздаст профиль с другими параметрами.
+
+**Последствия.**
+- Веб ↔ мобильный протокольный разрыв решается за счёт того, что мы вообще не строим query сами — используем `autosearch_id` как opaque указатель на server-side фильтр Avito.
+- ADR-001 продолжает работать для manual-URL-профилей (legacy), но **новый рекомендуемый путь** — sync через autosearch.
+- Реверс мобильного endpoint `autosearches list` + `items by autosearch_id` — отдельная задача (Frida-перехват на OnePlus 8T). Раньше эти endpoints не реверсились (см. `AvitoAll/API_FINAL.md` — там только messenger/auth/token).
+- `AvitoSessionManager` APK получает новую команду `sync_autosearches` (по аналогии с `refresh_token` через `avito_device_commands`). Долгий поллинг и ack уже есть.
+- DB миграция 0004: `search_profiles.{avito_autosearch_id, import_source, archived_at, last_synced_at}` + таблица `user_listing_blacklist`.
+- UI: вкладка «Архив» в `/search-profiles`, кнопка «🔄 Sync с Avito», карточки синканных профилей помечены `🔗 autosearch`.
+- Bonus-вектор: NotificationListener на телефоне может ловить push'и Avito «новый лот по поиску X» и фидить их в систему мгновенно — переход с поллинга на event-driven в V1.5 (не сейчас).

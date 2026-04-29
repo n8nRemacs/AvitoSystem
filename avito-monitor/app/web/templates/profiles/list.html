@@ -7,13 +7,49 @@
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-semibold text-avito-text">Профили поиска</h1>
-    <p class="text-sm text-avito-text-soft">Мониторинг лотов на Avito по сохранённым URL</p>
+    <p class="text-sm text-avito-text-soft">Мониторинг лотов на Avito по сохранённым URL и автопоискам Avito</p>
   </div>
-  <a href="/search-profiles/new"
-     class="px-4 py-2 rounded-md bg-avito-brand text-white text-sm font-medium hover:bg-avito-brand-hover transition-colors">
-    + Новый профиль
-  </a>
+  <div class="flex gap-2">
+    <form method="post" action="/search-profiles/sync" class="inline">
+      <button type="submit"
+              class="px-4 py-2 rounded-md border border-avito-border bg-avito-surface text-sm text-avito-text hover:bg-avito-surface-hover transition-colors">
+        🔄 Синхронизировать с Avito
+      </button>
+    </form>
+    <a href="/search-profiles/new"
+       class="px-4 py-2 rounded-md bg-avito-brand text-white text-sm font-medium hover:bg-avito-brand-hover transition-colors">
+      + Новый профиль
+    </a>
+  </div>
 </div>
+
+{% if message %}
+<div class="bg-avito-surface border border-avito-border rounded-md px-4 py-3 mb-4 text-sm text-avito-text">
+  {{ message }}
+</div>
+{% endif %}
+
+{% if archived %}
+<details class="mb-6 rounded-md border border-avito-border bg-avito-surface">
+  <summary class="px-4 py-3 cursor-pointer text-sm text-avito-text-soft">
+    🗄 Архив ({{ archived|length }}) — autosearches удалённые на Avito
+  </summary>
+  <div class="px-4 py-3 border-t border-avito-border space-y-2">
+    {% for p in archived %}
+    <div class="flex items-center justify-between text-sm">
+      <div>
+        <span class="text-avito-text">{{ p.name }}</span>
+        <span class="text-avito-text-soft text-xs">· archived {{ p.archived_at.strftime('%Y-%m-%d') if p.archived_at else '' }}</span>
+      </div>
+      <a href="/listings?profile={{ p.id }}&tab=in_progress"
+         class="text-avito-brand hover:underline text-xs">
+        В работе →
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
 
 {% if not profiles %}
 <div class="bg-avito-surface rounded-lg border border-avito-border p-12 text-center">

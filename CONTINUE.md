@@ -1,6 +1,6 @@
 # CONTINUE — Быстрый рестарт сессии V1
 
-> **Если ты — Claude в новой сессии:** прочитай этот файл целиком, потом проверь сервисы по §2, потом выбери действие из §4. Детали по конкретному блоку — в `DOCS/V1_BLOCKS_TZ.md` §4.
+> **Если ты — Claude в новой сессии:** прочитай этот файл целиком, потом проверь сервисы по §2, потом выбери действие из §4. Архитектурные решения — в `DOCS/DECISIONS.md` (ADR-011 — поворот на autosearch sync через мобильный API подписок).
 >
 > **Если ты — пользователь:** скопируй этот файл в новую сессию Claude Code, и работа продолжится.
 
@@ -8,268 +8,257 @@
 
 ## 1. Где мы сейчас
 
-**Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito + ценовой разведки. Single-user, homelab-deploy, Avito-Cosplay UI.
+**Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito + ценовой разведки.
 
-**Дата последнего обновления:** 2026-04-28 (после длинного сеанса фиксов и UI-стройки).
+**Дата последнего обновления:** 2026-04-28 (вечер). Большая сессия — реализована autosearch-sync (ADR-011), реверс мобильного API подписок, поднят второй Avito-аккаунт через System Clone, изменён scheduler на round-robin.
 
-### ⚠ Текущий блип
+### ⚠ Текущее состояние Avito-сессий
 
-На момент компакта **homelab не отвечает по SSH** (порт 22 timeout) и HTTP-страницы тоже timeout. SOCKS-туннель технически живой (наружу IP видно), но дальше глухо. Скорее всего сетевой блип у провайдера или на стороне VPS. **Последний коммит `2c92f43` (triage funnel) ещё НЕ задеплоен.** Когда связь оживёт — сразу sync + restart.
-
-### Готово (закоммичено в git)
-
-| Этап | Что | Коммит |
-|---|---|---|
-| Pre-V1 | Block 0/1/2/3, V2.0 reliability, V2.1 notification interception | `0c2be7f` … `9dc8a70` |
-| **V1 Block 4** | TaskIQ pipeline (poll → analyze → match → notify) + analytics + cleanup + dispatch_pending. **Default LLM = `google/gemini-2.5-flash-lite`** | `9786e72`, `92f09ff`, `46a4250`, `a291050` |
-| **V1 Block 5** | aiogram TG bot + pluggable `MessengerProvider` + 9 шаблонов + WhitelistMiddleware + `runtime_state` (system_paused / silent_until) | `1ae2f03` |
-| **V1 Block 6** | `/search-profiles/{id}/stats` — 4 виджета на Chart.js (line/donut/histogram/events) | `e08365e` |
-| Server-driven token refresh | таблица `avito_device_commands` + xapi long-poll/ack/admin + APK `commandPollJob` + health-checker `token_refresher.py` | `b11e465`, `040477a`, `dd5a29d` |
-| Homelab compose overlays | apparmor=unconfined + bind-mount `./src` + ports remap | `37f34c7`, `6a07b1f` |
-| **V1 Block 7** | Price Intelligence: миграция `0003_price_intel`, `PriceIntelligenceService` (4-step) + REST API + 3 web-страницы (list/new/report) + 26 unit-тестов + Markdown export для TG | `be5f633` |
-| **Pipeline fixes** | (a) analyze_listing подтягивает детали через MCP перед classify — починил `class=unknown` (LLM получал пустое description); (b) Telegram через Xray HTTP-прокси `:10808` + `aiohttp-socks` + graceful fallback — TG работает из РФ; (c) кнопка «Удалить» для search-профилей в UI | `8707667` |
-| **3 stub-страницы** | Полные `/listings` (фильтры по profile/condition/zone/period/sort) + `/logs` (события за 24ч из profile_runs+notifications+audit+activity) + `/settings` (LLM расход, Avito session live status, TG token, system pause, silent N мин, тест-отправка) | `d69c2d0` |
-| **Search-bug fixes** | xapi: `ru.avito://` → `https://www.avito.ru/{id}` (URL не открывались в браузере). mcp/search.py пробрасывает `category_id` (мобильные телефоны=87 etc.) — больше нет часов/планшетов в выдаче iPhone-профиля. Brand+category → model hint (Apple+phones → query=`iPhone`). Backfill 226 старых ru.avito-URL в БД | `91c542a` |
-| **Triage funnel (НЕ ЗАДЕПЛОЕНО)** | UserAction enum +`accepted`+`rejected`. /listings 3 вкладки: «Новые» (pending+viewed) / «В работе» (accepted) / «Отклонённые» (rejected) с счётчиками. POST `/listings/{p}/{l}/action` (accept/reject/undo). Карточки разворачиваются inline через `<details>` — описание + LLM verdict + 8-фото галерея + ✓/✗ кнопки в развёрнутом виде | `2c92f43` (LOCAL) |
-
-### Что задеплоено на homelab (на момент `91c542a`, до блипа)
-
-| Сервис | Где | Статус |
-|---|---|---|
-| avito-monitor app | `213.108.170.194:8088` (через ssh-tunnel `localhost:8088`) | Up |
-| db / redis / avito-mcp / worker / scheduler / telegram-bot / health-checker | docker compose | Up |
-| xapi | `213.108.170.194:8080` | Up, bind-mount `./src` |
-| Supabase self-hosted | `213.108.170.194:8000` (Studio) / `:5433` (db) | Миграция `006` + `0003_price_intel` применены |
-| AvitoSessionManager APK | OnePlus 8T (`110139ce`) | Полл server commands |
-| Telegram bot | `@Avitisystem_bot`, whitelist `id=6416413182` | Long-poll active **через Xray-прокси** |
-| Avito session | `ttl ≈ 23h` (свежий) | Healthy |
-
-**Реальные данные в БД (на момент перед блипом):** 185+ лотов, 73 прогона, 186 LLM-вызовов, **6+ working** (после фикса), 2 в `analyzed` (прошли match но не matched). 8 synth-нотификаций ушли в `failed` (старые smoke от Block 5).
-
-**Доступ к UI:**
-```bash
-ssh -L 8088:127.0.0.1:8088 homelab
-# затем в браузере: http://localhost:8088/login (owner / block0test)
 ```
+                          ┌─ status в БД ──┬─ source ─────┬─ примечание ─────────────────┐
+session A (user 0)        │ is_active=false│ manual       │ banned Avito anti-fraud утром │
+session B (user 10 clone) │ is_active=true │ android      │ свежая, polling идёт через неё│
+```
+
+* **Бан session A** случился из-за burst в первый sync (14 запросов на /N/subscriptions за 5 сек).
+* **System Clone (user 10)** настроен на OnePlus 8T — отдельный Avito-аккаунт (profile_id 157920214). На уровне Avito anti-fraud это **другое устройство** (другой device_id), **другой аккаунт** (другой user_id). Polling работает через его токен.
+* **Critical mobile API insight:** любой Avito-токен может опрашивать **любой** subscription/{filter_id} — Avito не привязывает access к создателю автопоиска. То есть для polling pool можно ротировать любые токены, sync списка `/5/subscriptions` — только под аккаунтом-владельцем.
+
+### Что задеплоено и работает
+
+| Слой | Что | Статус |
+|---|---|---|
+| **xapi** (avito-xapi) | `routers/subscriptions.py` с тремя GET-эндпойнтами: `/api/v1/subscriptions` (list), `/api/v1/subscriptions/{id}/search-params` (parsed dict), `/api/v1/subscriptions/{id}/items` (proxy на /11/items с params_extra). Rate-limit понижен до **1 RPS, burst 3**. | ✅ |
+| **DB миграция 0004** | `search_profiles.{avito_autosearch_id, import_source, archived_at, last_synced_at, search_params}` + новая таблица `user_listing_blacklist(user_id, listing_id, reason)`. | ✅ применена |
+| **avito-monitor service** | `AutosearchSyncService` (pull → upsert → soft-archive → wipe pending/viewed); 2с между autosearch'ами в синке. | ✅ |
+| **Polling** | Routing `if profile.import_source==autosearch_sync → fetch_subscription_items(filter_id) else legacy URL`. Pre-fetch user_listing_blacklist → skip rejected. | ✅ |
+| **Reject button** | Insert в `user_listing_blacklist`; Undo lifts blacklist. | ✅ |
+| **UI** | «🔄 Синхронизировать» на /search-profiles → POST /search-profiles/sync с flash; раздел «🗄 Архив»; форма карточки скрывает поле URL для autosearch_sync (синтетический URL `avito://subscription/{id}`); lightbox на 8-фото галерее в /listings (Esc/← →); фото в TG match-уведомлениях через `send_media_group` (до 10 фото) + текст с кнопками отдельным сообщением. | ✅ |
+| **Scheduler** | `app/tasks/scheduler.py` round-robin per user: за tick — максимум 1 enqueue per user, gap 60–120 s jitter между poll'ями одного юзера, выбирается least-recently-polled из due. | ✅ применён, **worker перезагружен** для подхвата кода |
+| **System Clone (user 10) на OnePlus** | Avito-app + AvitoSessionManager установлены через `pm install-existing --user 10`; Magisk grant добавлен через `magisk --sqlite "INSERT INTO policies VALUES (1010296, ...)"`; NotificationListener access выставлен через `settings --user 10 put secure enabled_notification_listeners`. Юзер залогинен **вторым** Avito-аккаунтом. | ✅ |
+| **Session B зарегистрирована в БД** | Через `c:/Users/EloNout/AppData/Local/Temp/register_clone_session.py` — читает SharedPreferences `/data/user/10/com.avito.android/shared_prefs/com.avito.android_preferences.xml`, парсит и POST на `/api/v1/sessions`. xapi автодеактивирует прежнюю сессию. | ✅ |
+
+### Реальные данные после deploy
+
+`scheduler.tick` после рестарта worker'а делает round-robin:
+```
+checked=7  eligible_users=1  enqueued=1  skipped_gap=0   ← gap не пройден ещё
+checked=7  eligible_users=1  enqueued=1  skipped_gap=0   ← через 60-120с
+...
+```
+Первый автоматический run после re-activation: **7 профилей × 35 items** на каждый, classify уже распределяет по condition_class (working / broken_screen / parts_only / blocked_account / broken_other). Никаких чайников — search_params Avito выдают точную выдачу.
+
+Ещё пример раннего run'а (до рестарта worker'а — старый scheduler enqueue'ил 7 разом):
+```
+iPhone 12 Pro     | success | seen=35 | new=2  | queued_for_analysis=2
+iPhone 13         | success | seen=35 | new=4  | queued=5
+iPhone 12 Pro Max | success | seen=35 | new=1  | queued=1
+iPhone 14         | success | seen=35 | new=1  | queued=1
+Телефоны          | success | seen=35 | new=0  | queued=0
+```
+
+### Что НЕ сделано в этой сессии (TODO)
+
+**Tasks #10–#15** в задачнике — все pending:
+
+| # | Что |
+|---|---|
+| #10 | Captcha detection + TG-notify + pause |
+| #11 | Avito IP-ban detection + proxy failover |
+| #12 | IP rotation pool for Avito API |
+| #13 | Multi-account pool with round-robin (xapi account-aware, AccountPool service) |
+| #14 | V1.5: 2nd Avito account via OnePlus Parallel/Clone — на устройстве сделано, **backend для round-robin между токенами не реализован** (xapi всё ещё берёт `MAX(created_at) WHERE is_active=true` — то есть всегда **последнюю** активную сессию, не RR) |
+| #15 | Exponential backoff on Avito 403 ban |
+
+**Главный архитектурный долг — #13/#14:** сейчас xapi.session_reader всегда возвращает **одну** active session (последнюю по created_at). Чтобы реально использовать pool из двух токенов, нужно:
+1. DB миграция 0005: `avito_accounts(id, tenant_id, nickname, state, last_used_at, daily_quota_used)` + `avito_sessions.account_id` FK
+2. xapi `BaseAvitoClient(account_id)` + новый `load_session_for_account(id)`
+3. avito-monitor `AccountPool` — round-robin LRU + per-account 60–120 s gap + on-403 mark and skip
+4. Передача `account_id` из poll_profile в xapi-client
+
+Оценка: ~3-4 часа. Сейчас pool работает де-факто как pool-of-1 (clone token), потому что user 0 token deactivated после ban'а.
 
 ---
 
-## 2. Что сделать сразу при возврате связи
+## 2. Что сделать сразу при возврате
 
 ```bash
-# 1. Sync последний коммит на homelab
-cd c:/Projects/Sync/AvitoSystem
-ssh homelab 'echo OK'  # пока не вернёт OK — ждём
+# 1. Sync homelab жив?
+ssh homelab 'echo OK'
 
-# 2. Sync файлы triage funnel + restart
-cd c:/Projects/Sync/AvitoSystem/avito-monitor && tar -cf - \
-  app/db/models/enums.py \
-  app/services/listings_view.py \
-  app/web/routers.py \
-  app/web/templates/listings.html \
-  | ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && tar -xf - && docker compose restart app worker'
+# 2. Стек поднят?
+ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && docker compose ps --format "table {{.Service}}\t{{.Status}}"'
 
-# 3. Проверь UI
-# открой http://localhost:8088/listings — должно быть 3 вкладки
-# раскрой карточку — описание + фото + ✓/✗
-# нажми ✓ — лот должен переехать во «В работе»
+# 3. xapi живой и Avito ему отвечает?
+ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' -o /dev/null -w '%{http_code}\n' \
+  'http://127.0.0.1:8080/api/v1/search/items?query=iphone&per_page=1'"
+# 200 = clone-токен работает. 500 = Avito banned и его, см. §4 «восстановление».
+
+# 4. Round-robin scheduler действительно ставит по 1?
+ssh homelab 'docker logs avito-monitor-worker-1 --since=5m 2>&1 | grep "scheduler.tick" | tail -10'
+# Ожидаешь: enqueued=1 (НЕ 7) и skipped_gap иногда=1 между tick'ами
+
+# 5. Profile_runs за последний час
+ssh homelab "docker exec avito-monitor-db-1 psql -h 127.0.0.1 -U avito -d avito_monitor -c \
+  \"SELECT pr.started_at, sp.name, pr.status, pr.listings_seen, pr.listings_new \
+  FROM profile_runs pr JOIN search_profiles sp ON sp.id=pr.profile_id \
+  WHERE pr.started_at > NOW() - INTERVAL '1 hour' ORDER BY pr.started_at DESC LIMIT 10;\""
+
+# 6. Активные сессии
+ssh homelab "docker exec supabase-db psql -U postgres -d postgres -c \
+  \"SELECT id, device_id, source, is_active, EXTRACT(EPOCH FROM (NOW()-created_at))/60 as min_old, expires_at \
+  FROM avito_sessions ORDER BY created_at DESC LIMIT 5;\""
+# Ожидаешь: 1 active (clone, source=android) + старые is_active=false (включая banned user 0)
 ```
-
-### Параллельный нерешённый трек: завтрашний smoke token-refresh
-
-**Дата ожидаемого срабатывания:** ~2026-04-28 14:00–15:00 UTC (когда Avito-сессия `ttl ≤ 180s`). Был запланирован cron `bf2c1cd4` в этой сессии — он session-only и **умрёт когда Claude закроется**. Перепланируй вручную в новой сессии или просто проверь утром.
-
-**Как проверить вручную:**
-```bash
-# Свежий ack в БД device_commands?
-ssh homelab 'docker exec supabase-db psql -U postgres -d postgres -c \
-  "SELECT id, status, created_at, acked_at, result FROM avito_device_commands \
-   ORDER BY created_at DESC LIMIT 5;"'
-# Ожидаешь: status=done, result.ok=true, result.payload.new_exp > prev_exp
-
-# Сервер видит свежую сессию?
-ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' \
-  http://127.0.0.1:8080/api/v1/sessions/current"
-# Ожидаешь: ttl_human ~ 23h, is_active=true
-
-# APK логи (если телефон рядом)
-$ADB="C:\Users\EloNout\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.3.4\adb.exe"
-& $ADB -s 110139ce logcat -d -t 5000 -s "SessionMonitorService:V" "ServerApi:V"
-```
-
-Если smoke провалился — в TG прилетит алерт, и в логах `health-checker` (`docker logs avito-monitor-health-checker-1 | grep token_refresh`) будет strikes counter.
 
 ---
 
 ## 3. Operational заметки
 
-- **TIMEZONE = `Europe/Astrakhan`** (UTC+4). DB и внутренние логи в UTC.
-- **Default LLM model = `google/gemini-2.5-flash-lite`** ($0.0001/картинка). Per-profile override через `SearchProfile.llm_classify_model` / `llm_match_model`.
-- **OPENROUTER_API_KEY** в `avito-monitor/.env` (homelab). Дневной лимит $10.
-- **Telegram через прокси:** `TELEGRAM_PROXY_URL=http://host.docker.internal:10808` (Xray HTTP-прокси на Финляндию). Без него — timeouts. Зависимость `aiohttp-socks==0.11.0` установлена в worker/tg-bot/health-checker контейнерах **руками** через `uv pip install`. **При следующем `docker compose up -d` пакет потеряется** — добавлен в pyproject.toml но образ ещё не пересобран. Полное пересобрание блокируется AppArmor LXC при `uv sync`. Workaround: после `compose up` — `docker exec <container> uv pip install aiohttp-socks` для каждого.
-- **Phone setup для V2.1:** `settings put global hidden_api_policy 1` + `cmd deviceidle whitelist +com.avitobridge.sessionmanager` (Oplus battery saver иначе морозит NotificationListener).
-- **APK build:** `JAVA_HOME=C:\Program Files\Android\Android Studio4\jbr; cd AvitoAll/AvitoSessionManager; .\gradlew.bat assembleDebug`. Install: `adb -s 110139ce install -r app/build/outputs/apk/debug/app-debug.apk`. ADB: `C:\Users\EloNout\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.3.4\adb.exe`.
-- **Homelab compose:** оба проекта обязательно с `docker-compose.homelab.yml` overlay (apparmor=unconfined). Без него asyncio падает на AF_UNIX socketpair.
+### Сегодняшние ключевые insights
 
-### Ключевые архитектурные insights (свежие)
-
-- **`Listing.description` пустое после polling** — search-API возвращает только title/price/images. Подтягивать через `mcp.get_listing(avito_id)` ИЛИ в polling, ИЛИ в analyze_listing. Сейчас в analyze_listing (commit `8707667`).
-- **Avito mobile API URL = `ru.avito://...` deep-link** — не открывается в браузере. Fix: `https://www.avito.ru/{id}` → Avito 301-redirect на canonical slug.
-- **iPhone-профиль возвращал часы/iPad/AirPods** — потому что mcp слал `query=Apple` без `category_id`. Fix: маппинг category-slug → numeric id (`mobilnye_telefony`=87, `noutbuki`=86, etc.) + brand+category model hint (Apple+phones → "iPhone").
-- **TG api заблокирован в РФ** — нужен прокси через Xray HTTP `:10808`. aiogram использует aiohttp_socks даже для HTTP-прокси.
+* **Avito anti-fraud per-account, не per-IP** — мы это эмпирически подтвердили (юзер с того же IP но другого устройства/аккаунта в Avito-app работал нормально, наш банный токен с любого IP не работал). Защита будущего: pool аккаунтов (#13).
+* **`/5/subscriptions` отдаёт только title/description, без structured params**. Чтобы получить точные search params нужен ещё один запрос — `/2/subscriptions/{filter_id}`, в `result.deepLink` лежит query-string `?categoryId=84&locationId=621540&params[110617][0]=491590&params[110618][0]=469735&priceMin=…&priceMax=…&sort=…&withDeliveryOnly=1`.
+* **Любой Avito-токен может опрашивать любой filter_id** — для polling нужен любой токен из pool, не обязательно создателя autosearch.
+* **System Clone в OnePlus** = отдельный Android-user (`pm list users` → 0 + 10). Apps надо ставить отдельно (`pm install-existing --user 10 <pkg>`). NotificationListener в неактивном user может тормозиться Android'ом — рекомендуется раз в день-два открывать clone-пространство на минуту чтобы NL «прогрелся».
+* **Magisk root grant per-UID, per-user**: UID = `userId * 100000 + appId`. Для AvitoSessionManager appId=10296 → user 0 UID=10296, user 10 UID=1010296. Команда выдачи:
+  ```bash
+  magisk --sqlite "INSERT OR REPLACE INTO policies (uid, policy, until, logging, notification) VALUES (1010296, 2, 0, 1, 1)"
+  ```
+* **AvitoSessionManager НЕ читает SharedPreferences самостоятельно при старте.** Он триггерится push-уведомлением Avito-app о login/refresh. Если push был пропущен (NL access выдан после login) — token не зарегистрируется. Workaround: прямой `cat` SharedPreferences через root + POST на `/api/v1/sessions` (см. `c:/Users/EloNout/AppData/Local/Temp/register_clone_session.py`).
+* **xapi `POST /api/v1/sessions` deactivates все прежние active sessions того же tenant'а** (`UPDATE is_active=false WHERE tenant_id=X AND is_active=true`). При regimen с pool это надо **отключить** (или делать INSERT минуя router). Сейчас это нормально потому что мы сознательно сменили активную сессию на clone-токен.
+* **TG проксирование через Xray** (для match-нотификаций) — `TELEGRAM_PROXY_URL=http://host.docker.internal:10808`, `aiohttp-socks==0.11.0` нужно установить руками после `docker compose up` — `uv pip install aiohttp-socks` для worker / telegram-bot / health-checker. Не забыть после rebuild.
 
 ### Известные хвосты
 
-- 5 health_checker tests сломаны после Stage 9 (русские строки vs ожидаемые английские). ~20 мин на починку.
-- `aiohttp-socks` не в собранном образе — установлен runtime. Лечится rebuild когда AppArmor отпустит.
-- Старые 179 лотов с `class=unknown` остаются (LLM-кеш по cache_key). Очистятся естественно через cleanup (ADR-009 retention).
+* **#13/#14 backend для round-robin между токенами** не сделан — pool работает как pool-of-1 (см. §1 хвост).
+* **Старая user 0 session может разморозиться** через несколько часов / суток. Когда — нужно вернуть `is_active=true` для соответствующей записи в `avito_sessions` ВРУЧНУЮ (xapi auto-deactivates other so don't rely on auto). До #13 — это просто spare, если clone-токен попадёт в ban.
+* **5 health_checker tests сломаны** после Stage 9 (русские строки vs ожидаемые английские) — со прошлой сессии. ~20 мин на починку.
+* **Старые 200+ лотов с `class=unknown`** в БД остаются — LLM-кэш по cache_key. Очистятся естественно через cleanup (ADR-009 retention).
 
 ---
 
 ## 4. Что делать дальше
 
-| Опция | Что | Приоритет |
-|---|---|---|
-| **A. Доезд triage funnel** | Sync `2c92f43` + smoke. Принять/отклонить лот, проверить вкладки. ~10 мин | Делать **сразу** после возврата homelab |
-| **B. Завтрашний smoke token-refresh** | Утром проверить server-driven refresh по §2. Если ОК — V2.1 закрыт | Утром |
-| **C. V2 messenger — спросить у продавца** | Кнопка «💬 Спросить» в карточке /listings. Шаблон «Здравствуйте, актуально? Состояние/аккумулятор/комплект?». xapi уже умеет (`create_chat_by_item` + `send_message`). Фоновый поллинг ответов раз в 5 мин. На карточке индикатор «есть ответ». ~3-4 ч | **Юзер озвучил это как ядро V1, не V2.** Приоритет после A+B |
-| **D. Block 8 — Polish + 72h soak** | Caddy/TLS, Makefile, документация, мониторинг, ручной 72h soak. Финальный блок V1 | После C |
-| **E. Lifecycle-статусы (lite)** | Юзер озвучил идею конфигурируемых статусов с действиями. Пока остановились на triage funnel (`accepted`/`rejected`) — это упрощённая версия. Полные статусы — V1.5/V2 | После C+D |
+| Опция | Что | Часов | Приоритет |
+|---|---|---|---|
+| **A. Backend round-robin pool (#13/#14)** | DB 0005 + AccountPool service + account-aware xapi. После этого pool из 2-х (clone + user 0 когда unbanned) реально шарит нагрузку. | 3-4 | **Высокий** — фундамент защиты от анти-fraud |
+| **B. Captcha / IP-ban / 403 detection (#10/#11/#15)** | Distinguish 403-types (capture body первого 403), exponential backoff с pauseUntil, единая TG-нотификация. | 2-3 | Высокий |
+| **C. Восстановить user 0 token** | Когда Avito unban'ит — `UPDATE avito_sessions SET is_active=true WHERE id='e6be0b67-…'`. Spare для pool. Без #13 это перезатрёт clone-токен на следующем polling tick'е. **Не делать до #13!** | 5 мин | После #13 |
+| **D. Auto-resume agent** | `/schedule` agent каждые 30 мин проверяет clone-токен → если внезапно 403 → пауза профилей + TG-alert. | 30 мин | Низкий |
+| **E. UI «Аккаунты Avito» в /settings** | После #13 — список pool-аккаунтов, state, ручной pause. | 30 мин | После #13 |
+| **F. Block 8 — Polish + 72h soak (TLS Caddy)** | Финальный V1 блок. | ~6 ч | После A+B |
 
-**Рекомендация на утро:** A → B → начало C.
+**Рекомендация на следующий заход:** A (#13 round-robin pool) → B (детекторы 403) → C (вернуть user 0 в pool) → soak.
 
 ### Промпт-стартер для нового блока
 
 ```
 Проект: c:/Projects/Sync/AvitoSystem/avito-monitor/
-Прочитай: CONTINUE.md (текущий статус) + DOCS/V1_BLOCKS_TZ.md §4 «Block N» (твоё ТЗ).
+Прочитай: CONTINUE.md (текущий статус) + DOCS/DECISIONS.md ADR-011 + DOCS/avito_api_snapshots/autosearches/README.md.
 Глобальные секреты: c:/Projects/Sync/CLAUDE.md.
 
-Я хочу запустить Block N. Сначала проверь сервисы (см. §2 CONTINUE.md). Если что-то не up — подними и сообщи мне.
+Хочу [Backend round-robin pool / IP-ban detection / …]. Сначала проверь сервисы (см. §2 CONTINUE.md). Если что-то не up — подними и сообщи.
 ```
 
 ---
 
-## 5. Quick health check
+## 5. Полезные команды (новые из этой сессии)
 
 ```bash
-# Туннель к homelab жив?
-curl -s --max-time 5 --socks5-hostname 127.0.0.1:1081 https://ifconfig.me
-# Ожидаешь: 213.108.170.194 (если пусто — `ssh -D 127.0.0.1:1081 -N -f homelab`)
-
-# SSH живой?
-ssh -o ConnectTimeout=10 homelab 'echo OK'
-# Если timeout — homelab или сеть лежит
-
-# Homelab стек жив?
-ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && docker compose ps --format "table {{.Service}}\t{{.Status}}"'
-# avito-mcp / app / db (healthy) / redis / scheduler / telegram-bot / worker / health-checker — все Up
-
-# UI открывается?
-# ssh -L 8088:127.0.0.1:8088 homelab → http://localhost:8088/login (owner / block0test)
-
-# avito-xapi жив?
-curl -s -w "\nHTTP %{http_code}\n" http://213.108.170.194:8080/health
-# Ожидаешь: HTTP 200
-
-# Avito-сессия valid?
+# Проверить какой токен активен сейчас и его TTL
 ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' http://127.0.0.1:8080/api/v1/sessions/current"
-# Ожидаешь: is_active=true, ttl_seconds > 180
 
-# Реальный пайплайн работает?
-ssh homelab "docker exec avito-monitor-db-1 psql -h 127.0.0.1 -U avito -d avito_monitor \
-  -c \"SELECT condition_class, COUNT(*) FROM listings GROUP BY condition_class;\""
-# Ожидаешь: working > 0 (значит классификация рабочая)
-```
+# Список всех autosearches на стороне Avito (через clone token)
+ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' http://127.0.0.1:8080/api/v1/subscriptions" | python3 -m json.tool | head -40
 
-### Восстановление
+# Получить structured search-params для одного autosearch
+ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' \
+  'http://127.0.0.1:8080/api/v1/subscriptions/264239719/search-params'" | python3 -m json.tool
 
-| Симптом | Что делать |
-|---|---|
-| SSH timeout к homelab | Сетевой блип. Подождать; проверить SOCKS-туннель (`ifconfig.me` должен вернуть homelab IP). Если он мёртвый — `ssh -D 127.0.0.1:1081 -N -f homelab` |
-| Контейнер `Restarting` / `Exited` | `docker compose logs --tail=50 <service>`. На homelab — обязательно с homelab.yml overlay |
-| `avito_monitor` БД пустая | `docker compose exec -T db psql -h 127.0.0.1 -U avito -d postgres -c 'CREATE DATABASE avito_monitor OWNER avito;' && docker compose exec -T app alembic upgrade head` |
-| TG send timeouts (`TelegramNetworkError`) | Прокси отвалился. `docker exec avito-monitor-worker-1 uv pip install aiohttp-socks` (если контейнер пересоздан и пакет потерялся) + `docker compose restart worker telegram-bot` |
-| /listings класс везде `unknown` | Проверь есть ли свежие лоты с `description IS NOT NULL`. Если нет — analyze_listing не дёргает MCP get_listing (см. commit `8707667`). Логи: `grep "fetch_detail_failed\|classify.success" worker logs` |
-| /listings часы/iPad/AirPods вместо iPhone | Не пробрасывается `category_id`. Проверь commit `91c542a` есть в синке. Перезапусти worker |
-| Token refresh висит в `delivered`, не `done` | APK свернут / убит. `adb logcat` + что SessionMonitorService running. Force-cleanup: `UPDATE avito_device_commands SET status='expired'` |
-| Login 500 | `docker compose restart app` |
-| Stats `/search-profiles/{id}/stats` пуст | placeholder когда `< 7 дней истории И нет current snapshot`. Дождаться поллинга или hand-trigger `compute_market_stats` |
+# Items для одного autosearch (это и есть polling-канал)
+ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' \
+  'http://127.0.0.1:8080/api/v1/subscriptions/264239719/items?page=1&per_page=5'"
 
----
+# Распределение профилей по import_source
+ssh homelab "docker exec avito-monitor-db-1 psql -h 127.0.0.1 -U avito -d avito_monitor -c \
+  \"SELECT import_source, COUNT(*), SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active \
+  FROM search_profiles WHERE archived_at IS NULL GROUP BY import_source;\""
 
-## 6. Где секреты
+# Размер blacklist по reject
+ssh homelab "docker exec avito-monitor-db-1 psql -h 127.0.0.1 -U avito -d avito_monitor -c \
+  \"SELECT COUNT(*), reason FROM user_listing_blacklist GROUP BY reason;\""
 
-- **Глобальные** (Supabase URL/keys, JWT, homelab IP, Telegram bot token, Xray-прокси): `c:/Projects/Sync/CLAUDE.md` — НЕ в git
-- **avito-monitor локальный конфиг:** `c:/Projects/Sync/AvitoSystem/avito-monitor/.env` — gitignored
-- **На homelab `.env` отдельный** в `/mnt/projects/repos/AvitoSystem/avito-monitor/.env` (там `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `TELEGRAM_PROXY_URL=http://host.docker.internal:10808`)
-- **xapi homelab:** `SUPABASE_URL=http://213.108.170.194:8000` (self-hosted), `AVITO_XAPI_API_KEY=test_dev_key_123`
-- **APK prefs:** `/data/data/com.avitobridge.sessionmanager/shared_prefs/avito_session_manager.xml` (root)
-- **Auto-memory:** `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/`
+# Magisk: список всех root-grants
+ADB="C:/Users/EloNout/AppData/Local/Microsoft/WinGet/Packages/Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe/scrcpy-win64-v3.3.4/adb.exe"
+$ADB -s 110139ce shell "su -c 'magisk --sqlite \"SELECT * FROM policies\"'"
 
----
+# Magisk: выдать grant новому UID (например, AvitoSessionManager в новом user)
+$ADB -s 110139ce shell "su -c 'magisk --sqlite \"INSERT OR REPLACE INTO policies (uid, policy, until, logging, notification) VALUES (<UID>, 2, 0, 1, 1)\"'"
 
-## 7. Полезные команды
+# NotificationListener access в conkretnom user'е
+$ADB -s 110139ce shell "su -c 'settings --user 10 put secure enabled_notification_listeners com.avitobridge.sessionmanager/com.avitobridge.service.AvitoNotificationListener'"
 
-```bash
-# История коммитов V1
-cd c:/Projects/Sync/AvitoSystem && git log --oneline -20
+# Зарегистрировать сессию из SharedPreferences user X напрямую
+python c:/Users/EloNout/AppData/Local/Temp/register_clone_session.py
+# (читает /data/user/10/com.avito.android/shared_prefs/com.avito.android_preferences.xml,
+#  парсит, POSTит в xapi /api/v1/sessions; токены не печатает в stdout)
 
-# Все логи на homelab
-ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && docker compose logs --tail=100 --since=10m'
-
-# Sync ОДНОГО файла на homelab (типичный паттерн)
-cd c:/Projects/Sync/AvitoSystem/avito-monitor && tar -cf - app/services/some.py | \
-  ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && tar -xf -'
-
-# Запустить тесты внутри контейнера
-ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && \
-  docker cp tests/services/test_X.py avito-monitor-app-1:/app/tests/services/test_X.py && \
-  docker compose exec -T app sh -c "cd /app && python -m pytest tests/services/test_X.py -x -q"'
-
-# Avito-сессия в БД
-ssh homelab "docker exec supabase-db psql -U postgres -d postgres -c 'SELECT user_id, source, expires_at, is_active FROM avito_sessions ORDER BY created_at DESC LIMIT 5;'"
-
-# Force-trigger token refresh (для теста, без ждать)
+# Принудительный refresh_token через APK (V2.1)
 ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' -H 'Content-Type: application/json' \
-  -d '{\"command\":\"refresh_token\",\"payload\":{\"timeout_sec\":60,\"prev_exp\":0},\"issued_by\":\"manual\"}' \
+  -d '{\"command\":\"refresh_token\",\"payload\":{\"timeout_sec\":90,\"prev_exp\":0},\"issued_by\":\"manual\"}' \
   -X POST http://127.0.0.1:8080/api/v1/devices/me/commands"
 
-# Проверить распределение лотов по статусам
-ssh homelab "docker exec avito-monitor-db-1 psql -h 127.0.0.1 -U avito -d avito_monitor \
-  -c \"SELECT user_action, COUNT(*) FROM profile_listings GROUP BY user_action;\""
+# Запустить sync через UI (то же что кнопка «🔄 Синхронизировать»)
+# Через docker exec без cookie:
+ssh homelab 'docker exec avito-monitor-app-1 python -c "
+import asyncio
+from app.db.base import get_sessionmaker
+from sqlalchemy import select
+from app.db.models import User
+from app.services.autosearch_sync import sync_autosearches_for_user
 
-# Откатить triage у одного лота вручную
-ssh homelab "docker exec avito-monitor-db-1 psql -h 127.0.0.1 -U avito -d avito_monitor \
-  -c \"UPDATE profile_listings SET user_action='pending' WHERE listing_id='<UUID>';\""
+async def main():
+    async with get_sessionmaker()() as s:
+        u = (await s.execute(select(User).limit(1))).scalar_one()
+        print(await sync_autosearches_for_user(u.id, session=s))
 
-# APK logcat фильтр (PowerShell)
-$adb = "C:\Users\EloNout\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.3.4\adb.exe"
-& $adb -s 110139ce logcat -d -t 1000 -s "SessionMonitorService:V" "ServerApi:V"
+asyncio.run(main())
+"'
 
-# Ручной seed (если БД пуста)
-ssh homelab "cd /mnt/projects/repos/AvitoSystem/avito-monitor && \
-  docker compose exec -T app python -m scripts.create_admin owner block0test && \
-  docker compose exec -T app python -m scripts.seed_demo_data"
+# Включить/выключить все autosearch профили разом
+ssh homelab "docker exec avito-monitor-db-1 psql -h 127.0.0.1 -U avito -d avito_monitor -c \
+  \"UPDATE search_profiles SET is_active=true WHERE import_source='autosearch_sync' AND archived_at IS NULL;\""
 ```
 
 ---
 
-## 8. Где детальная документация
+## 6. Где детальная документация
 
 | Файл | Что |
 |---|---|
-| `DOCS/V1_BLOCKS_TZ.md` | Per-block ТЗ. Block 7 уже сделан, Block 8 актуален |
-| `DOCS/TZ_Avito_Monitor_V1.md` | Главное ТЗ V1.2 (особенно §4.2 Price Intel, §6.4 REST) |
-| `DOCS/DECISIONS.md` | 10 ADR (особенно ADR-001 URL-based, ADR-008 двойная вилка, ADR-010 двухступенчатый LLM, ADR-009 retention) |
-| `DOCS/UI_DESIGN_SPEC_V1.md` | UI спека: 8 экранов, sample data, style guide. §4.5 листинги, §4.6 price report |
-| `avito-monitor/docker-compose.homelab.yml` | объяснение apparmor=unconfined + ports remap |
-| `avito-xapi/docker-compose.homelab.yml` | bind-mount + reload вместо rebuild |
+| `DOCS/DECISIONS.md` ADR-011 | Поворот на autosearch-sync: re-sync семантика, blacklist, manual_url legacy |
+| `DOCS/avito_api_snapshots/autosearches/README.md` | Полный реверс мобильного API: endpoints, request/response, models (SearchSubscription, SearchParams, pu0.d/c) |
+| `DOCS/V1_BLOCKS_TZ.md` | Per-block ТЗ. Block 7 done, Block 8 актуален |
+| `DOCS/UI_DESIGN_SPEC_V1.md` | UI спека — фон-light, токены |
+| `avito-monitor/docker-compose.homelab.yml` | apparmor=unconfined + bind-mount + ports |
+
+---
+
+## 7. Где секреты
+
+* **Глобальные**: `c:/Projects/Sync/CLAUDE.md` — Supabase URLs/keys, JWT, homelab IP, TG bot token, Xray-proxy.
+* **avito-monitor локальный конфиг:** `c:/Projects/Sync/AvitoSystem/avito-monitor/.env` — gitignored.
+* **На homelab `.env`** в `/mnt/projects/repos/AvitoSystem/avito-monitor/.env` (TG_BOT_TOKEN, OPENROUTER_API_KEY, TELEGRAM_PROXY_URL).
+* **xapi homelab:** `BASE_URL=https://app.avito.ru/api`, `AVITO_XAPI_API_KEY=test_dev_key_123`, rate_limit_rps=1.0, burst=3.
+* **APK prefs:** `/data/data/com.avitobridge.sessionmanager/shared_prefs/avito_session_manager.xml` (root, и **per-user**: `/data/user/10/...` для clone).
+* **Avito session storage:** `/data/user/{0|10}/com.avito.android/shared_prefs/com.avito.android_preferences.xml` — ключи: `session`, `refresh_token`, `device_id`, `remote_device_id`, `profile_id`.
+* **Auto-memory:** `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/`
 
 ---
 
 **TL;DR для следующей сессии:**
-1. **Если homelab жив** → выполни §2 (sync `2c92f43` + restart) → smoke triage funnel
-2. **Если homelab лежит** → подожди или ткни сетевую инфраструктуру; SOCKS-туннель проверь через `ifconfig.me`
-3. **Утренний smoke token-refresh** (§2 второй блок) — вне зависимости от deploy triage
-4. **Дальше** — V2 messenger («Спросить продавца») по §4-C, потом Block 8
+1. Polling работает через clone-токен (user 10 на OnePlus 8T System Clone). User 0 token banned до восстановления.
+2. autosearch-sync залит и работает: из 7 autosearch'ей юзера (iPhone 11/12/12Pro/12ProMax/13/14 + «Телефоны») сервер тянет items через `/2/subscriptions/{id}/items` с точными structured params — никаких чайников.
+3. **Главный технический долг**: backend round-robin между токенами (#13/#14). Сейчас pool=1, любой ban toкена → пауза всей системы.
+4. После #13 → восстановить user 0 token (он spare) → детекторы 403 (#10/#11/#15) → Block 8 polish.

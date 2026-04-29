@@ -31,6 +31,7 @@ from app.db.models import (
     ProfileListing,
     ProfileRun,
     SearchProfile,
+    UserListingBlacklist,
 )
 from app.db.models.enums import ListingStatus, ProfileRunStatus
 from app.integrations.avito_mcp_client.client import AvitoMcpClient
@@ -208,7 +209,15 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
 
     try:
         async with AvitoMcpClient() as mcp:
-            page = await mcp.fetch_search_page(profile.avito_search_url)
+            if (
+                profile.import_source == "autosearch_sync"
+                and profile.avito_autosearch_id
+            ):
+                page = await mcp.fetch_subscription_items(
+                    int(profile.avito_autosearch_id)
+                )
+            else:
+                page = await mcp.fetch_search_page(profile.avito_search_url)
     except Exception as exc:  # pragma: no cover — covered by health-checker
         log.exception(
             "polling.fetch_failed profile_id=%s url=%s",
@@ -231,8 +240,22 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     to_analyze: list[uuid.UUID] = []
 
     async with sessionmaker() as session:
+        # Per-user global blacklist (ADR-011): once a user has rejected a
+        # listing, it should never resurface in any of their profiles, even
+        # under different criteria. We pre-fetch the avito_ids of blacklisted
+        # listings for this profile's owner in one query and skip them below.
+        blacklisted_avito_ids: set[int] = set(
+            (await session.execute(
+                select(Listing.avito_id)
+                .join(UserListingBlacklist, UserListingBlacklist.listing_id == Listing.id)
+                .where(UserListingBlacklist.user_id == profile.user_id)
+            )).scalars().all()
+        )
+
         for item in page.items:
             if item.seller_id is not None and str(item.seller_id) in blocked:
+                continue
+            if item.id in blacklisted_avito_ids:
                 continue
 
             listings_seen += 1
