@@ -221,3 +221,92 @@ def test_session_for_sync_404_when_unknown(client, accounts_in_db):
     r = client.get("/api/v1/accounts/unknown/session-for-sync",
                    headers={"X-Api-Key": "test_dev_key_123"})
     assert r.status_code == 404, r.text
+
+
+# ---------------------------------------------------------------------------
+# T14: POST /api/v1/accounts/{account_id}/refresh-cycle
+# ---------------------------------------------------------------------------
+
+def test_refresh_cycle_404_when_account_missing(client, accounts_in_db):
+    """Unknown account_id → 404."""
+    # Query 1: SELECT avito_accounts → empty
+    accounts_in_db([])
+    r = client.post("/api/v1/accounts/unknown/refresh-cycle",
+                    headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 404
+
+
+def test_refresh_cycle_503_when_adb_dead(client, accounts_in_db, monkeypatch):
+    """ADB health check fails → 503 with phone_serial in detail."""
+    # Query 1: SELECT avito_accounts → found
+    accounts_in_db([{"id": "acc-1", "state": "needs_refresh",
+                     "phone_serial": "DEAD", "android_user_id": 0,
+                     "last_device_id": "D1"}])
+
+    async def fake_health(self, serial):
+        return False
+
+    monkeypatch.setattr("src.workers.device_switcher.DeviceSwitcher.health", fake_health)
+
+    r = client.post("/api/v1/accounts/acc-1/refresh-cycle",
+                    headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 503
+    detail = r.json()["detail"]
+    assert "DEAD" in detail or "adb" in detail.lower() or "ADB" in detail
+
+
+def test_refresh_cycle_409_when_no_last_device_id(client, accounts_in_db, monkeypatch):
+    """Account missing last_device_id → 409."""
+    # Query 1: SELECT avito_accounts → found, no last_device_id
+    accounts_in_db([{"id": "acc-1", "state": "needs_refresh",
+                     "phone_serial": "S1", "android_user_id": 10,
+                     "last_device_id": None}])
+
+    async def ok_health(self, serial):
+        return True
+
+    async def ok_switch(self, serial, target, **kw):
+        return None
+
+    async def fast_sleep(d):
+        return None
+
+    monkeypatch.setattr("src.workers.device_switcher.DeviceSwitcher.health", ok_health)
+    monkeypatch.setattr("src.workers.device_switcher.DeviceSwitcher.switch_to", ok_switch)
+    monkeypatch.setattr("asyncio.sleep", fast_sleep)
+
+    r = client.post("/api/v1/accounts/acc-1/refresh-cycle",
+                    headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 409
+
+
+def test_refresh_cycle_happy_path_marks_waiting(client, accounts_in_db, monkeypatch):
+    """Full happy path: ADB ok, command inserted, account marked waiting_refresh → 202."""
+    # Query 1: SELECT avito_accounts → found with last_device_id
+    accounts_in_db([{"id": "acc-1", "state": "needs_refresh",
+                     "phone_serial": "S1", "android_user_id": 0,
+                     "last_device_id": "D1"}])
+    # Query 2: INSERT into avito_device_commands → returns new command row
+    accounts_in_db([{"id": "cmd-uuid", "command": "refresh_token", "device_id": "D1"}])
+    # Query 3: UPDATE avito_accounts SET state=waiting_refresh → returns updated row
+    accounts_in_db([{"id": "acc-1", "state": "waiting_refresh"}])
+
+    async def ok_health(self, serial):
+        return True
+
+    async def ok_switch(self, serial, target, **kw):
+        return None
+
+    async def fast_sleep(d):
+        return None
+
+    monkeypatch.setattr("src.workers.device_switcher.DeviceSwitcher.health", ok_health)
+    monkeypatch.setattr("src.workers.device_switcher.DeviceSwitcher.switch_to", ok_switch)
+    monkeypatch.setattr("asyncio.sleep", fast_sleep)
+
+    r = client.post("/api/v1/accounts/acc-1/refresh-cycle",
+                    headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 202
+    body = r.json()
+    assert body["account_id"] == "acc-1"
+    assert "command_id" in body

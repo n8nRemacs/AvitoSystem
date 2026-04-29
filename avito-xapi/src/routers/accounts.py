@@ -1,12 +1,14 @@
 """Account pool router — list, claim, report, refresh-cycle, state."""
+import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src.services.account_state import AccountState, Event, compute_next_state
 from src.storage.supabase import get_supabase
+from src.workers.device_switcher import DeviceSwitchError, device_switcher
 
 _log = logging.getLogger(__name__)
 
@@ -201,3 +203,78 @@ async def session_for_sync(account_id: str):
         "device_id": sd.get("device_id"),
         "fingerprint": sd.get("fingerprint"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Refresh-cycle endpoint
+# ---------------------------------------------------------------------------
+
+_REFRESH_WARMUP_SEC = 8
+_REFRESH_CMD_EXPIRE_SEC = 120
+
+
+@router.post("/{account_id}/refresh-cycle", status_code=202)
+async def refresh_cycle(account_id: str):
+    """Atomic ADB switch + refresh_token command + mark account waiting_refresh.
+
+    Flow:
+      1. Load account (404 if missing).
+      2. ADB health check (503 if dead).
+      3. Switch Android user (503 on DeviceSwitchError).
+      4. Sleep REFRESH_WARMUP_SEC to let NotificationListener warm up.
+      5. Guard: last_device_id must be set (409 otherwise).
+      6. Insert refresh_token device command.
+      7. Update account state to waiting_refresh.
+      8. Return 202 with command_id + account_id.
+    """
+    sb = get_supabase()
+
+    # Step 1 — load account
+    res = sb.table("avito_accounts").select("*").eq("id", account_id).limit(1).execute()
+    if not res.data:
+        raise HTTPException(404, "account not found")
+    acc = res.data[0]
+
+    # Step 2 — ADB health
+    if not await device_switcher.health(acc["phone_serial"]):
+        raise HTTPException(503, detail=f"ADB-канал к {acc['phone_serial']} недоступен")
+
+    # Step 3 — switch Android user
+    try:
+        await device_switcher.switch_to(acc["phone_serial"], acc["android_user_id"])
+    except DeviceSwitchError as exc:
+        raise HTTPException(503, detail=f"switch-user failed: {exc}")
+
+    # Step 4 — warm-up pause
+    await asyncio.sleep(_REFRESH_WARMUP_SEC)
+
+    # Step 5 — last_device_id guard
+    last_device_id = acc.get("last_device_id")
+    if not last_device_id:
+        raise HTTPException(409, "account has no last_device_id, cannot send refresh cmd")
+
+    # Step 6 — insert refresh_token command (inline — no tenant context available here)
+    now = datetime.now(timezone.utc)
+    cmd_row = {
+        "device_id": last_device_id,
+        "tenant_id": acc.get("tenant_id", "system"),
+        "command": "refresh_token",
+        "issued_by": "account_pool.refresh_cycle",
+        "payload": {"timeout_sec": 90, "prev_exp": 0},
+        "expire_at": (now + timedelta(seconds=_REFRESH_CMD_EXPIRE_SEC)).isoformat(),
+    }
+    cmd_res = sb.table("avito_device_commands").insert(cmd_row).execute()
+    if not cmd_res.data:
+        raise HTTPException(500, "device command insert returned no row")
+    command_id = cmd_res.data[0].get("id")
+
+    # Step 7 — mark account waiting_refresh
+    sb.table("avito_accounts").update({
+        "state": "waiting_refresh",
+        "waiting_since": now.isoformat(),
+        "updated_at": now.isoformat(),
+    }).eq("id", account_id).execute()
+
+    # Step 8 — respond
+    _log.info("refresh_cycle.started account=%s cmd=%s device=%s", account_id, command_id, last_device_id)
+    return {"command_id": command_id, "account_id": account_id}
