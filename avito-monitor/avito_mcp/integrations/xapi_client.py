@@ -116,17 +116,42 @@ class XapiClient:
         """Call GET /api/v1/search/items/{id}. Returns ItemDetail dict."""
         return await self._get(f"/api/v1/search/items/{int(item_id)}")
 
-    async def list_subscriptions(self) -> list[dict[str, Any]]:
-        """Call GET /api/v1/subscriptions. Returns the autosearches list."""
-        data = await self._get("/api/v1/subscriptions")
+    async def list_subscriptions(
+        self,
+        *,
+        account_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Call GET /api/v1/subscriptions. Returns the autosearches list.
+
+        When ``account_id`` is provided it is forwarded as a query param so
+        the xapi server loads the session for that specific pool account
+        instead of the legacy any-active fallback.
+        """
+        params: dict[str, Any] = {}
+        if account_id is not None:
+            params["account_id"] = account_id
+        data = await self._get("/api/v1/subscriptions", params or None)
         return data.get("items") or []
 
-    async def get_subscription_search_params(self, filter_id: int) -> dict[str, Any]:
+    async def get_subscription_search_params(
+        self,
+        filter_id: int,
+        *,
+        account_id: str | None = None,
+    ) -> dict[str, Any]:
         """Call GET /api/v1/subscriptions/{id}/search-params.
 
         Returns ``{"deeplink": str, "search_params": dict[str, str]}``.
+        When ``account_id`` is provided it is forwarded so xapi uses the
+        matching pool account session.
         """
-        return await self._get(f"/api/v1/subscriptions/{int(filter_id)}/search-params")
+        params: dict[str, Any] = {}
+        if account_id is not None:
+            params["account_id"] = account_id
+        return await self._get(
+            f"/api/v1/subscriptions/{int(filter_id)}/search-params",
+            params or None,
+        )
 
     async def health(self) -> dict[str, Any]:
         """Call GET /api/v1/sessions/current. Returns session status dict.
