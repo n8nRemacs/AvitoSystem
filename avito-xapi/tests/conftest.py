@@ -41,7 +41,7 @@ def make_mock_sb(response_data_list):
 
     def _make_chain():
         chain = MagicMock()
-        for m in ("select", "eq", "neq", "order", "limit", "insert", "update", "delete"):
+        for m in ("select", "eq", "neq", "order", "limit", "insert", "update", "delete", "is_"):
             setattr(chain, m, MagicMock(return_value=chain))
 
         def execute():
@@ -160,7 +160,7 @@ def mock_sb():
 
     def _make_chain():
         chain = MagicMock()
-        for m in ("select", "eq", "neq", "order", "limit", "insert", "update", "delete"):
+        for m in ("select", "eq", "neq", "order", "limit", "insert", "update", "delete", "is_"):
             setattr(chain, m, MagicMock(return_value=chain))
 
         def execute():

@@ -59,9 +59,16 @@ class QueryBuilder:
         self._params[column] = f"neq.{value}"
         return self
 
-    def order(self, column: str, *, desc: bool = False) -> "QueryBuilder":
+    def is_(self, column: str, value: Any) -> "QueryBuilder":
+        # PostgREST IS filter (e.g. WHERE col IS NULL). Pass value="null" for IS NULL.
+        rendered = "null" if value is None else str(value).lower()
+        self._params[column] = f"is.{rendered}"
+        return self
+
+    def order(self, column: str, *, desc: bool = False, nullsfirst: bool = False) -> "QueryBuilder":
         direction = "desc" if desc else "asc"
-        self._params["order"] = f"{column}.{direction}"
+        suffix = ".nullsfirst" if nullsfirst else ""
+        self._params["order"] = f"{column}.{direction}{suffix}"
         return self
 
     def limit(self, count: int) -> "QueryBuilder":
