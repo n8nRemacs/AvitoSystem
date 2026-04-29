@@ -2,7 +2,7 @@ import pytest
 import json
 import base64
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # Seed data constants matching 002_seed.sql
 TEST_SUPERVISOR_ID = "a0000000-0000-0000-0000-000000000001"
@@ -118,3 +118,93 @@ def run_request(mock_sb, method="GET", path="/api/v1/sessions/current",
     finally:
         for cm in reversed(ctx_managers):
             cm.__exit__(None, None, None)
+
+
+# ---------------------------------------------------------------------------
+# Pytest fixtures for accounts router tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def mock_sb():
+    """Bare mock SupabaseClient — configure per-test via accounts_in_db or directly."""
+    from src.storage.supabase import QueryResult
+
+    # Auth middleware makes 4 calls before any endpoint logic:
+    #   1. avito_api_keys lookup
+    #   2. tenants lookup
+    #   3. toolkits lookup
+    #   4. update api_key last_used_at (empty result)
+    auth_responses = [
+        QueryResult(data=[{
+            "id": TEST_API_KEY_ID, "tenant_id": TEST_TENANT_ID,
+            "key_hash": TEST_API_KEY_HASH, "name": "Dev", "is_active": True,
+        }]),
+        QueryResult(data=[{
+            "id": TEST_TENANT_ID, "supervisor_id": TEST_SUPERVISOR_ID,
+            "toolkit_id": TEST_TOOLKIT_ID, "name": "TestTenant", "email": "t@t.com",
+            "is_active": True, "subscription_until": "2027-01-01T00:00:00+00:00",
+            "settings": {},
+        }]),
+        QueryResult(data=[{
+            "id": TEST_TOOLKIT_ID, "supervisor_id": TEST_SUPERVISOR_ID, "name": "Full",
+            "features": ALL_FEATURES, "limits": {}, "price_monthly": 0, "is_active": True,
+        }]),
+        QueryResult(data=[]),  # last_used_at update
+    ]
+
+    # endpoint_response will be set by accounts_in_db fixture
+    state = {"endpoint_data": []}
+    call_counter = {"n": 0}
+
+    all_responses = auth_responses  # mutable list — accounts_in_db appends
+
+    def _make_chain():
+        chain = MagicMock()
+        for m in ("select", "eq", "neq", "order", "limit", "insert", "update", "delete"):
+            setattr(chain, m, MagicMock(return_value=chain))
+
+        def execute():
+            idx = min(call_counter["n"], len(all_responses) - 1)
+            call_counter["n"] += 1
+            return all_responses[idx]
+
+        chain.execute = MagicMock(side_effect=execute)
+        return chain
+
+    sb = MagicMock()
+    sb.table = MagicMock(side_effect=lambda name: _make_chain())
+    sb._state = state
+    sb._auth_responses = auth_responses
+    sb._all_responses = all_responses
+    sb._call_counter = call_counter
+    return sb
+
+
+@pytest.fixture()
+def accounts_in_db(mock_sb):
+    """Return a callable that seeds endpoint response rows into mock_sb."""
+    from src.storage.supabase import QueryResult
+
+    def _seed(rows: list):
+        mock_sb._all_responses.append(QueryResult(data=rows))
+
+    return _seed
+
+
+@pytest.fixture()
+def client(mock_sb):
+    """FastAPI TestClient with Supabase fully mocked via mock_sb fixture."""
+    from fastapi.testclient import TestClient
+    from src.main import app
+
+    patches = [
+        patch("src.middleware.auth.get_supabase", return_value=mock_sb),
+        patch("src.routers.accounts.get_supabase", return_value=mock_sb),
+    ]
+    for p in patches:
+        p.__enter__()
+    try:
+        yield TestClient(app, raise_server_exceptions=False)
+    finally:
+        for p in reversed(patches):
+            p.__exit__(None, None, None)
