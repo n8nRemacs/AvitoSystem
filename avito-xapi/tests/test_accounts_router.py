@@ -286,9 +286,11 @@ def test_refresh_cycle_happy_path_marks_waiting(client, accounts_in_db, monkeypa
     accounts_in_db([{"id": "acc-1", "state": "needs_refresh",
                      "phone_serial": "S1", "android_user_id": 0,
                      "last_device_id": "D1"}])
-    # Query 2: INSERT into avito_device_commands → returns new command row
-    accounts_in_db([{"id": "cmd-uuid", "command": "refresh_token", "device_id": "D1"}])
-    # Query 3: UPDATE avito_accounts SET state=waiting_refresh → returns updated row
+    # Query 2: SELECT avito_sessions tenant_id для accounts (новый шаг — fix Gap 1)
+    accounts_in_db([{"tenant_id": "11111111-1111-1111-1111-111111111111"}])
+    # Query 3: INSERT into avito_device_commands → returns new command row
+    accounts_in_db([{"id": "cmd-uuid", "command": "refresh_token"}])
+    # Query 4: UPDATE avito_accounts SET state=waiting_refresh → returns updated row
     accounts_in_db([{"id": "acc-1", "state": "waiting_refresh"}])
 
     async def ok_health(self, serial):

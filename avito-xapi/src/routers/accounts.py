@@ -254,14 +254,28 @@ async def refresh_cycle(account_id: str):
     if not last_device_id:
         raise HTTPException(409, "account has no last_device_id, cannot send refresh cmd")
 
-    # Step 6 — insert refresh_token command (inline — no tenant context available here)
+    # Step 6 — insert refresh_token command. Schema (migration 006) is per-tenant,
+    # not per-device — V1 known limitation. Target device_id+account_id embedded
+    # in payload so V1.5 APK can filter; for now relying on device_switcher.switch_to
+    # → нужный APK в foreground first long-poll'ит. tenant_id берётся из активной
+    # сессии аккаунта (FK guarantee + avito_accounts само не имеет tenant_id колонки).
+    sess_res = sb.table("avito_sessions").select("tenant_id").eq("account_id", account_id) \
+        .eq("is_active", True).limit(1).execute()
+    if not sess_res.data or not sess_res.data[0].get("tenant_id"):
+        raise HTTPException(409, "account has no active session, cannot determine tenant for refresh cmd")
+    tenant_id = sess_res.data[0]["tenant_id"]
+
     now = datetime.now(timezone.utc)
     cmd_row = {
-        "device_id": last_device_id,
-        "tenant_id": acc.get("tenant_id", "system"),
+        "tenant_id": tenant_id,
         "command": "refresh_token",
         "issued_by": "account_pool.refresh_cycle",
-        "payload": {"timeout_sec": 90, "prev_exp": 0},
+        "payload": {
+            "timeout_sec": 90,
+            "prev_exp": 0,
+            "target_device_id": last_device_id,
+            "target_account_id": account_id,
+        },
         "expire_at": (now + timedelta(seconds=_REFRESH_CMD_EXPIRE_SEC)).isoformat(),
     }
     cmd_res = sb.table("avito_device_commands").insert(cmd_row).execute()
