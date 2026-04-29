@@ -75,3 +75,78 @@ def test_poll_claim_returns_409_when_pool_drained(client, accounts_in_db):
     assert len(body["detail"]["accounts"]) == 2
     nicks = {a["nickname"] for a in body["detail"]["accounts"]}
     assert nicks == {"Clone", "Main"}
+
+
+# ---------------------------------------------------------------------------
+# T7: POST /api/v1/accounts/{account_id}/report
+# ---------------------------------------------------------------------------
+
+def test_report_200_resets_counters(client, accounts_in_db):
+    """200 OK from Avito → state stays active, consecutive_cooldowns reset, last_403 cleared."""
+    accounts_in_db([
+        {"id": "acc-1", "state": "active", "consecutive_cooldowns": 2,
+         "last_403_body": "old", "last_403_at": "2026-04-27T10:00:00+00:00",
+         "cooldown_until": None, "waiting_since": None},
+    ])
+    r = client.post("/api/v1/accounts/acc-1/report",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"status_code": 200})
+    assert r.status_code == 204
+
+
+def test_report_403_starts_cooldown_with_ratchet(client, accounts_in_db):
+    """First 403 (consecutive=0→1) → cooldown state, body_excerpt persisted."""
+    accounts_in_db([
+        {"id": "acc-1", "state": "active", "consecutive_cooldowns": 0,
+         "last_403_body": None, "cooldown_until": None, "waiting_since": None},
+    ])
+    r = client.post("/api/v1/accounts/acc-1/report",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"status_code": 403,
+                          "body_excerpt": "<firewall>banned</firewall>"})
+    assert r.status_code == 204
+
+
+def test_report_403_consecutive_3_gives_80min_cooldown(client, accounts_in_db):
+    """consecutive=2 going to 3 → cooldown_duration = 20 * 2^2 = 80m."""
+    accounts_in_db([
+        {"id": "acc-1", "state": "active", "consecutive_cooldowns": 2,
+         "cooldown_until": None, "waiting_since": None},
+    ])
+    r = client.post("/api/v1/accounts/acc-1/report",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"status_code": 403})
+    assert r.status_code == 204
+
+
+def test_report_401_does_not_cooldown(client, accounts_in_db):
+    """401 → no cooldown transition, sessions UPDATE fires to expire token."""
+    accounts_in_db([
+        {"id": "acc-1", "state": "active", "consecutive_cooldowns": 0,
+         "cooldown_until": None, "waiting_since": None},
+    ])
+    r = client.post("/api/v1/accounts/acc-1/report",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"status_code": 401})
+    assert r.status_code == 204
+
+
+def test_report_5xx_no_state_change(client, accounts_in_db):
+    """5xx / network error → no-op: state and counters unchanged."""
+    accounts_in_db([
+        {"id": "acc-1", "state": "active", "consecutive_cooldowns": 1,
+         "cooldown_until": None, "waiting_since": None},
+    ])
+    r = client.post("/api/v1/accounts/acc-1/report",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"status_code": 503})
+    assert r.status_code == 204
+
+
+def test_report_404_when_account_missing(client, accounts_in_db):
+    """Unknown account_id → 404."""
+    accounts_in_db([])
+    r = client.post("/api/v1/accounts/unknown/report",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"status_code": 200})
+    assert r.status_code == 404
