@@ -37,6 +37,7 @@ from app.db.models import (
 from app.db.models.enums import ListingStatus, ProfileRunStatus
 from app.integrations.avito_mcp_client.client import AvitoMcpClient
 from app.services.account_pool import AccountPool, NoAvailableAccountError
+from app.services.account_pool_factory import get_account_pool
 from app.tasks.broker import broker
 from avito_mcp.integrations.xapi_client import XapiError
 from shared.models.avito import ListingShort
@@ -257,17 +258,22 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     price_changed_count = 0
     error_message: str | None = None
 
-    try:
-        async with AvitoMcpClient() as mcp:
+    # --- fetch via account pool (rotates on 403/401/5xx) ---
+    pool = get_account_pool()
+
+    async def _fetcher(acc: dict):
+        async with AvitoMcpClient(account_id=acc["account_id"]) as mcp:
             if (
                 profile.import_source == "autosearch_sync"
                 and profile.avito_autosearch_id
             ):
-                page = await mcp.fetch_subscription_items(
+                return await mcp.fetch_subscription_items(
                     int(profile.avito_autosearch_id)
                 )
-            else:
-                page = await mcp.fetch_search_page(profile.avito_search_url)
+            return await mcp.fetch_search_page(profile.avito_search_url)
+
+    try:
+        page = await fetch_with_pool(fetcher_fn=_fetcher, pool=pool)
     except Exception as exc:  # pragma: no cover — covered by health-checker
         log.exception(
             "polling.fetch_failed profile_id=%s url=%s",
@@ -285,6 +291,22 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
             )
             await session.commit()
         return {"status": "failed", "reason": "fetch_failed"}
+
+    if page is None:
+        # Pool fully drained — no account available right now, skip this tick.
+        log.warning("polling.pool_drained profile_id=%s", profile_id)
+        async with sessionmaker() as session:
+            await session.execute(
+                update(ProfileRun)
+                .where(ProfileRun.id == run_id)
+                .values(
+                    finished_at=datetime.now(timezone.utc),
+                    status=ProfileRunStatus.FAILED.value,
+                    error_message="pool_drained: no available account",
+                )
+            )
+            await session.commit()
+        return {"status": "skipped", "reason": "pool_drained"}
 
     blocked = set(profile.blocked_sellers or [])
     to_analyze: list[uuid.UUID] = []

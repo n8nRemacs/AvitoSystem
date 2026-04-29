@@ -1097,18 +1097,10 @@ async def settings_test_telegram(
 # ---------------------------------------------------------------------------
 
 async def _get_pool_for_request():
-    """Build an AccountPool client.  Module-level so tests can monkey-patch."""
-    import httpx
-    from app.config import get_settings
-    from app.services.account_pool import AccountPool
+    """Return the shared singleton AccountPool.  Module-level so tests can monkey-patch."""
+    from app.services.account_pool_factory import get_account_pool
 
-    s = get_settings()
-    client = httpx.AsyncClient(
-        base_url=s.avito_xapi_url,
-        headers={"X-Api-Key": s.avito_xapi_api_key},
-        timeout=httpx.Timeout(10.0),
-    )
-    return AccountPool(xapi_client=client)
+    return get_account_pool()
 
 
 @router.get("/settings/accounts", response_class=HTMLResponse)
@@ -1124,8 +1116,6 @@ async def settings_accounts(
         accounts = await pool.list_all_accounts()
     except Exception as exc:
         log.warning("settings_accounts.pool_error", error=str(exc))
-    finally:
-        await pool.xapi.aclose()
     ctx = await _layout_context(user, session, active="settings")
     ctx["accounts"] = accounts
     return templates.TemplateResponse(request, "settings/accounts.html", ctx)

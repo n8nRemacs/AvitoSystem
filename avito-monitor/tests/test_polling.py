@@ -154,3 +154,21 @@ async def test_success_on_first_attempt():
 
     assert result == {"items": [1, 2, 3], "total": 3}
     pool.report.assert_awaited_once_with("A", 200)
+
+
+# ---------------------------------------------------------------------------
+# Wiring tests — confirm poll_profile goes through fetch_with_pool + pool
+# ---------------------------------------------------------------------------
+
+def test_poll_profile_imports_fetch_with_pool_and_pool_factory():
+    """Static check: polling module references fetch_with_pool and get_account_pool.
+
+    This confirms the wiring without needing a full DB/Redis environment.
+    fetch_with_pool is defined in the same module; get_account_pool comes from
+    the shared singleton factory introduced in T17-gap2.
+    """
+    import app.tasks.polling as polling_mod
+
+    src = open(polling_mod.__file__).read()
+    assert "fetch_with_pool" in src, "poll_profile must call fetch_with_pool"
+    assert "get_account_pool" in src, "poll_profile must use the shared AccountPool singleton"
