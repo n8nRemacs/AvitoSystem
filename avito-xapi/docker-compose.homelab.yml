@@ -15,8 +15,12 @@ services:
       # Bind-mount /dev/bus/usb (not just devices:) so adb sees phones
       # that get re-plugged after container start (hot-plug).
       - /dev/bus/usb:/dev/bus/usb
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules:
+      # Allow all USB devices (major 189 = usbdevfs) regardless of
+      # minor. Without this, cgroup-v2 BPF denies access to phones
+      # plugged after container start (their minor differs from the
+      # one captured by `devices:` at container creation time).
+      - "c 189:* rwm"
     command:
       - uvicorn
       - src.main:app
