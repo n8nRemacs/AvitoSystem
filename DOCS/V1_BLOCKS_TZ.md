@@ -15,7 +15,7 @@
 | Блок | Статус | Где смотреть |
 |---|---|---|
 | Block 0 — каркас FastAPI + auth + Avito-Cosplay тема | ✅ done | `avito-monitor/` |
-| UI design spec + Claude Design мокапы | ✅ done | `DOCS/UI_DESIGN_SPEC_V1.md`, `AvitoSystemUI.zip` |
+| UI design spec + Claude Design мокапы | ✅ done | `DOCS/UI_DESIGN_SPEC_V1.md`, `_archive/AvitoSystemUI/` |
 | Block 2 — Search Profiles (БД, CRUD, sidebar+форма+список+история) | ✅ done | `avito-monitor/app/{db,services,api,web,schemas}` |
 
 Коммит финальный: `0c2be7f avito-monitor V1: Block 0 + Block 1 (UI design spec) + Block 2`.
@@ -602,7 +602,7 @@ app/web/
 >
 > **Архитектурный контекст:**
 > - Главная визуальная фишка V1 — `/search-profiles/{id}/stats`. 4 виджета (см. `DOCS/UI_DESIGN_SPEC_V1.md` §4.4): line-график медианы 30 дней с alert-зоной пунктиром, гистограмма с разделением working/non-working, donut condition-distribution, лента market-событий
-> - Style: Avito-Cosplay Light. Все CSS-токены в `app/web/templates/base.html`. Палитра + Chart.js конфиг = §6 UI Spec и `AvitoSystemUI/screens/profile-stats.jsx` как реф-имплементация (порт оттуда)
+> - Style: Avito-Cosplay Light. Все CSS-токены в `app/web/templates/base.html`. Палитра + Chart.js конфиг = §6 UI Spec и `_archive/AvitoSystemUI/screens/profile-stats.jsx` как реф-имплементация (порт оттуда)
 > - Data приходит из `profile_market_stats` (Block 4 наполняет) + `listings` + `notifications where type LIKE 'market_%'`
 > - **Если данных пока мало (< 7 дней)** — page показывает плейсхолдер «копится статистика, прогон #N/30», без падения
 >
@@ -619,7 +619,7 @@ app/web/
 > 2. **HTMX-страница** `/search-profiles/{id}/stats` в `app/web/stats_routes.py`:
 >    - Заголовок (имя профиля, статус, мини-toolbar)
 >    - 4-карточка KPI-полоса (lots/alert/median/working_share)
->    - Виджет 1: line-chart медианы (30 дней) + alert-band overlay (custom Chart.js plugin — портируй из `AvitoSystemUI/screens/profile-stats.jsx:60-90`)
+>    - Виджет 1: line-chart медианы (30 дней) + alert-band overlay (custom Chart.js plugin — портируй из `_archive/AvitoSystemUI/screens/profile-stats.jsx:60-90`)
 >    - Виджет 2: histogram (текущий снимок цен с разделением working/прочее, alert-полоса под X)
 >    - Виджет 3: donut condition_distribution
 >    - Виджет 4: лента market-событий (последние 7 дней)
