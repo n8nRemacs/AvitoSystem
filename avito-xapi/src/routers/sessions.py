@@ -38,7 +38,9 @@ async def upload_session(body: SessionUploadRequest, request: Request,
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid session_token: not a valid JWT")
 
-    user_id = payload.get("user_id") or payload.get("sub")
+    # Avito's mobile JWT uses short keys (`u` for user_id); fall back to
+    # standard JWT keys (`user_id`, `sub`) for backward-compat with other sources.
+    user_id = payload.get("u") or payload.get("user_id") or payload.get("sub")
     exp = payload.get("exp")
     expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat() if exp else None
 
@@ -189,7 +191,7 @@ async def get_token_details(request: Request,
         payload=payload,
         expires_at=datetime.fromtimestamp(exp, tz=timezone.utc) if exp else None,
         issued_at=datetime.fromtimestamp(iat, tz=timezone.utc) if iat else None,
-        user_id=payload.get("user_id") or payload.get("sub"),
+        user_id=payload.get("u") or payload.get("user_id") or payload.get("sub"),
         ttl_seconds=jwt_parser.time_left(session.session_token),
         is_expired=jwt_parser.is_expired(session.session_token),
     )

@@ -61,9 +61,12 @@ def time_left(token: str) -> int:
 
 
 def get_user_id(token: str) -> int | None:
-    """Extract Avito user_id from JWT payload."""
+    """Extract Avito user_id from JWT payload.
+
+    Avito's mobile JWT uses short keys (`u`); other sources may use `user_id` / `sub`.
+    """
     try:
         payload = decode_jwt_payload(token)
-        return payload.get("user_id") or payload.get("sub")
+        return payload.get("u") or payload.get("user_id") or payload.get("sub")
     except Exception:
         return None
