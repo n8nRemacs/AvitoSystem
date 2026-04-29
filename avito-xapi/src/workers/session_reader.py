@@ -70,7 +70,7 @@ async def load_session_for_account(sb: Any, account_id: str) -> SessionData | No
     return _row_to_session_data(resp.data[0])
 
 
-async def load_active_session(sb: Any = None, tenant_id: str | None = None) -> SessionData | None:
+def load_active_session(sb: Any = None, tenant_id: str | None = None) -> SessionData | None:
     """Load the most recent active session from Supabase.
 
     # DEPRECATED: Use load_session_for_account(sb, account_id) for pool-aware loading.
@@ -79,6 +79,9 @@ async def load_active_session(sb: Any = None, tenant_id: str | None = None) -> S
 
     Backward-compat note: if called as load_active_session(tenant_id_str),
     the positional arg is detected and treated as tenant_id with internal get_supabase().
+
+    Stays sync because all 11 existing callers in production code call without await,
+    and Supabase client itself is sync. New pool-aware paths use async load_session_for_account.
     """
     # Backward-compat shim: old callers pass tenant_id as first positional arg (a str)
     if isinstance(sb, str):

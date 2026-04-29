@@ -95,8 +95,7 @@ def test_from_row_empty_tokens():
     assert sd.refresh_token is None
 
 
-@pytest.mark.asyncio
-async def test_load_active_session():
+def test_load_active_session():
     """load_active_session returns SessionData when session exists (legacy tenant_id path)."""
     jwt = make_test_jwt()
     mock_sb = MagicMock()
@@ -114,14 +113,13 @@ async def test_load_active_session():
     mock_sb.table.return_value = chain
 
     with patch("src.workers.session_reader.get_supabase", return_value=mock_sb):
-        result = await load_active_session(TEST_TENANT_ID)
+        result = load_active_session(TEST_TENANT_ID)
     assert result is not None
     assert result.id == "sess-active"
     assert result.session_token == jwt
 
 
-@pytest.mark.asyncio
-async def test_load_active_session_none():
+def test_load_active_session_none():
     """load_active_session returns None when no active session (legacy tenant_id path)."""
     mock_sb = MagicMock()
     chain = MagicMock()
@@ -131,7 +129,7 @@ async def test_load_active_session_none():
     mock_sb.table.return_value = chain
 
     with patch("src.workers.session_reader.get_supabase", return_value=mock_sb):
-        result = await load_active_session(TEST_TENANT_ID)
+        result = load_active_session(TEST_TENANT_ID)
     assert result is None
 
 
@@ -187,11 +185,10 @@ async def test_load_session_for_account_none_when_missing(mock_sb):
     assert session is None
 
 
-@pytest.mark.asyncio
-async def test_legacy_load_active_session_picks_any_active(mock_sb):
+def test_legacy_load_active_session_picks_any_active(mock_sb):
     """Legacy wrapper для не-pool путей: возвращает любую активную."""
     mock_sb.table("avito_sessions").select("*").eq("is_active", True).order("created_at", desc=True).limit(1).execute.return_value.data = [
         {"account_id": "acc-1", "tokens": {"session_token": "Tx"}, "device_id": "Dx", "is_active": True},
     ]
-    session = await load_active_session(mock_sb)
+    session = load_active_session(mock_sb)
     assert session is not None
