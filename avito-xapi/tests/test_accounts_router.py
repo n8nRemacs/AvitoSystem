@@ -310,3 +310,31 @@ def test_refresh_cycle_happy_path_marks_waiting(client, accounts_in_db, monkeypa
     body = r.json()
     assert body["account_id"] == "acc-1"
     assert "command_id" in body
+
+
+# ---------------------------------------------------------------------------
+# T15: PATCH /api/v1/accounts/{account_id}/state
+# ---------------------------------------------------------------------------
+
+def test_patch_state_sets_dead(client, accounts_in_db):
+    accounts_in_db([{"id": "acc-1", "state": "waiting_refresh"}])
+    r = client.patch("/api/v1/accounts/acc-1/state",
+                     headers={"X-Api-Key": "test_dev_key_123"},
+                     json={"state": "dead", "reason": "waiting_refresh timeout 5m"})
+    assert r.status_code == 204
+
+
+def test_patch_state_rejects_invalid_state(client, accounts_in_db):
+    accounts_in_db([{"id": "acc-1", "state": "active"}])
+    r = client.patch("/api/v1/accounts/acc-1/state",
+                     headers={"X-Api-Key": "test_dev_key_123"},
+                     json={"state": "garbage"})
+    assert r.status_code == 422
+
+
+def test_patch_state_without_reason(client, accounts_in_db):
+    accounts_in_db([{"id": "acc-1", "state": "cooldown"}])
+    r = client.patch("/api/v1/accounts/acc-1/state",
+                     headers={"X-Api-Key": "test_dev_key_123"},
+                     json={"state": "active"})
+    assert r.status_code == 204

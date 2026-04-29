@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -278,3 +279,27 @@ async def refresh_cycle(account_id: str):
     # Step 8 — respond
     _log.info("refresh_cycle.started account=%s cmd=%s device=%s", account_id, command_id, last_device_id)
     return {"command_id": command_id, "account_id": account_id}
+
+
+# ---------------------------------------------------------------------------
+# State-patch endpoint
+# ---------------------------------------------------------------------------
+
+class StatePatchPayload(BaseModel):
+    state: Literal["active", "cooldown", "needs_refresh", "waiting_refresh", "dead"]
+    reason: str | None = None
+
+
+@router.patch("/{account_id}/state", status_code=204)
+async def patch_state(account_id: str, payload: StatePatchPayload):
+    """Manually transition account state; used by monitor's health_checker."""
+    sb = get_supabase()
+    update = {
+        "state": payload.state,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if payload.state != "waiting_refresh":
+        update["waiting_since"] = None
+    sb.table("avito_accounts").update(update).eq("id", account_id).execute()
+    if payload.reason:
+        _log.warning("account %s state→%s: %s", account_id, payload.state, payload.reason)
