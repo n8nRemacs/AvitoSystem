@@ -59,6 +59,12 @@ class QueryBuilder:
         self._params[column] = f"neq.{value}"
         return self
 
+    def in_(self, column: str, values: list) -> "QueryBuilder":
+        # PostgREST IN filter: col=in.(v1,v2,...)
+        joined = ",".join(str(v) for v in values)
+        self._params[column] = f"in.({joined})"
+        return self
+
     def is_(self, column: str, value: Any) -> "QueryBuilder":
         # PostgREST IS filter (e.g. WHERE col IS NULL). Pass value="null" for IS NULL.
         rendered = "null" if value is None else str(value).lower()

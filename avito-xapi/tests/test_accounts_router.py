@@ -3,6 +3,29 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+def test_list_accounts_includes_expires_at_from_active_session(client, accounts_in_db):
+    """GET /api/v1/accounts returns expires_at on each account row, sourced from
+    the active session (avito_sessions.expires_at WHERE account_id IN [...] AND is_active=true)."""
+    # Query 1: SELECT avito_accounts
+    accounts_in_db([
+        {"id": "acc-1", "nickname": "Clone", "state": "active", "avito_user_id": 1},
+        {"id": "acc-2", "nickname": "Main", "state": "active", "avito_user_id": 1},
+    ])
+    # Query 2: SELECT avito_sessions ... IN (acc-1, acc-2) AND is_active=true
+    accounts_in_db([
+        {"account_id": "acc-1", "expires_at": "2026-05-01T18:27:10+00:00"},
+        {"account_id": "acc-2", "expires_at": "2026-05-02T06:27:10+00:00"},
+    ])
+
+    r = client.get("/api/v1/accounts", headers={"X-Api-Key": "test_dev_key_123"})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 2
+    expires = {a["id"]: a["expires_at"] for a in body}
+    assert expires["acc-1"] == "2026-05-01T18:27:10+00:00"
+    assert expires["acc-2"] == "2026-05-02T06:27:10+00:00"
+
+
 def test_get_accounts_returns_list(client, accounts_in_db):
     accounts_in_db([
         {"id": "acc-1", "nickname": "Clone", "state": "active",
@@ -10,6 +33,8 @@ def test_get_accounts_returns_list(client, accounts_in_db):
         {"id": "acc-2", "nickname": "Main", "state": "dead",
          "consecutive_cooldowns": 5, "android_user_id": 0},
     ])
+    # Handler also queries avito_sessions for expires_at; no active sessions in this test.
+    accounts_in_db([])
     r = client.get("/api/v1/accounts", headers={"X-Api-Key": "test_dev_key_123"})
     assert r.status_code == 200
     data = r.json()

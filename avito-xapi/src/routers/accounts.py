@@ -21,9 +21,26 @@ _CLAIM_MAX_ATTEMPTS = 3
 
 @router.get("")
 async def list_accounts():
+    """List all accounts; each row enriched with `expires_at` from active session."""
     sb = get_supabase()
     res = sb.table("avito_accounts").select("*").execute()
-    return res.data or []
+    accounts = res.data or []
+    if not accounts:
+        return []
+
+    # Bulk-fetch active sessions for all listed accounts (one query, IN clause).
+    ids = [a["id"] for a in accounts]
+    sess_res = (
+        sb.table("avito_sessions")
+        .select("account_id,expires_at")
+        .in_("account_id", ids)
+        .eq("is_active", True)
+        .execute()
+    )
+    expiry_by_account = {row["account_id"]: row["expires_at"] for row in (sess_res.data or [])}
+    for a in accounts:
+        a["expires_at"] = expiry_by_account.get(a["id"])
+    return accounts
 
 
 @router.post("/poll-claim")
