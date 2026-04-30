@@ -14,6 +14,8 @@ from urllib.parse import parse_qs, urlsplit
 from curl_cffi.requests.exceptions import HTTPError as CurlHTTPError
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
+from src.routers._avito_errors import reraise_avito_error
+
 from src.dependencies import get_current_tenant
 from src.middleware.auth import require_feature
 from src.models.search import SearchResponse
@@ -162,10 +164,7 @@ async def get_subscription_items(
     try:
         deeplink = await client.get_subscription_deeplink(filter_id)
     except CurlHTTPError as exc:
-        status = getattr(getattr(exc, "response", None), "status_code", None)
-        if status in (401, 403, 429):
-            raise HTTPException(status_code=status, detail=f"Avito {status}")
-        raise
+        reraise_avito_error(exc)
     if not deeplink:
         raise HTTPException(status_code=404, detail="Subscription not found")
     raw = _parse_deeplink_to_search_params(deeplink)
@@ -199,10 +198,7 @@ async def get_subscription_items(
             **{k: v for k, v in typed.items()},
         )
     except CurlHTTPError as exc:
-        status = getattr(getattr(exc, "response", None), "status_code", None)
-        if status in (401, 403, 429):
-            raise HTTPException(status_code=status, detail=f"Avito {status}")
-        raise
+        reraise_avito_error(exc)
 
     # Same nest-and-flatten as /api/v1/search/items.
     result = data.get("result") if isinstance(data.get("result"), dict) else None

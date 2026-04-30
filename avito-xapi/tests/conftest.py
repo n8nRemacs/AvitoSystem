@@ -3,6 +3,7 @@ import json
 import base64
 import time
 from unittest.mock import MagicMock, patch
+from curl_cffi.requests.exceptions import HTTPError as CurlHTTPError
 
 # Seed data constants matching 002_seed.sql
 TEST_SUPERVISOR_ID = "a0000000-0000-0000-0000-000000000001"
@@ -118,6 +119,16 @@ def run_request(mock_sb, method="GET", path="/api/v1/sessions/current",
     finally:
         for cm in reversed(ctx_managers):
             cm.__exit__(None, None, None)
+
+
+# ---------------------------------------------------------------------------
+# Shared test helpers
+# ---------------------------------------------------------------------------
+
+def _curl_error(status: int) -> CurlHTTPError:
+    """Build a curl_cffi HTTPError with a fake response carrying the given status."""
+    fake_resp = type("R", (), {"status_code": status, "reason": "Error", "text": ""})()
+    return CurlHTTPError(f"HTTP Error {status}: ", 0, fake_resp)
 
 
 # ---------------------------------------------------------------------------

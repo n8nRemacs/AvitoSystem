@@ -15,6 +15,7 @@ from tests.conftest import (
     TEST_TENANT_ID,
     TEST_TOOLKIT_ID,
     make_authed_sb,
+    _curl_error,
 )
 
 
@@ -248,14 +249,6 @@ def test_get_subscription_search_params_account_id_forwarded():
 
 
 # ── Avito 4xx propagation ─────────────────────────────────────────────────
-
-def _curl_error(status: int) -> "CurlHTTPError":
-    """Build a curl_cffi HTTPError with a fake response carrying the given status."""
-    from curl_cffi.requests.exceptions import HTTPError as CurlHTTPError
-
-    fake_resp = type("R", (), {"status_code": status, "reason": "Error", "text": ""})()
-    return CurlHTTPError(f"HTTP Error {status}: ", 0, fake_resp)
-
 
 @pytest.mark.parametrize("avito_status", [401, 403, 429])
 def test_subscription_items_propagates_avito_status(avito_status):

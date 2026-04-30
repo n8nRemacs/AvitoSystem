@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from curl_cffi.requests.exceptions import HTTPError as CurlHTTPError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.dependencies import get_current_tenant
@@ -9,6 +10,7 @@ from src.models.messenger import (
     SendMessageRequest, CreateChannelByItemRequest, CreateChannelByUserRequest,
     UnreadCountResponse,
 )
+from src.routers._avito_errors import reraise_avito_error
 from src.workers.session_reader import load_active_session
 from src.workers.http_client import AvitoHttpClient
 
@@ -122,7 +124,10 @@ async def list_channels(
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
 
-    data = await client.get_channels(limit=limit, offset_timestamp=offset_timestamp)
+    try:
+        data = await client.get_channels(limit=limit, offset_timestamp=offset_timestamp)
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     success = data.get("success", {})
     raw_channels = success.get("channels", [])
 
@@ -141,7 +146,10 @@ async def get_channel(channel_id: str, request: Request,
                       ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
-    data = await client.get_channel_by_id(channel_id)
+    try:
+        data = await client.get_channel_by_id(channel_id)
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     raw = data.get("success", {}).get("channel", data.get("success", {}))
     session = load_active_session(ctx.tenant.id)
     return _normalize_channel(raw, session.user_id if session else None)
@@ -154,7 +162,10 @@ async def get_messages(channel_id: str, request: Request,
                        ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
-    data = await client.get_messages(channel_id, limit=limit, offset_id=offset_id)
+    try:
+        data = await client.get_messages(channel_id, limit=limit, offset_id=offset_id)
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     success = data.get("success", {})
     raw_messages = success.get("messages", [])
     messages = [_normalize_message(m) for m in raw_messages]
@@ -166,7 +177,10 @@ async def send_message(channel_id: str, body: SendMessageRequest, request: Reque
                        ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
-    result = await client.send_text(channel_id, body.text)
+    try:
+        result = await client.send_text(channel_id, body.text)
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     return {"status": "ok", "result": result.get("success", {})}
 
 
@@ -175,7 +189,10 @@ async def read_channel(channel_id: str, request: Request,
                        ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
-    await client.mark_read([channel_id])
+    try:
+        await client.mark_read([channel_id])
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     return {"status": "ok"}
 
 
@@ -184,7 +201,10 @@ async def typing(channel_id: str, request: Request,
                  ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
-    await client.send_typing(channel_id)
+    try:
+        await client.send_typing(channel_id)
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     return {"status": "ok"}
 
 
@@ -193,7 +213,10 @@ async def create_channel_by_item(body: CreateChannelByItemRequest, request: Requ
                                   ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
-    result = await client.create_channel_by_item(body.item_id)
+    try:
+        result = await client.create_channel_by_item(body.item_id)
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     return {"status": "ok", "result": result.get("success", {})}
 
 
@@ -202,7 +225,10 @@ async def create_channel_by_user(body: CreateChannelByUserRequest, request: Requ
                                   ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
-    result = await client.create_channel_by_user(body.user_hash)
+    try:
+        result = await client.create_channel_by_user(body.user_hash)
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     return {"status": "ok", "result": result.get("success", {})}
 
 
@@ -211,6 +237,9 @@ async def unread_count(request: Request,
                        ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.messenger")
     client = _get_client(ctx)
-    data = await client.get_unread_count()
+    try:
+        data = await client.get_unread_count()
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     count = data.get("success", {}).get("unreadCount", 0)
     return UnreadCountResponse(count=count)

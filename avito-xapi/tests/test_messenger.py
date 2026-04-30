@@ -1,8 +1,9 @@
 """Tests for messenger: normalization + endpoints."""
 import json
+import pytest
 from unittest.mock import AsyncMock, MagicMock
 from src.routers.messenger import _normalize_channel, _normalize_message
-from tests.conftest import make_authed_sb, make_test_jwt, run_request
+from tests.conftest import make_authed_sb, make_test_jwt, run_request, _curl_error
 
 
 # ── Normalization tests ───────────────────────────────
@@ -210,3 +211,19 @@ def test_unread_count_endpoint():
     )
     assert resp.status_code == 200
     assert resp.json()["count"] == 5
+
+
+@pytest.mark.parametrize("avito_status", [401, 403, 429])
+def test_messenger_unread_propagates_avito_status(avito_status):
+    """When Avito returns 4xx on unread-count, xapi must return the same code, not 500."""
+    mock_client = MagicMock()
+    mock_client.get_unread_count = AsyncMock(side_effect=_curl_error(avito_status))
+
+    mock_sb = make_authed_sb()
+    resp = run_request(
+        mock_sb, path="/api/v1/messenger/unread-count",
+        extra_patches={"src.routers.messenger._get_client": mock_client},
+    )
+    assert resp.status_code == avito_status, (
+        f"expected {avito_status} from xapi, got {resp.status_code}: {resp.text}"
+    )
