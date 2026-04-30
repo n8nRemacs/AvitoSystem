@@ -12,7 +12,9 @@ def mock_sb():
 
 
 def test_returns_existing_account(mock_sb):
-    mock_sb.table("avito_accounts").select("*").eq("avito_user_id", 12345).limit(1).execute.return_value.data = [
+    mock_sb.table("avito_accounts").select("*") \
+        .eq("avito_user_id", 12345).eq("last_device_id", "D1").limit(1) \
+        .execute.return_value.data = [
         {"id": "acc-1", "avito_user_id": 12345, "state": "active", "last_device_id": "D1"},
     ]
     acc = resolve_or_create_account(mock_sb, avito_user_id=12345, device_id="D1")
@@ -20,31 +22,37 @@ def test_returns_existing_account(mock_sb):
 
 
 def test_creates_new_account_when_unknown(mock_sb):
-    mock_sb.table("avito_accounts").select("*").eq("avito_user_id", 99999).limit(1).execute.return_value.data = []
+    mock_sb.table("avito_accounts").select("*") \
+        .eq("avito_user_id", 99999).eq("last_device_id", "D9").limit(1) \
+        .execute.return_value.data = []
     mock_sb.table("avito_accounts").insert.return_value.execute.return_value.data = [
-        {"id": "new-uuid", "avito_user_id": 99999, "nickname": "auto-99999", "state": "active"},
+        {"id": "new-uuid", "avito_user_id": 99999, "nickname": "auto-99999-D9", "state": "active"},
     ]
     acc = resolve_or_create_account(mock_sb, avito_user_id=99999, device_id="D9")
     assert acc["id"] == "new-uuid"
-    assert acc["nickname"] == "auto-99999"
+    assert acc["nickname"] == "auto-99999-D9"
 
 
-def test_updates_last_device_id_when_existing(mock_sb):
-    mock_sb.table("avito_accounts").select("*").eq("avito_user_id", 12345).limit(1).execute.return_value.data = [
-        {"id": "acc-1", "avito_user_id": 12345, "last_device_id": "OLD"},
+def test_two_devices_same_user_create_two_rows(mock_sb):
+    """resolve(u=12345, device='D1') and resolve(u=12345, device='D2') yield
+    distinct accounts (different device_id key)."""
+    # First call: SELECT returns empty → INSERT
+    select_chain = mock_sb.table("avito_accounts").select("*") \
+        .eq("avito_user_id", 12345).eq("last_device_id", "D1").limit(1)
+    select_chain.execute.return_value.data = []
+    mock_sb.table("avito_accounts").insert.return_value.execute.return_value.data = [
+        {"id": "acc-D1", "avito_user_id": 12345, "last_device_id": "D1"},
     ]
-    resolve_or_create_account(mock_sb, avito_user_id=12345, device_id="NEW")
-    # Проверяем что был вызван update с новым device_id
-    update_calls = mock_sb.table("avito_accounts").update.call_args_list
-    assert any(call.args[0].get("last_device_id") == "NEW" for call in update_calls)
+    acc1 = resolve_or_create_account(mock_sb, avito_user_id=12345, device_id="D1")
+    assert acc1["id"] == "acc-D1"
 
-
-def test_no_update_if_device_id_unchanged(mock_sb):
-    mock_sb.table("avito_accounts").select("*").eq("avito_user_id", 12345).limit(1).execute.return_value.data = [
-        {"id": "acc-1", "avito_user_id": 12345, "last_device_id": "SAME"},
+    # Second call with same u, different device — returns separate row
+    select_chain2 = mock_sb.table("avito_accounts").select("*") \
+        .eq("avito_user_id", 12345).eq("last_device_id", "D2").limit(1)
+    select_chain2.execute.return_value.data = []
+    mock_sb.table("avito_accounts").insert.return_value.execute.return_value.data = [
+        {"id": "acc-D2", "avito_user_id": 12345, "last_device_id": "D2"},
     ]
-    mock_sb.table("avito_accounts").update.reset_mock()
-    resolve_or_create_account(mock_sb, avito_user_id=12345, device_id="SAME")
-    # Update либо не вызван, либо вызван без изменения last_device_id
-    update_calls = mock_sb.table("avito_accounts").update.call_args_list
-    assert not any(call.args[0].get("last_device_id") == "SAME" and call.args[0].get("last_device_id") != "SAME" for call in update_calls)
+    acc2 = resolve_or_create_account(mock_sb, avito_user_id=12345, device_id="D2")
+    assert acc2["id"] == "acc-D2"
+    assert acc1["id"] != acc2["id"]
