@@ -3,8 +3,6 @@ FROM python:3.12-slim AS base
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    UV_PROJECT_ENVIRONMENT=/opt/venv \
-    UV_LINK_MODE=copy \
     PATH=/opt/venv/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,19 +10,45 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.16 /uv /usr/local/bin/uv
-
 WORKDIR /app
 
 # --- builder stage: install deps into /opt/venv -----------------------------
 FROM base AS builder
 
 COPY pyproject.toml ./
-COPY uv.lock* ./
 
-# Include dev group so we can run pytest/ruff inside the dev image. Strip --no-dev
-# in a separate prod target later if image size becomes an issue.
-RUN uv sync --no-install-project
+# Use pip (not uv) to avoid signalfd seccomp panic on PVE kernel 6.17+.
+# Install all runtime + dev deps from pyproject.toml dependency lists.
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip && \
+    /opt/venv/bin/pip install \
+        "fastapi>=0.115" \
+        "uvicorn[standard]>=0.32" \
+        "pydantic>=2.9" \
+        "pydantic-settings>=2.6" \
+        "sqlalchemy[asyncio]>=2.0.36" \
+        "asyncpg>=0.30" \
+        "alembic>=1.13" \
+        "argon2-cffi>=23.1" \
+        "itsdangerous>=2.2" \
+        "jinja2>=3.1" \
+        "python-multipart>=0.0.12" \
+        "structlog>=24.4" \
+        "httpx>=0.27" \
+        "redis>=5.2" \
+        "taskiq>=0.11" \
+        "taskiq-redis>=1.0" \
+        "aiogram>=3.13" \
+        "aiohttp-socks>=0.10" \
+        "mcp>=1.0" \
+        "starlette>=0.41" \
+        "openai>=1.50" \
+        "pytest>=8.3" \
+        "pytest-asyncio>=0.24" \
+        "pytest-mock>=3.14" \
+        "respx>=0.21" \
+        "ruff>=0.7" \
+        "mypy>=1.13"
 
 # --- runtime stage ----------------------------------------------------------
 FROM base AS runtime
