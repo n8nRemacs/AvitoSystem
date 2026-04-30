@@ -52,10 +52,14 @@ async def _process_account(acc: dict, *, pool: AccountPool, now: datetime, tg) -
 
     if state == "active":
         exp = _parse_ts(acc.get("expires_at"))
-        if exp and (exp - now) < timedelta(minutes=3):
+        # Trigger refresh when:
+        #   1. expires_at is missing (no active session — pool can't poll anyway)
+        #   2. expires_at < now + 30min (proactive — give Avito-app time to refresh
+        #      while IP is still clean and the JWT hasn't fully expired)
+        if exp is None or (exp - now) < timedelta(minutes=30):
             try:
                 await pool.trigger_refresh_cycle(aid)
-                log.info("refresh-cycle triggered for %s (proactive)", aid)
+                log.info("refresh-cycle triggered for %s (proactive, exp=%s)", aid, exp)
             except Exception as e:
                 log.warning("proactive refresh failed for %s: %s", aid, e)
         return
