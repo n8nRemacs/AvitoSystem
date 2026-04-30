@@ -98,7 +98,10 @@ async def list_subscriptions(
     """
     require_feature(request, "avito.search")
     client = await _resolve_client(ctx, account_id)
-    items = await client.list_subscriptions()
+    try:
+        items = await client.list_subscriptions()
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     return {"items": items, "count": len(items)}
 
 
@@ -132,7 +135,10 @@ async def get_subscription_search_params(
     """
     require_feature(request, "avito.search")
     client = await _resolve_client(ctx, account_id)
-    deeplink = await client.get_subscription_deeplink(filter_id)
+    try:
+        deeplink = await client.get_subscription_deeplink(filter_id)
+    except CurlHTTPError as exc:
+        reraise_avito_error(exc)
     if not deeplink:
         raise HTTPException(status_code=404, detail="Subscription not found")
     params = _parse_deeplink_to_search_params(deeplink)

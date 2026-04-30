@@ -1,11 +1,13 @@
 """Shared helper for propagating Avito 4xx errors as FastAPI HTTPExceptions."""
+from typing import NoReturn
+
 from curl_cffi.requests.exceptions import HTTPError as CurlHTTPError
 from fastapi import HTTPException
 
 PROPAGATE = {401, 403, 429}
 
 
-def reraise_avito_error(exc: CurlHTTPError) -> None:
+def reraise_avito_error(exc: CurlHTTPError) -> NoReturn:
     """If Avito returned 401/403/429, re-raise as HTTPException with same code.
 
     Otherwise re-raise the original exception so the generic error handler
