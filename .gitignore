@@ -10,6 +10,9 @@ Thumbs.db
 # Claude Code — local overrides (settings.json коммитится для команды)
 .claude/settings.local.json
 
+# Worktrees for isolated dev workspaces
+.worktrees/
+
 # Large binaries
 *.apk
 *.so
