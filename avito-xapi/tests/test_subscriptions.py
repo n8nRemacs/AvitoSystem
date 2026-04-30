@@ -245,3 +245,33 @@ def test_get_subscription_search_params_account_id_forwarded():
     data = resp.json()
     assert "search_params" in data
     assert data["search_params"]["categoryId"] == "84"
+
+
+# ── Avito 4xx propagation ─────────────────────────────────────────────────
+
+def _curl_error(status: int) -> "CurlHTTPError":
+    """Build a curl_cffi HTTPError with a fake response carrying the given status."""
+    from curl_cffi.requests.exceptions import HTTPError as CurlHTTPError
+
+    fake_resp = type("R", (), {"status_code": status, "reason": "Error", "text": ""})()
+    return CurlHTTPError(f"HTTP Error {status}: ", 0, fake_resp)
+
+
+@pytest.mark.parametrize("avito_status", [401, 403, 429])
+def test_subscription_items_propagates_avito_status(avito_status):
+    """When Avito returns 4xx, xapi must return the same code, not 500."""
+    mock_sb = make_authed_sb()
+    avito_client = _make_avito_client_mock()
+    avito_client.get_subscription_deeplink = AsyncMock(
+        side_effect=_curl_error(avito_status)
+    )
+
+    async def fake_resolve(ctx, account_id):
+        return avito_client
+
+    with patch("src.routers.subscriptions._resolve_client", new=fake_resolve):
+        resp = _run_authed(mock_sb, "GET", "/api/v1/subscriptions/12345/items")
+
+    assert resp.status_code == avito_status, (
+        f"expected {avito_status} from xapi, got {resp.status_code}: {resp.text}"
+    )
