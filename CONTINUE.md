@@ -10,7 +10,7 @@
 
 **Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito.
 
-**Дата:** 2026-04-29 17:00 UTC. **Account Pool merged в `main`** (commit `8e12434`). Ветка `feat/account-pool` удалена. Pool в production, T13 + T23 пройдены, soak-режим.
+**Дата:** 2026-04-30 19:30 UTC. **Refresh Hardening shipped в `main`** (commits `63a4c2b`..`5bc72d3`, ветка `feat/refresh-hardening` мерж-удалена). До этого — Account Pool merged 2026-04-29 (commit `8e12434`). Pool в production, T13 + T23 + refresh hardening пройдены, soak-режим.
 
 ### Что покрыто (закрытые задачи)
 
@@ -21,6 +21,7 @@
 | **T13 — USB passthrough** | done — `adb` в xapi-контейнере, `device_cgroup_rules: c 189:* rwm` для hot-plug, RSA-fingerprint authorized |
 | **T23 — E2E force-tests 7/7** | done — ratchet 20→40→80m, 401-deactivation, cooldown→refresh-cycle (ADB switch user_0→user_10, APK delivered cmd), waiting>5m→dead+TG (HTTP 200), ADB unplug→503+recovery, worker restart |
 | **Merge → main + deploy** | done — homelab pulled, контейнеры здоровы |
+| **Refresh Hardening (2026-04-30)** | done — план `DOCS/superpowers/plans/2026-04-30-refresh-hardening.md`, 9 task TDD + 2 docker fix, all reviewed, merged. См. § 8. |
 
 ### Production state на homelab Supabase
 
@@ -47,8 +48,8 @@ search_profiles: 7 active, все owner_account_id=Clone
 
 | # | Задача | Severity | Часы | Что |
 |---|---|---|---|---|
-| 1 | **Gap 4 — proactive refresh** | medium | 1 | `account_tick.account_loop` читает `expires_at` для proactive refresh из `avito_accounts` (где её нет, она в `avito_sessions`). Reactive (401, post-cooldown) работает. Fix: extend `GET /accounts` JOIN'ом сессии. |
-| 2 | **Зарегистрировать второй Avito-аккаунт** для реального round-robin pool=2 | high | 0.5 + регистрация | На phone в user 10: разлогиниться из Avito, новая регистрация на другой номер, APK POST /sessions создаст вторую `avito_accounts` row. |
+| ~~1~~ | ~~**Gap 4 — proactive refresh**~~ | — | — | **CLOSED 2026-04-30** через Refresh Hardening sprint. `GET /accounts` теперь возвращает `expires_at` per row (Task 5), `account_tick` триггерит refresh-cycle при `exp<NOW+30min` или `expires_at IS NULL` (Task 6). Boot-recovery работает автоматически на первом тике после рестарта. |
+| 2 | **Зарегистрировать второй Avito-аккаунт** для реального round-robin pool=2 | high | 0.5 + регистрация | После Refresh Hardening схема готова: migration 008 даёт `UNIQUE(avito_user_id, last_device_id)`, resolver ключует по паре. Можно либо регистрировать второй номер, либо настроить multi-device (один Avito-юзер на user_0+user_10 phone'а — но per-account ban валит обоих, см. ADR/REFERENCE §F). |
 | 3 | **TG bot inbound через прокси** | low | 0.3 | `aiogram` падает в `TelegramNetworkError` потому что `aiohttp-socks` не установлен → fallback to direct → timeout (api.telegram.org заблокирован без прокси). Fix: `pip install aiohttp-socks` в monitor image. Outbound alerts через прямой `httpx` работают. |
 | 4 | **`200 report` не зачищает `cooldown_until`** | cosmetic | 0.1 | После успешного 200 ratchet=0, но `cooldown_until` остаётся (pool по `state` фильтрует, не влияет). |
 | 5 | **Gap 1+3 — `avito_device_commands` per-tenant** | low | 3-4 | Теоретическая race на pool>1 APK. Mitigation: `device_switcher.switch_to` ДО cmd. Fix: migration 008 ADD COLUMN `device_id` + APK update. |
@@ -125,8 +126,9 @@ ssh homelab 'docker logs avito-monitor-worker-1 --since=2m 2>&1 | grep -E "poll-
 
 ```
 Проект: c:/Projects/Sync/AvitoSystem/. Pool merged в main (8e12434).
-Прочитай CONTINUE.md (текущий статус) + DOCS/REFERENCE/ + при нужде
-DOCS/superpowers/specs/2026-04-28-account-pool-design.md.
+Refresh Hardening shipped 2026-04-30 (5bc72d3). Прочитай CONTINUE.md
+(текущий статус) + DOCS/REFERENCE/ + при нужде
+DOCS/superpowers/plans/2026-04-30-refresh-hardening.md.
 Глобальные секреты: c:/Projects/Sync/CLAUDE.md.
 
 Хочу [Backlog #N / soak-debugging / новая фича / ...]
@@ -140,6 +142,7 @@ DOCS/superpowers/specs/2026-04-28-account-pool-design.md.
 |---|---|
 | `DOCS/superpowers/specs/2026-04-28-account-pool-design.md` | Pool design: state machine, DB schema, error matrix, concurrency, testing |
 | `DOCS/superpowers/plans/2026-04-28-account-pool.md` | Pool implementation plan: 24 task'а с TDD-шагами (для истории) |
+| `DOCS/superpowers/plans/2026-04-30-refresh-hardening.md` | **Refresh Hardening** plan: 7 task TDD — xapi propagate Avito 4xx, multi-device migration, account_tick proactive refresh |
 | `DOCS/REFERENCE/01-avito-api.md` | Все endpoints (mobile + official), headers, structured params |
 | `DOCS/REFERENCE/02-auth-and-tokens.md` | JWT, refresh flow, two refresh_token (Avito-app vs наш), pool state machine |
 | `DOCS/REFERENCE/03-android-setup.md` | OnePlus + System Clone, Magisk, ADB, NL, USB passthrough |
@@ -163,8 +166,35 @@ DOCS/superpowers/specs/2026-04-28-account-pool-design.md.
 
 **TL;DR для следующей сессии:**
 
-1. Pool **в main** (`8e12434` merged 2026-04-29). Soak.
-2. Pool=1 фактически (Clone) — Main = тот же `u`. Чтобы pool=2 нужно регить второй Avito-аккаунт.
-3. T13 (USB) + T23 (7/7 force-тестов) **пройдены E2E** на homelab.
-4. **V1.5 backlog 8 пунктов** в § 2, в порядке приоритета.
-5. **Известные косметические/мелкие issues**: Gap 4 (proactive refresh broken), TG bot inbound (aiohttp-socks missing), `200 report` не зачищает `cooldown_until`.
+1. Pool **в main** (`8e12434` merged 2026-04-29). Refresh Hardening **в main** (`5bc72d3` merged 2026-04-30). Soak.
+2. Pool=1 фактически (Clone) — Main = тот же `u`. Schema теперь готова к multi-device (`UNIQUE(u, device)`); чтобы pool=2 — либо register второй номер, либо настроить multi-device на одном `u` (см. backlog #2).
+3. T13 (USB) + T23 (7/7 force-тестов) + Refresh Hardening **пройдены E2E** на homelab.
+4. **V1.5 backlog 7 пунктов** в § 2 (Gap 4 закрыт). 
+5. **Известные мелкие issues**: TG bot inbound (aiohttp-socks missing), `200 report` не зачищает `cooldown_until`.
+
+---
+
+## 8. Refresh Hardening — что сделано (2026-04-30)
+
+**Контекст инцидента:** 2026-04-30 18:00 UTC. Сервер был выключен → JWT протух → worker стартанул и долбил Avito с мёртвым токеном → Avito отдавал 403 → xapi оборачивал в 500 → pool не видел 403, не переводил в cooldown → молотил часами. JWT в Avito-app тоже истёк, refresh-cycle не сработал, понадобилось ручное открытие Avito-app на phone.
+
+**Корень:** три архитектурные дыры:
+1. xapi оборачивал Avito 401/403/429 в 500 (middleware catch-all) → pool слеп.
+2. `account_tick` читал `expires_at` из `avito_accounts` (где её нет — она в `avito_sessions`) → proactive refresh не работал.
+3. `UNIQUE(avito_user_id)` блокировал multi-device → один phone-юзер = один pool row.
+
+**План:** `DOCS/superpowers/plans/2026-04-30-refresh-hardening.md` — 7 TDD-задач, выполнены через subagent-driven development (по свежему агенту на задачу + spec + code quality review). Итог 9 commits + 2 dockerfix.
+
+**Что в production:**
+- xapi теперь возвращает Avito 401/403/429 наружу как HTTPException (через `reraise_avito_error` helper в `src/routers/_avito_errors.py`). Все Avito-touching call sites в `subscriptions.py` (4 шт) и `messenger.py` (9 шт) обёрнуты.
+- Migration 008: `UNIQUE(avito_user_id, last_device_id)` — multi-device per Avito-юзер допустим в схеме.
+- `resolve_or_create_account` ключует по паре `(u, device_id)`. Каждый device — свой pool row.
+- `GET /api/v1/accounts` возвращает `expires_at` per row (JOIN с `avito_sessions`).
+- `account_tick`: threshold 3min → 30min, треатит `expires_at IS NULL` как trigger. Покрывает boot-recovery (первый тик после рестарта подхватит просроченный JWT).
+- Dockerfile monitor: `pip` вместо `uv` (uv падал с signalfd panic на kernel 6.17).
+
+**Verified live на homelab:** near-expiry simulation (set `expires_at=NOW+5min`) → health_checker fired refresh-cycle через 30с. Phone-side 503 — отдельная история (ADB/APK состояние сейчас).
+
+**Что ОСТАЛОСЬ от плана (Phase 2, ops):**
+- Реальная multi-device активация: APK в user_10 настроить (сейчас пуст), привести Avito-app в обоих юзерах в нужное состояние, разнести refresh на 12ч сдвиг между Main/Clone. Plan §"Phase 2".
+- Известный pre-existing bug в supabase wrapper: `.eq(col, None)` не делает SQL `IS NULL` (генерит `eq.None`). Сейчас не влияет (production flow всегда передаёт `device_id`), но в backlog.
