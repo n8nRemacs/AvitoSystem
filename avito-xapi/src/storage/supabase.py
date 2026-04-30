@@ -60,6 +60,9 @@ class QueryBuilder:
         return self
 
     def in_(self, column: str, values: list) -> "QueryBuilder":
+        # Empty list: skip filter — caller should guard if they care
+        if not values:
+            return self
         # PostgREST IN filter: col=in.(v1,v2,...)
         joined = ",".join(str(v) for v in values)
         self._params[column] = f"in.({joined})"

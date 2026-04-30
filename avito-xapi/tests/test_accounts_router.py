@@ -40,6 +40,8 @@ def test_get_accounts_returns_list(client, accounts_in_db):
     data = r.json()
     assert len(data) == 2
     assert {a["nickname"] for a in data} == {"Clone", "Main"}
+    # Accounts without active sessions should have expires_at = None
+    assert all(a.get("expires_at") is None for a in data)
 
 
 def test_get_accounts_unauthorized(client):
