@@ -275,3 +275,24 @@ def test_subscription_items_propagates_avito_status(avito_status):
     assert resp.status_code == avito_status, (
         f"expected {avito_status} from xapi, got {resp.status_code}: {resp.text}"
     )
+
+
+@pytest.mark.parametrize("avito_status", [401, 403, 429])
+def test_subscription_items_search_propagates_avito_status(avito_status):
+    """When search_items raises CurlHTTPError, xapi must propagate the same code."""
+    mock_sb = make_authed_sb()
+    # deeplink succeeds; search_items is what fails
+    avito_client = _make_avito_client_mock(
+        deeplink="ru.avito://1/items/search?categoryId=84&locationId=621540"
+    )
+    avito_client.search_items = AsyncMock(side_effect=_curl_error(avito_status))
+
+    async def fake_resolve(ctx, account_id):
+        return avito_client
+
+    with patch("src.routers.subscriptions._resolve_client", new=fake_resolve):
+        resp = _run_authed(mock_sb, "GET", "/api/v1/subscriptions/12345/items")
+
+    assert resp.status_code == avito_status, (
+        f"expected {avito_status} from xapi, got {resp.status_code}: {resp.text}"
+    )
