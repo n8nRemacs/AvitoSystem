@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.5.4 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.16 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
