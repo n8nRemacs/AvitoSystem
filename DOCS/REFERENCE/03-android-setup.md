@@ -1,8 +1,11 @@
 # Android Device Setup Reference
 
-**Компилировано:** 2026-04-28
-**Источники:** CONTINUE.md §3, token_farm_system.md, AVITO-FINGERPRINT.md,
+**Компилировано:** 2026-04-28. **DeviceSwitcher §H обновлён:** 2026-04-30 (timeout
+cascade, реальные сигнатуры из кода, ссылка на refresh-cycle endpoint).
+**Источники:** CONTINUE.md §3 + §8, token_farm_system.md, AVITO-FINGERPRINT.md,
   REVERSE-GUIDE.md, AvitoAll/AvitoSessionManager/README.md,
+  avito-xapi/src/workers/device_switcher.py,
+  avito-xapi/src/routers/accounts.py (refresh_cycle),
   account-pool-design.md §3.D10-D15, §7.5
 
 ---
@@ -264,26 +267,54 @@ adb -s ABC123DEF shell am switch-user 0
 
 ## H. DeviceSwitcher — архитектура
 
-`avito-xapi/src/workers/device_switcher.py` (новый компонент, план из account-pool-design.md):
+`avito-xapi/src/workers/device_switcher.py` — реализован, deployed в production
+(2026-04-29 как часть Account Pool merge `8e12434`). Singleton `device_switcher`
+инициализируется при старте xapi.
 
 ```python
+class DeviceSwitchError(RuntimeError): ...
+
 class DeviceSwitcher:
     def __init__(self):
         self._locks: dict[str, asyncio.Lock] = {}  # per-phone lock
 
-    async def switch_to(self, phone_serial: str, target: int) -> None:
-        async with self._lock_for(phone_serial):
-            if await self.current_user(phone_serial) == target:
-                return
-            # adb -s {phone_serial} shell am switch-user {target}
-            # ждать current_user == target до 5 сек
+    async def current_user(self, phone_serial: str) -> int:
+        # adb -s {serial} shell am get-current-user
+
+    async def switch_to(self, phone_serial: str, target: int,
+                        _confirm_timeout_sec: float = 5.0,
+                        _confirm_interval_sec: float = 0.5) -> None:
+        # 1. acquire per-phone lock
+        # 2. if current_user == target → return (идемпотентно, no-op)
+        # 3. adb -s {serial} shell am switch-user {target}
+        # 4. confirm-loop: check current_user → sleep 0.5s → repeat,
+        #    до _confirm_timeout_sec (5s); raise DeviceSwitchError при таймауте
 
     async def health(self, phone_serial: str) -> bool:
-        # adb -s {phone_serial} get-state == 'device'
+        # adb -s {serial} get-state == 'device'
+
+    async def list_devices(self) -> list[str]:
+        # parse `adb devices` → list of serials with status='device'
 ```
 
-Параллелизм: switch на разных `phone_serial` не блокирует друг друга — разные locks.
-Это критично при 2 OnePlus — refresh обоих аккаунтов может идти параллельно.
+**Timeout cascade** (важно при ADB-проблемах):
+- subprocess timeout на каждую `adb`-команду — **10 сек** (`_run_adb`); по таймауту
+  `proc.kill()` + `DeviceSwitchError`.
+- confirm-loop после `switch-user` — **до 5 сек** (interval 0.5 сек).
+- warm-up sleep после успешного switch (в caller'е) — **8 сек** (`_REFRESH_WARMUP_SEC`
+  в `accounts.py:230`).
+
+**Параллелизм:** switch на разных `phone_serial` не блокирует друг друга — разные
+asyncio.Locks. Критично при 2+ OnePlus — refresh обоих аккаунтов может идти параллельно.
+В пределах одного phone_serial — последовательно (защита от race на `am switch-user`).
+
+**Где вызывается:** только из `POST /api/v1/accounts/{id}/refresh-cycle` endpoint
+(`avito-xapi/src/routers/accounts.py:234-312`). Endpoint делает: health → switch_to →
+sleep 8s → INSERT `avito_device_commands` → state='waiting_refresh' → 202.
+HTTP-коды ошибок: 404 (account not found), 503 (ADB dead / switch failed),
+409 (no last_device_id / no active session).
+
+Полная sequence-диаграмма refresh-flow — в `02-auth-and-tokens.md` §D.3.
 
 ---
 

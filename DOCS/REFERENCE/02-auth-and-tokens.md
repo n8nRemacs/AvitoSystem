@@ -1,9 +1,11 @@
 # Auth & Tokens Reference
 
-**Компилировано:** 2026-04-28
+**Компилировано:** 2026-04-28. **Refresh Hardening update:** 2026-04-30 (D.2/D.3/E/G/H/I).
 **Источники:** AVITO-API.md Блок 1+8, token_farm_system.md, AvitoAll/API_AUTH.md,
-  CONTINUE.md §3, DECISIONS.md, avito-xapi/src/routers/sessions.py,
-  avito-xapi/src/routers/device_commands.py, account-pool-design.md §2.1
+  CONTINUE.md §3 + §8, DECISIONS.md, avito-xapi/src/routers/sessions.py,
+  avito-xapi/src/routers/device_commands.py, avito-xapi/src/routers/accounts.py,
+  avito-monitor/app/services/health_checker/account_tick.py,
+  account-pool-design.md §2.1, refresh-hardening plan (DOCS/superpowers/plans/2026-04-30-refresh-hardening.md)
 
 ---
 
@@ -103,9 +105,10 @@ def decode_jwt_payload(token: str) -> dict:
 5. APK POST `xapi /api/v1/sessions` — xapi деактивирует старые сессии аккаунта и вставляет новую
 
 ```python
-# avito-xapi/src/routers/sessions.py:46-73
+# avito-xapi/src/routers/sessions.py:30-106 (upload_session)
 # Деактивирует все is_active=true WHERE account_id=account.id
 # INSERT новую строку с account_id FK
+# Если account.state == 'waiting_refresh' → 'active', waiting_since=NULL
 ```
 
 **ВАЖНО:** AvitoSessionManager **НЕ читает SharedPreferences самостоятельно при старте.** Он триггерится push-уведомлением. Если push пропущен (NL-доступ выдан после login) — нужен workaround: прямой `cat` SharedPreferences через root + POST на `/api/v1/sessions`.
@@ -117,39 +120,69 @@ Workaround-скрипт: `register_clone_session.py` (читает `/data/user/1
 Запускается каждые 30 секунд. Обрабатывает аккаунты в трёх состояниях:
 
 ```
-state=active, expires_at < NOW+3min → запуск refresh path
-state=cooldown, cooldown_until < NOW → переводим в needs_refresh
-state=waiting_refresh, waiting_since < NOW-5min → переводим в dead + TG-alert
+state=active, expires_at IS NULL ИЛИ expires_at < NOW+30min  → trigger refresh-cycle
+state=cooldown, cooldown_until < NOW                          → trigger refresh-cycle
+state=waiting_refresh, waiting_since < NOW-5min               → переводим в dead + TG-alert
 ```
 
-Источник: `account-pool-design.md §7.4`
+Threshold 30 мин (не 3 мин — после Refresh Hardening sprint 2026-04-30): даёт Avito-app
+запас времени на refresh пока IP ещё чистый и JWT не до конца протух. `expires_at IS NULL`
+покрывает boot-recovery — на первом тике после рестарта подхватывает аккаунт без сессии.
+
+Источник реализации: `avito-monitor/app/services/health_checker/account_tick.py` (функция
+`_process_account`). Pure state-machine: `avito-xapi/src/services/account_state.py`
+(`compute_next_state`). State-machine допускает промежуточный `needs_refresh` на tick
+из cooldown, но `account_tick.py` его обходит — сразу вызывает `pool.trigger_refresh_cycle`,
+который атомарно переводит аккаунт в `waiting_refresh`.
 
 ### D.3 Refresh Flow (полностью)
 
 ```
-1. health_checker замечает expiry < 3 мин (или post-cooldown)
-2. device_switcher.switch_to(phone_serial, android_user_id)   [+8 сек sleep]
-3. POST xapi /api/v1/devices/me/commands  {"command": "refresh_token", ...}
-4. account.state ← waiting_refresh, waiting_since = NOW
+[В avito-monitor:]
+1. health_checker.account_tick замечает expiry < 30 мин или expires_at IS NULL
+   или post-cooldown (cooldown_until < NOW)
+2. monitor: pool.trigger_refresh_cycle(account_id)
+     → POST xapi /api/v1/accounts/{id}/refresh-cycle
+
+[В xapi, обработка /refresh-cycle endpoint:]
+3. ADB health: device_switcher.health(phone_serial)        → 503 if dead
+4. device_switcher.switch_to(phone_serial, android_user_id) → 503 на DeviceSwitchError
+5. asyncio.sleep(_REFRESH_WARMUP_SEC=8)         # warm-up NotificationListener
+6. guard: account.last_device_id NOT NULL                  → 409 иначе
+7. guard: active session с tenant_id найдена              → 409 иначе
+8. INSERT avito_device_commands {
+       command: "refresh_token",
+       payload: {target_device_id, target_account_id, timeout_sec: 90, prev_exp: 0},
+       expire_at: NOW + 120s,
+       issued_by: "account_pool.refresh_cycle"
+   }
+9. UPDATE avito_accounts SET state='waiting_refresh', waiting_since=NOW
+10. return 202 {command_id, account_id}
 
 [На телефоне в Android-user N foreground:]
-5. AvitoSessionManager APK long-poll GET /api/v1/devices/me/commands?wait=60
-6. APK получает команду refresh_token
-7. APK запускает Avito-app через intent
-8. Avito-app: POST Avito /token/refresh с своим Avito-app refresh_token
-9. Новый JWT записывается в SharedPreferences
-10. APK (через NL push или прямое чтение) читает SharedPrefs
-11. APK POST xapi /api/v1/sessions с новым токеном
-12. resolve_or_create_account(payload.user_id) → account
-13. deactivate old sessions WHERE account_id=account.id
-14. INSERT new session
-15. account.state ← active
+11. AvitoSessionManager APK long-poll GET /api/v1/devices/me/commands?wait=60
+12. APK получает команду refresh_token
+13. APK запускает Avito-app (root monkey + input swipes до обновления exp в SharedPrefs)
+14. Avito-app: POST Avito /token/refresh со своим Avito-app refresh_token
+15. Новый JWT записывается в SharedPreferences
+16. APK читает SharedPrefs, POST xapi /api/v1/sessions с новым токеном
+17. APK acks команду: POST /api/v1/devices/me/commands/{id}/ack {ok, new_exp, elapsed}
 
-Если шаг 11 не произошёл в течение 5 минут:
-→ account.state ← dead → TG-alert "открой Android-user N вручную"
+[В xapi /sessions:]
+18. resolve_or_create_account(payload.u, payload.device_id) → account
+19. deactivate old sessions WHERE account_id=account.id
+20. INSERT new session с expires_at из JWT exp
+21. Если account.state == 'waiting_refresh' → state='active', waiting_since=NULL
+
+Если шагов 11-17 не произошло в течение 5 минут:
+→ account_tick → patch_state(account_id, 'dead') + TG-alert "открой Android-user N вручную"
 ```
 
-Источник: `account-pool-design.md §8.3`
+Источники реализации:
+- `avito-xapi/src/routers/accounts.py` (refresh_cycle endpoint, lines 234-312)
+- `avito-xapi/src/routers/device_commands.py` (long-poll + ack)
+- `avito-xapi/src/routers/sessions.py` (upload_session, lines 30-106)
+- `avito-monitor/app/services/account_pool.py` (trigger_refresh_cycle)
 
 ### D.4 APK long-poll protocol
 
@@ -176,11 +209,8 @@ APK получает команду → `POST /api/v1/devices/me/commands/{id}/a
     │                  ▼                    │
     │              cooldown                 │
     │                  │                    │
-    │           (cooldown_until < NOW)      │
-    │                  ▼                    │
-    │             needs_refresh             │
-    │                  │                    │
-    │     (device_switch + refresh cmd)     │
+    │     (cooldown_until < NOW + tick:     │
+    │      trigger_refresh_cycle)           │
     │                  │                    │
     │                  ▼                    │
     │           waiting_refresh ────────────┘
@@ -192,11 +222,19 @@ APK получает команду → `POST /api/v1/devices/me/commands/{id}/a
     │       (ручной разогрев)
     └──────── (POST /sessions)
 
-active, expires_at < NOW+3min → waiting_refresh (proactive)
-active, 401 на запросе → waiting_refresh (reactive fallback)
+active, expires_at IS NULL OR expires_at < NOW+30min → trigger refresh-cycle (proactive)
+active, 401 на запросе → SET expires_at=NOW → next tick подхватит (reactive fallback)
 ```
 
-Источник: `account-pool-design.md §5`
+**Состояние `needs_refresh`** существует в CHECK-constraint и в pure state-machine
+`compute_next_state` (kind="tick" из cooldown), но **runtime-flow его не использует**:
+`account_tick.py` обходит — сразу вызывает `pool.trigger_refresh_cycle`, endpoint
+атомарно ставит `state=waiting_refresh`. Сохранён в схеме на случай ручных вмешательств
+и для совместимости с PATCH /accounts/{id}/state.
+
+Источники: `avito-xapi/src/services/account_state.py` (pure state-machine),
+`avito-monitor/app/services/health_checker/account_tick.py` (runtime),
+`account-pool-design.md §5`.
 
 ---
 
@@ -227,7 +265,8 @@ active, 401 на запросе → waiting_refresh (reactive fallback)
 ### G.1 DB Schema (avito_accounts)
 
 ```sql
--- Supabase migration 0005
+-- Supabase migration 007_avito_accounts_pool.sql (создание),
+-- migration 008_avito_accounts_multidevice.sql (UNIQUE → пара u+device).
 CREATE TABLE avito_accounts (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nickname               TEXT NOT NULL,
@@ -244,31 +283,48 @@ CREATE TABLE avito_accounts (
     waiting_since          TIMESTAMPTZ,
     last_403_body          TEXT,
     last_403_at            TIMESTAMPTZ,
-    UNIQUE (avito_user_id)
+    UNIQUE (avito_user_id, last_device_id)   -- migration 008 (2026-04-30): multi-device per Avito-user
 );
 ```
 
-Источник: `account-pool-design.md §6.1`
+Источник: `account-pool-design.md §6.1` + `supabase/migrations/008_*` (Refresh Hardening).
 
 ### G.2 Polling — round-robin LRU
 
 `POST /api/v1/accounts/poll-claim` → атомарно берёт аккаунт с наименьшим `last_polled_at`.
-Использует `SELECT ... FOR UPDATE SKIP LOCKED` для защиты от race conditions.
+**Стратегия:** optimistic compare-and-swap на `last_polled_at` (PostgREST не имеет
+`SELECT FOR UPDATE`). Алгоритм: SELECT LRU active row → UPDATE WHERE `last_polled_at`
+совпадает с прочитанным → если 0 rows updated, другой worker нас обогнал, retry со
+следующим LRU. До `_CLAIM_MAX_ATTEMPTS=3` попыток, иначе 503 contention exhausted.
+Две одновременные claim-операции никогда не вернут один и тот же аккаунт.
 
-Ответ: `{account_id, session_token, device_id, fingerprint, ...}`
-При полностью дренированном pool: `409 {error: "pool_drained"}`
+Ответ: `{account_id, session_token, device_id, fingerprint, phone_serial, android_user_id}`.
+При полностью дренированном pool: `409 {detail: {"error": "pool_drained", "accounts": [...]}}`.
 
-После request: `POST /api/v1/accounts/{id}/report` с `{status_code: 200|403|401, body_excerpt?}`.
+После request: `POST /api/v1/accounts/{id}/report` с `{status_code: int, body_excerpt: str|null}`
+— feed в state-machine `compute_next_state` (см. §E).
 
-### G.3 Текущее состояние pool (2026-04-28)
+Альтернативный read-only claim (для autosearch_sync, не двигает `last_polled_at`):
+`GET /api/v1/accounts/{id}/session-for-sync` → 200 / 404 / 409 (state≠active или no_session).
+
+### G.3 Текущее состояние pool (2026-04-30)
 
 | Аккаунт | Android-user | phone_serial | state |
 |---|---|---|---|
-| Clone | 10 | 110139ce | active (polling идёт через него) |
-| Main | 0 | 110139ce | dead (banned после burst-запросов) |
+| Clone | 10 | 110139ce | active |
 
-Backend round-robin (xapi /api/v1/accounts) **ещё не реализован** — pending task #13/#14.
-Сейчас xapi берёт `MAX(created_at) WHERE is_active=true` — то есть всегда последнюю активную сессию.
+Pool merged в main (commit `8e12434`, 2026-04-29). Refresh Hardening shipped (`5bc72d3`,
+2026-04-30) — `UNIQUE(avito_user_id, last_device_id)` (migration 008) допускает multi-device
+per Avito-юзер.
+
+**Pool=1 фактически:** Main и Clone оказались одним и тем же Avito-юзером 157920214 на
+разных device_id. Round-robin ранее не работал — `resolve_or_create_account` ключует по
+паре `(u, device_id)`, поэтому Main и Clone теперь разные pool rows, но оба указывают на
+один Avito-аккаунт; per-account ban валит обоих. Чтобы получить настоящий pool=2 — нужен
+второй Avito-юзер (другой номер телефона). См. `CONTINUE.md` § 2 backlog #2.
+
+**Round-robin LRU реализован** в `POST /api/v1/accounts/poll-claim` (CAS на
+`last_polled_at`, optimistic compare-and-swap, 3 retry attempts, 409 при `pool_drained`).
 
 ### G.4 Добавление нового аккаунта
 
@@ -286,37 +342,53 @@ UPDATE avito_accounts SET nickname='Clone',
 
 ## H. POST /api/v1/sessions — поведение
 
-Деактивирует все прежние active sessions **того же account_id** (не tenant_id — это изменение в pool-aware версии).
+Деактивирует все прежние active sessions **того же account_id** (pool-aware, после
+migration 007). `tenant_id` сохраняется в строке как legacy-поле для backward-compat,
+но deactivation делается по `account_id`.
 
-После account-pool deploy (migration 0005):
 ```python
-# avito-xapi/src/routers/sessions.py (после изменений из account-pool-design.md §7.2)
-account = resolve_or_create_account(payload.user_id, payload.device_id)
-sb.table("avito_sessions").update({"is_active": False})
-    .eq("account_id", account.id).eq("is_active", True).execute()
-sb.table("avito_sessions").insert({"account_id": account.id, ...}).execute()
-if account.state == 'waiting_refresh':
-    sb.table("avito_accounts").update({"state": "active", "waiting_since": None}).execute()
+# avito-xapi/src/routers/sessions.py:30-106 (upload_session)
+account = resolve_or_create_account(sb, avito_user_id=payload.u, device_id=body.device_id)
+sb.table("avito_sessions").update({"is_active": False}) \
+    .eq("account_id", account["id"]).eq("is_active", True).execute()
+sb.table("avito_sessions").insert({"account_id": account["id"], ...}).execute()
+if account.get("state") == "waiting_refresh":
+    sb.table("avito_accounts").update({
+        "state": "active", "waiting_since": None,
+        "last_session_at": NOW
+    }).eq("id", account["id"]).execute()
 ```
 
-До migration 0005 (текущее состояние): деактивирует по tenant_id.
+`resolve_or_create_account` после migration 008 ключует по паре `(avito_user_id, device_id)`
+— разные device_id одного `u` дают разные pool rows.
 
 ---
 
 ## I. avito-monitor — AccountPool client
 
+`avito-monitor/app/services/account_pool.py` — тонкая обёртка над xapi `/api/v1/accounts/*`.
+Методы:
+
 ```python
-# avito-monitor/app/services/account_pool.py (план)
 class AccountPool:
     @asynccontextmanager
     async def claim_for_poll(self):
-        resp = await self.xapi.post('/accounts/poll-claim')
-        if resp.status_code == 409:
-            raise NoAvailableAccountError(resp.json())
-        yield resp.json()   # account dict
+        # POST /api/v1/accounts/poll-claim → 409 NoAvailableAccountError при pool_drained
 
     async def report(self, account_id: str, status_code: int, body=None):
-        await self.xapi.post(f'/accounts/{account_id}/report', json={...})
-```
+        # POST /api/v1/accounts/{id}/report — feed status_code в state-machine
 
-Источник: `account-pool-design.md §7.6`
+    async def claim_for_sync(self, account_id: str) -> dict:
+        # GET /api/v1/accounts/{id}/session-for-sync — read-only, не двигает last_polled_at;
+        # для autosearch_sync (owner-specific, не должен конкурировать с round-robin)
+
+    async def list_active_accounts(self) -> list[dict]:
+    async def list_all_accounts(self) -> list[dict]:
+        # GET /api/v1/accounts (с expires_at per row)
+
+    async def trigger_refresh_cycle(self, account_id: str) -> dict:
+        # POST /api/v1/accounts/{id}/refresh-cycle — атомарный switch+cmd, см. D.3
+
+    async def patch_state(self, account_id: str, state: str, reason: str | None):
+        # PATCH /api/v1/accounts/{id}/state — manual transition (используется для → dead)
+```
