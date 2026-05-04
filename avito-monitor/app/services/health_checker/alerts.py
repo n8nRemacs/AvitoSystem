@@ -74,70 +74,60 @@ FIRED_SENTINELS: dict[str, datetime] = {}
 # Human-readable description of each scenario: title (что проверяется) and
 # meaning of failure (что это значит для юзера). Telegram alerts use both
 # instead of just the bare letter.
-SCENARIO_DESCRIPTIONS: dict[str, dict[str, str]] = {
+SCENARIO_DESCRIPTIONS: dict[str, dict[str, str | list[str]]] = {
     "A": {
-        "title": "Свежесть JWT в активной сессии",
-        "fail_means": (
-            "У текущего Avito-токена осталось меньше 4 часов до экспирации, "
-            "или сервер вернул не-200. Скоро polling начнёт получать 401 — "
-            "открой Avito-app на phone в нужном android-юзере для refresh."
-        ),
+        "title": "JWT-токен скоро протухнет",
+        "causes": [
+            "До экспирации меньше 4ч — открой Avito-app в нужном android-юзере для refresh",
+        ],
     },
     "B": {
-        "title": "Ротация JWT за последние 24 часа",
-        "fail_means": (
-            "AvitoSessionManager APK не присылал свежих сессий >24ч. "
-            "Проверь что phone онлайн, NotificationListener получает push'и "
-            "и что Avito-app в юзере открывался хотя бы раз за сутки."
-        ),
+        "title": "Ротации JWT не было >24ч",
+        "causes": [
+            "Avito-app не открывался сутки — открой его на phone",
+            "NotificationListener APK выключен или phone оффлайн",
+        ],
     },
     "C": {
-        "title": "Доступность мессенджера Avito",
-        "fail_means": (
-            "GET /messenger/channels вернул не-200. Либо Avito API недоступен, "
-            "либо токен забанен/протух. Если другие сценарии проходят — "
-            "вероятно временный сбой Avito; если падают все — проверь токен и сеть."
-        ),
+        "title": "Мессенджер Avito временно недоступен",
+        "causes": [
+            "Avito API лежит — обычно проходит само за 5-15 мин",
+            "Проблемы сети VPS → app.avito.ru",
+        ],
     },
     "D": {
-        "title": "Латентность мессенджера (round-trip)",
-        "fail_means": (
-            "GET /messenger/unread-count либо упал, либо отвечает дольше 2с. "
-            "Avito или прокси-канал тормозят — мессенджер реал-тайм будет лагать."
-        ),
+        "title": "Мессенджер Avito медленный или упал",
+        "causes": [
+            "Avito тормозит (round-trip > 2с) — обычно проходит само",
+            "Проблемы в сети между VPS и Avito",
+        ],
     },
     "E": {
-        "title": "Real-time мессенджер (SSE bridge)",
-        "fail_means": (
-            "SSE-стрим /messenger/realtime/events не выдаёт connected event "
-            "за 5с или замолкает после connect. Это значит pipeline "
-            "Avito-WS → xapi → подписчики сломан, и push-сообщения чата "
-            "не дойдут до бота. Перезапусти xapi или проверь WS-логи."
-        ),
+        "title": "Real-time мессенджер не работает",
+        "causes": [
+            "SSE-стрим /messenger/realtime/events замолк — push-сообщения чата не дойдут",
+            "Перезапусти xapi или проверь Avito-WS",
+        ],
     },
     "F": {
-        "title": "POST round-trip в мессенджере (mark-read)",
-        "fail_means": (
-            "POST в /messenger не проходит. Avito API либо отверг запрос "
-            "(401/403), либо отвалился по сети. Бот не сможет отвечать в чатах."
-        ),
+        "title": "POST в мессенджер Avito не проходит",
+        "causes": [
+            "Avito API отвергает запросы — бот не сможет отвечать",
+            "Возможно временный сбой Avito",
+        ],
     },
     "G": {
         "title": "Дедупликация авто-ответов мессенджер-бота",
-        "fail_means": (
-            "Messenger-bot /run-once не отрабатывает или не помечает "
-            "повторный запрос как skipped. Возможны двойные ответы пользователю. "
-            "Если messenger-bot не задеплоен в production — этот сценарий "
-            "стоит отключить."
-        ),
+        "causes": [
+            "Messenger-bot /run-once не работает — возможны двойные ответы",
+        ],
     },
     "I": {
-        "title": "Свежесть push-уведомлений с phone",
-        "fail_means": (
-            "AvitoSessionManager APK на phone не пересылал push'ей в xapi "
-            "слишком долго. Проверь что phone онлайн, NotificationListenerService "
-            "включён в обоих android-юзерах, и Avito-app не очищён."
-        ),
+        "title": "Push-уведомления с phone не приходят",
+        "causes": [
+            "Phone оффлайн или NotificationListener выключен",
+            "Avito-app очищен/удалён в одном из android-юзеров",
+        ],
     },
 }
 
@@ -187,7 +177,6 @@ async def send_alert(
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "Markdown",
         "disable_web_page_preview": True,
     }
 
@@ -247,23 +236,27 @@ def _format_fire_text(
                 break
     tz = _local_tz()
     label = _tz_short_label(tz)
-    timestamps = " · ".join(
-        (r.ts.astimezone(tz).strftime("%H:%M:%S") if r.ts else "?") for r in recent
+    last_ts = (
+        recent[0].ts.astimezone(tz).strftime("%H:%M:%S")
+        if recent and recent[0].ts
+        else "?"
     )
     desc = SCENARIO_DESCRIPTIONS.get(scenario, {})
     title = desc.get("title", f"сценарий {scenario}")
-    fail_means = desc.get("fail_means", "")
-    lines = [
-        f"\U0001F6A8 *{title}* — сбой [{scenario}]",
-        f"{threshold} подряд проверки получили `fail`.",
-    ]
-    if fail_means:
-        lines.append("")
-        lines.append(f"_Что это значит:_ {fail_means}")
+    causes = desc.get("causes") or []
+    detail_parts = []
     if reason:
+        detail_parts.append(_md_escape(reason)[:80])
+    detail_parts.append(f"{threshold} fail подряд, последний {last_ts} {label}")
+    lines = [
+        f"\U0001F6A8 {title}  ({scenario})",
+        ", ".join(detail_parts) + ".",
+    ]
+    if isinstance(causes, list) and causes:
         lines.append("")
-        lines.append(f"Технические детали: `{_md_escape(reason)[:300]}`")
-    lines.append(f"\nПоследние {len(recent)} временных меток ({label}): {timestamps}")
+        lines.append("Возможные причины:")
+        for c in causes:
+            lines.append(f"• {c}")
     return "\n".join(lines)
 
 
@@ -279,8 +272,8 @@ def _format_recovery_text(scenario: str, latest: HealthCheck) -> str:
     desc = SCENARIO_DESCRIPTIONS.get(scenario, {})
     title = desc.get("title", f"сценарий {scenario}")
     return (
-        f"✅ *Восстановлено: {title}* [{scenario}]\n"
-        f"`pass` в {ts}, latency {latency} мс."
+        f"✅ Восстановлено: {title}  ({scenario})\n"
+        f"pass в {ts}, latency {latency} мс."
     )
 
 
