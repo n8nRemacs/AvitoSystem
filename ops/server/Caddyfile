@@ -1,0 +1,107 @@
+# Caddy reverse proxy for AvitoSystem.
+#
+# Mode selection via the DOMAIN env var (passed in by docker-compose):
+#
+#   - DOMAIN set (e.g. avitosystem.duckdns.org):
+#       Site label resolves to that hostname. Caddy auto-issues a public
+#       Let's Encrypt cert via the HTTP-01 challenge on port 80.
+#
+#   - DOMAIN unset/empty:
+#       Site label resolves to "localhost". Caddy issues a self-signed cert
+#       from its built-in local CA (Caddy auto-uses internal issuance for
+#       localhost, *.localhost, and IPs). The dashboard is reachable via
+#       `curl -k https://<ip>/`. APK won't trust this cert — repoint APK
+#       only after DOMAIN is configured.
+#
+# To switch modes: set DOMAIN in /opt/avito-system/.env, then
+# `docker compose up -d caddy` (Caddy reloads automatically on env change
+# at container restart).
+
+{$DOMAIN:localhost} {
+	encode zstd gzip
+
+	# APK posts new sessions here from the phone over public internet.
+	handle /api/v1/sessions* {
+		reverse_proxy avito-xapi:8080
+	}
+
+	# Internal-ish xapi endpoints. Authenticated via X-Api-Key middleware.
+	# avito-monitor calls them in-cluster (http://avito-xapi:8080) but we
+	# also expose externally for ops debugging.
+	handle /api/v1/accounts* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/search* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/messenger* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/subscriptions* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/notifications* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/farm* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/calls* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/realtime* {
+		reverse_proxy avito-xapi:8080
+	}
+
+	# Catch-all → avito-monitor dashboard / bot webhook / health
+	handle {
+		reverse_proxy avito-monitor:8000
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}
+
+# Fallback site bound to the raw IP — serves the same routes via a
+# self-signed cert from Caddy's local CA so `curl -k https://81.200.119.132/`
+# works regardless of DOMAIN. When DOMAIN is "localhost" the upper site
+# already provides this; this extra binding is still useful for testing
+# from the public IP without DNS.
+https://81.200.119.132 {
+	tls internal
+
+	handle /api/v1/sessions* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/accounts* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/search* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/messenger* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/subscriptions* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/notifications* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/farm* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/calls* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/realtime* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle {
+		reverse_proxy avito-monitor:8000
+	}
+}

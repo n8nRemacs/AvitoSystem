@@ -1,0 +1,106 @@
+# Production deployment for VPS 81.200.119.132 (Ubuntu 24.04, Docker 29.x).
+#
+# Layout on server:
+#   /opt/avito-system/
+#     docker-compose.yml   (this file)
+#     Caddyfile
+#     .env                 (gitignored — secrets)
+#     data/redis/          (redis persistence)
+#     repo/                (rsync'd repo source for `build:` directives)
+#
+# DB: Cloud Supabase (project drwgozasaypgphkxyizt, Frankfurt). xapi uses
+# its REST API (SUPABASE_URL + SUPABASE_KEY). avito-monitor uses asyncpg
+# (DATABASE_URL → port 6543 transaction-mode pooler).
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - avito-monitor
+      - avito-xapi
+    mem_limit: 80m
+
+  avito-xapi:
+    build: ./repo/avito-xapi
+    restart: unless-stopped
+    environment:
+      # xapi talks to PostgREST via REST. Cloud Supabase URL + service-role key.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      LOG_LEVEL: info
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_ALGORITHM: HS256
+      RATE_LIMIT_RPS: "1.0"
+      RATE_LIMIT_BURST: "3"
+      CORS_ORIGINS: '["https://${DOMAIN:-localhost}","http://localhost:3000"]'
+    expose:
+      - "8080"
+    mem_limit: 256m
+
+  avito-monitor:
+    build: ./repo/avito-monitor
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-w1QsT054kcoUBoRWX8EYAG390HrSzRhbV1tqjp8HvPue-crJ7g26Dodi-uZs-6fG}
+      APP_BASE_URL: https://${DOMAIN:-localhost}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      TIMEZONE: Europe/Astrakhan
+
+      # avito-xapi gateway (internal docker network)
+      AVITO_XAPI_URL: http://avito-xapi:8080
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY}
+
+      # OpenRouter LLM
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_DEFAULT_TEXT_MODEL: google/gemini-2.5-flash-lite
+      OPENROUTER_DEFAULT_VISION_MODEL: google/gemini-2.5-flash-lite
+      OPENROUTER_DAILY_USD_LIMIT: "10.00"
+
+      # Telegram (config.py fields are telegram_bot_token + telegram_allowed_user_ids)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
+      RELIABILITY_TG_ALERT_ENABLED: "true"
+      RELIABILITY_TG_ALERT_FAIL_THRESHOLD: "3"
+      RELIABILITY_TG_ALERT_DAILY_SUMMARY_HOUR: "9"
+
+      # avito-mcp (sidecar in same container, http port 9000)
+      AVITO_MCP_TRANSPORT: sse
+      AVITO_MCP_HTTP_PORT: "9000"
+      AVITO_MCP_AUTH_TOKEN: ${AVITO_MCP_AUTH_TOKEN:-dev-mcp-token-change-me}
+    expose:
+      - "8000"
+    depends_on:
+      - redis
+      - avito-xapi
+    mem_limit: 480m
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --appendonly no
+    volumes:
+      - ./data/redis:/data
+    expose:
+      - "6379"
+    mem_limit: 96m
+
+volumes:
+  caddy_data:
+  caddy_config:
