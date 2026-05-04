@@ -92,7 +92,7 @@ async def upload_session(body: SessionUploadRequest, request: Request,
         }).eq("id", account["id"]).execute()
 
     # Audit log
-    sb.table("audit_log").insert({
+    sb.table("audit_log_xapi").insert({
         "tenant_id": ctx.tenant.id,
         "action": "session.upload",
         "details": {"source": body.source, "user_id": user_id, "account_id": account["id"]},
@@ -140,7 +140,7 @@ async def delete_session(request: Request,
         "tenant_id", ctx.tenant.id
     ).eq("is_active", True).execute()
 
-    sb.table("audit_log").insert({
+    sb.table("audit_log_xapi").insert({
         "tenant_id": ctx.tenant.id,
         "action": "session.deleted",
     }).execute()

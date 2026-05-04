@@ -137,7 +137,7 @@ async def upload_farm_token(body: TokenUploadRequest, request: Request,
     }).eq("id", binding["id"]).execute()
 
     # Audit
-    sb.table("audit_log").insert({
+    sb.table("audit_log_xapi").insert({
         "tenant_id": tenant_id,
         "action": "farm.token_upload",
         "details": {"device_id": body.device_id, "profile_id": body.android_profile_id},
