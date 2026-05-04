@@ -84,17 +84,34 @@ services:
       RELIABILITY_TG_ALERT_ENABLED: "true"
       RELIABILITY_TG_ALERT_FAIL_THRESHOLD: "3"
       RELIABILITY_TG_ALERT_DAILY_SUMMARY_HOUR: "9"
-
-      # avito-mcp (sidecar in same container, http port 9000)
-      AVITO_MCP_TRANSPORT: sse
-      AVITO_MCP_HTTP_PORT: "9000"
-      AVITO_MCP_AUTH_TOKEN: ${AVITO_MCP_AUTH_TOKEN:-dev-mcp-token-change-me}
     expose:
       - "8000"
     depends_on:
       - redis
       - avito-xapi
     mem_limit: 480m
+
+  # Standalone FastMCP SSE server. Reuses the avito-monitor image (same source
+  # tree contains avito_mcp/) but overrides the entrypoint. Reachable inside
+  # the docker network as http://avito-mcp:9000 and externally via Caddy at
+  # https://${DOMAIN}/mcp/sse with Authorization: Bearer $AVITO_MCP_AUTH_TOKEN.
+  avito-mcp:
+    build: ./repo/avito-monitor
+    restart: unless-stopped
+    command: ["python", "-m", "avito_mcp"]
+    environment:
+      AVITO_MCP_TRANSPORT: sse
+      AVITO_MCP_HTTP_HOST: "0.0.0.0"
+      AVITO_MCP_HTTP_PORT: "9000"
+      AVITO_MCP_AUTH_TOKEN: ${AVITO_MCP_AUTH_TOKEN:-dev-mcp-token-change-me}
+      AVITO_XAPI_URL: http://avito-xapi:8080
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY}
+      LOG_LEVEL: INFO
+    expose:
+      - "9000"
+    depends_on:
+      - avito-xapi
+    mem_limit: 128m
 
   redis:
     image: redis:7-alpine

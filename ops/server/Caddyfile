@@ -56,6 +56,19 @@
 		reverse_proxy avito-xapi:8080
 	}
 
+	# avito-mcp FastMCP SSE server. The upstream serves /sse and /messages
+	# at its origin root, so we strip the /mcp prefix before proxying.
+	# flush_interval -1 disables Caddy's response buffering, which is
+	# mandatory for SSE: each event must reach the client immediately.
+	handle_path /mcp/* {
+		reverse_proxy avito-mcp:9000 {
+			flush_interval -1
+		}
+	}
+	handle /mcp {
+		redir /mcp/ 308
+	}
+
 	# Catch-all → avito-monitor dashboard / bot webhook / health
 	handle {
 		reverse_proxy avito-monitor:8000
