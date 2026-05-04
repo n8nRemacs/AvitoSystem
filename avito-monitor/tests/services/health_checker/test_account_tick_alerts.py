@@ -87,9 +87,12 @@ async def test_alert_resets_when_account_recovers():
     assert tg.call_count == 1  # no new alert during recovery
 
     # Main goes stale AGAIN (different cycle) — new alert allowed
+    # Clone expiry deliberately far enough that it remains fresh at tick time (now + 24h).
     pool.list_all_accounts.return_value = [
-        _account(id="m", nickname="Main", expires_at=now - timedelta(minutes=1), android_user_id=0),
-        _account(id="c", nickname="Clone", expires_at=now + timedelta(hours=10), android_user_id=10),
+        _account(id="m", nickname="Main",
+                 expires_at=now + timedelta(hours=24) - timedelta(minutes=1), android_user_id=0),
+        _account(id="c", nickname="Clone",
+                 expires_at=now + timedelta(hours=48), android_user_id=10),
     ]
     await account_tick_iteration(pool=pool, now=now + timedelta(hours=24), tg=tg)
     assert tg.call_count == 2
