@@ -60,12 +60,6 @@ class AccountPool:
         resp.raise_for_status()
         return resp.json()
 
-    async def trigger_refresh_cycle(self, account_id: str) -> dict:
-        """Используется monitor health_checker для запуска refresh."""
-        resp = await self.xapi.post(f"/api/v1/accounts/{account_id}/refresh-cycle")
-        resp.raise_for_status()
-        return resp.json()
-
     async def patch_state(self, account_id: str, state: str, reason: str | None = None):
         resp = await self.xapi.patch(
             f"/api/v1/accounts/{account_id}/state",
