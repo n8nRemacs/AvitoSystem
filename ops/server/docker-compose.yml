@@ -9,8 +9,16 @@
 #     repo/                (rsync'd repo source for `build:` directives)
 #
 # DB: Cloud Supabase (project drwgozasaypgphkxyizt, Frankfurt). xapi uses
-# its REST API (SUPABASE_URL + SUPABASE_KEY). avito-monitor uses asyncpg
-# (DATABASE_URL → port 6543 transaction-mode pooler).
+# its REST API (SUPABASE_URL + SUPABASE_KEY). avito-monitor + worker +
+# scheduler + health-checker + telegram-bot use asyncpg via DATABASE_URL.
+#
+# IMPORTANT: DATABASE_URL must point at port 6543 (transaction pooler) AND
+# include `?prepared_statement_cache_size=0` (or `&` if other query args
+# are present). Without it asyncpg caches prepared statements that get
+# torn down by pgbouncer's connection rotation, leading to
+# `ProtocolViolationError: bind message supplies 0 parameters, but
+# prepared statement "__asyncpg_stmt_a__" requires 4` on every task.
+# See: https://magicstack.github.io/asyncpg/current/api/index.html#asyncpg.connection.Connection
 
 services:
   caddy:
@@ -89,7 +97,107 @@ services:
     depends_on:
       - redis
       - avito-xapi
-    mem_limit: 480m
+    mem_limit: 384m
+
+  # TaskIQ worker — drains polling, LLM analysis, market stats, notification queues.
+  worker:
+    build: ./repo/avito-monitor
+    restart: unless-stopped
+    command: ["taskiq", "worker", "--workers", "1", "--max-async-tasks", "8", "app.tasks.broker:broker"]
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-w1QsT054kcoUBoRWX8EYAG390HrSzRhbV1tqjp8HvPue-crJ7g26Dodi-uZs-6fG}
+      APP_BASE_URL: https://${DOMAIN:-localhost}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      TIMEZONE: Europe/Astrakhan
+      AVITO_XAPI_URL: http://avito-xapi:8080
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_DEFAULT_TEXT_MODEL: google/gemini-2.5-flash-lite
+      OPENROUTER_DEFAULT_VISION_MODEL: google/gemini-2.5-flash-lite
+      OPENROUTER_DAILY_USD_LIMIT: "10.00"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
+      RELIABILITY_TG_ALERT_ENABLED: "true"
+      RELIABILITY_TG_ALERT_FAIL_THRESHOLD: "3"
+      RELIABILITY_TG_ALERT_DAILY_SUMMARY_HOUR: "9"
+    depends_on:
+      - redis
+      - avito-xapi
+    mem_limit: 256m
+
+  # TaskIQ scheduler — emits cron ticks (polling cadence, daily summaries, ...).
+  scheduler:
+    build: ./repo/avito-monitor
+    restart: unless-stopped
+    command: ["taskiq", "scheduler", "app.tasks.broker:scheduler"]
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-w1QsT054kcoUBoRWX8EYAG390HrSzRhbV1tqjp8HvPue-crJ7g26Dodi-uZs-6fG}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      TIMEZONE: Europe/Astrakhan
+      AVITO_XAPI_URL: http://avito-xapi:8080
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY}
+    depends_on:
+      - redis
+      - avito-xapi
+    mem_limit: 192m
+
+  # Health-checker — Phase 4 account_tick loop. Emits one-stale TG alerts.
+  health-checker:
+    build: ./repo/avito-monitor
+    restart: unless-stopped
+    command: ["python", "-m", "app.services.health_checker"]
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-w1QsT054kcoUBoRWX8EYAG390HrSzRhbV1tqjp8HvPue-crJ7g26Dodi-uZs-6fG}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      TIMEZONE: Europe/Astrakhan
+      AVITO_XAPI_URL: http://avito-xapi:8080
+      AVITO_XAPI_API_KEY: ${AVITO_XAPI_API_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
+      RELIABILITY_TG_ALERT_ENABLED: "true"
+      RELIABILITY_TG_ALERT_FAIL_THRESHOLD: "3"
+      RELIABILITY_TG_ALERT_DAILY_SUMMARY_HOUR: "9"
+    depends_on:
+      - redis
+      - avito-xapi
+    mem_limit: 128m
+
+  # aiogram long-poll Telegram bot. Outbound api.telegram.org via direct httpx
+  # (TELEGRAM_PROXY_URL falls back to direct in build_bot if proxy unreachable).
+  telegram-bot:
+    build: ./repo/avito-monitor
+    restart: unless-stopped
+    command: ["python", "-m", "app.integrations.telegram"]
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-w1QsT054kcoUBoRWX8EYAG390HrSzRhbV1tqjp8HvPue-crJ7g26Dodi-uZs-6fG}
+      APP_BASE_URL: https://${DOMAIN:-localhost}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      TIMEZONE: Europe/Astrakhan
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
+    depends_on:
+      - redis
+      - avito-monitor
+    mem_limit: 160m
 
   # Standalone FastMCP SSE server. Reuses the avito-monitor image (same source
   # tree contains avito_mcp/) but overrides the entrypoint. Reachable inside
