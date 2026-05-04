@@ -171,6 +171,9 @@ services:
       RELIABILITY_TG_ALERT_ENABLED: "true"
       RELIABILITY_TG_ALERT_FAIL_THRESHOLD: "3"
       RELIABILITY_TG_ALERT_DAILY_SUMMARY_HOUR: "9"
+      # Comma-separated scenario letters to skip in production. G probes
+      # messenger-bot which isn't deployed here, so skip it.
+      RELIABILITY_DISABLED_SCENARIOS: ${RELIABILITY_DISABLED_SCENARIOS:-G}
     depends_on:
       - redis
       - avito-xapi

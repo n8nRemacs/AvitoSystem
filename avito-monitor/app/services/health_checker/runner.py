@@ -81,9 +81,23 @@ async def run_and_persist(name: str, fn: ScenarioFn, client: XapiClient) -> Scen
     return result
 
 
+def _disabled_scenarios(settings: Settings) -> set[str]:
+    raw = (settings.reliability_disabled_scenarios or "").strip()
+    if not raw:
+        return set()
+    return {x.strip().upper() for x in raw.split(",") if x.strip()}
+
+
 async def scenario_loop(name: str, fn: ScenarioFn, settings: Settings) -> None:
-    """Forever-loop for one scenario; honours ``RELIABILITY_ENABLED`` toggle."""
+    """Forever-loop for one scenario; honours ``RELIABILITY_ENABLED`` and
+    per-scenario disable list."""
     interval = settings.health_check_interval_sec
+    if name.upper() in _disabled_scenarios(settings):
+        log.info("scenario.loop.disabled", scenario=name)
+        # Don't busy-loop; sleep forever (until container restart picks up
+        # a config change).
+        while True:
+            await asyncio.sleep(3600)
     log.info("scenario.loop.start", scenario=name, interval_sec=interval)
     while True:
         if not settings.reliability_enabled:
