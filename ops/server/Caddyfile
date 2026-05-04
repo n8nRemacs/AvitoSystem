@@ -1,23 +1,26 @@
 # Caddy reverse proxy for AvitoSystem.
 #
-# Mode selection via the DOMAIN env var (passed in by docker-compose):
+# Two sites, always defined:
 #
-#   - DOMAIN set (e.g. avitosystem.duckdns.org):
-#       Site label resolves to that hostname. Caddy auto-issues a public
-#       Let's Encrypt cert via the HTTP-01 challenge on port 80.
+#   1) {$DOMAIN:localhost}  — primary, auto-TLS via Let's Encrypt when
+#      DOMAIN is a real public hostname; falls back to Caddy local CA
+#      when DOMAIN is "localhost" (compose default when DOMAIN is empty).
 #
-#   - DOMAIN unset/empty:
-#       Site label resolves to "localhost". Caddy issues a self-signed cert
-#       from its built-in local CA (Caddy auto-uses internal issuance for
-#       localhost, *.localhost, and IPs). The dashboard is reachable via
-#       `curl -k https://<ip>/`. APK won't trust this cert — repoint APK
-#       only after DOMAIN is configured.
+#   2) https://81.200.119.132  — direct-IP access using `tls internal`
+#      (Caddy local CA cert with IP literal as subject). Always available
+#      regardless of DOMAIN, useful for ops/curl during DuckDNS setup.
+#
+# `servers.default_sni` ensures clients that connect without SNI (per
+# RFC 6066 curl correctly omits SNI for IP literals) still get a valid
+# TLS handshake against the IP cert.
 #
 # To switch modes: set DOMAIN in /opt/avito-system/.env, then
-# `docker compose up -d caddy` (Caddy reloads automatically on env change
-# at container restart).
+# `docker compose up -d caddy` (Caddy reloads on env change at restart).
+{
+	default_sni 81.200.119.132
+}
 
-{$DOMAIN:localhost} {
+(routes) {
 	encode zstd gzip
 
 	# APK posts new sessions here from the phone over public internet.
@@ -57,6 +60,13 @@
 	handle {
 		reverse_proxy avito-monitor:8000
 	}
+}
+
+# Primary site — uses DOMAIN env, defaults to "localhost" when unset.
+# When DOMAIN is "localhost" Caddy auto-issues an internal cert; when
+# DOMAIN is a real hostname Caddy auto-issues a public LE cert via HTTP-01.
+{$DOMAIN:localhost} {
+	import routes
 
 	log {
 		output file /data/access.log {
@@ -66,42 +76,11 @@
 	}
 }
 
-# Fallback site bound to the raw IP — serves the same routes via a
-# self-signed cert from Caddy's local CA so `curl -k https://81.200.119.132/`
-# works regardless of DOMAIN. When DOMAIN is "localhost" the upper site
-# already provides this; this extra binding is still useful for testing
-# from the public IP without DNS.
+# Direct-IP access via Caddy's local CA. The global `default_sni` above
+# makes this site's cert the fallback when the client's ClientHello has
+# no SNI extension (curl omits SNI for IP literals per RFC 6066), so
+# `curl -k https://81.200.119.132/` works.
 https://81.200.119.132 {
 	tls internal
-
-	handle /api/v1/sessions* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle /api/v1/accounts* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle /api/v1/search* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle /api/v1/messenger* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle /api/v1/subscriptions* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle /api/v1/notifications* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle /api/v1/farm* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle /api/v1/calls* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle /api/v1/realtime* {
-		reverse_proxy avito-xapi:8080
-	}
-	handle {
-		reverse_proxy avito-monitor:8000
-	}
+	import routes
 }

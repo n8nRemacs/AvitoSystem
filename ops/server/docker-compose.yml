@@ -20,7 +20,12 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      DOMAIN: ${DOMAIN:-}
+      # Caddyfile uses {$DOMAIN:localhost} for site label, but Caddy's
+      # default-syntax only triggers when the env var is *unset* (not when
+      # set-but-empty). docker-compose's :- (use-default-on-empty)
+      # interpolation collapses both empty AND unset to "localhost", which
+      # is what Caddy needs to fall back to its local CA cert.
+      DOMAIN: ${DOMAIN:-localhost}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
