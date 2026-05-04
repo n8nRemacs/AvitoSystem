@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move avito-monitor + avito-proxy off homelab onto a dedicated RU VPS (193.168.49.24, 1c/2GB/15GB Ubuntu 24.04), migrate Postgres to Supabase Cloud, switch refresh model from "automatic via APK monkey-scroll + ADB" to fully manual (user opens Avito-app twice/day), and remove the dead-code paths that automated refresh relied on. Result: homelab no longer required for runtime; only Supabase Cloud + the new VPS + the phone (with internet).
+**Goal:** Move avito-monitor + avito-proxy off homelab onto a dedicated RU VPS (217.114.12.174, 1c/2GB/15GB Ubuntu 24.04), migrate Postgres to Supabase Cloud, switch refresh model from "automatic via APK monkey-scroll + ADB" to fully manual (user opens Avito-app twice/day), and remove the dead-code paths that automated refresh relied on. Result: homelab no longer required for runtime; only Supabase Cloud + the new VPS + the phone (with internet).
 
 **Architecture:**
 - **New VPS** runs everything: avito-monitor, avito-proxy (xapi minus token-bridge bits), Redis, Caddy reverse proxy with auto-TLS.
@@ -19,11 +19,11 @@
 
 These are not coding tasks — they unblock everything else. Confirm each is done before opening Phase 1.
 
-- [ ] **P0.1** Beget edge firewall opened for inbound TCP 22, 80, 443 on 193.168.49.24. Verify from local machine: `Test-NetConnection -ComputerName 193.168.49.24 -Port 22` returns `TcpTestSucceeded: True`. Without this, Phase 6 onward blocks.
+- [ ] **P0.1** Beget edge firewall opened for inbound TCP 22, 80, 443 on 217.114.12.174. Verify from local machine: `Test-NetConnection -ComputerName 217.114.12.174 -Port 22` returns `TcpTestSucceeded: True`. Without this, Phase 6 onward blocks.
 - [ ] **P0.2** Supabase Cloud project `drwgozasaypgphkxyizt` (Frankfurt) provisioned. Settings → Database password generated and saved offline. Verify via Settings → API page loads.
 - [ ] **P0.3** Decision on hostname for the VPS. Pick one:
-  - **Option A:** Use IP-only (`https://193.168.49.24`) — Caddy issues IP cert via Let's Encrypt (supported since 2025). Simplest.
-  - **Option B:** Free DuckDNS subdomain (e.g., `avitosystem.duckdns.org`) → A-record → 193.168.49.24. Caddy issues domain cert via HTTP-01. Most reliable.
+  - **Option A:** Use IP-only (`https://217.114.12.174`) — Caddy issues IP cert via Let's Encrypt (supported since 2025). Simplest.
+  - **Option B:** Free DuckDNS subdomain (e.g., `avitosystem.duckdns.org`) → A-record → 217.114.12.174. Caddy issues domain cert via HTTP-01. Most reliable.
   - **Option C:** Owned domain. Same as B but using user's own domain.
   - Plan defaults to **Option B (DuckDNS)** because IP-cert support varies by validator. Replace `avitosystem.duckdns.org` with chosen hostname throughout if A or C picked.
 
@@ -832,7 +832,7 @@ git commit -m "docs: rewrite D.2/D.3 for manual refresh model (Phase 4)"
 
 Build all the deployment files. Apply via jump host so we don't need edge open yet.
 
-**Files to create on the server (193.168.49.24):**
+**Files to create on the server (217.114.12.174):**
 - `/opt/avito-system/docker-compose.yml`
 - `/opt/avito-system/.env`
 - `/opt/avito-system/Caddyfile`
@@ -953,7 +953,7 @@ avitosystem.duckdns.org {
 }
 ```
 
-**If Phase 0 Option A (IP-only):** Replace `avitosystem.duckdns.org` with `193.168.49.24` and add `tls internal` directive — this gives self-signed cert which APK won't trust without manual cert install. Better to go with B.
+**If Phase 0 Option A (IP-only):** Replace `avitosystem.duckdns.org` with `217.114.12.174` and add `tls internal` directive — this gives self-signed cert which APK won't trust without manual cert install. Better to go with B.
 
 - [ ] **Step 3: Author `.env.template`**
 
@@ -996,13 +996,13 @@ git commit -m "feat(ops): add server deployment artifacts (compose, Caddy, env t
 - [ ] **Step 1: Copy compose files to server**
 
 ```bash
-scp -J root@155.212.217.226 -r ops/server/ root@193.168.49.24:/opt/avito-system/
+scp -J root@155.212.217.226 -r ops/server/ root@217.114.12.174:/opt/avito-system/
 ```
 
 - [ ] **Step 2: Validate compose syntax remotely**
 
 ```bash
-ssh -J root@155.212.217.226 root@193.168.49.24 \
+ssh -J root@155.212.217.226 root@217.114.12.174 \
   "cd /opt/avito-system && docker compose config --quiet && echo 'compose-syntax-OK'"
 ```
 Expected: `compose-syntax-OK` printed (any error = stop and fix the YAML).
@@ -1016,7 +1016,7 @@ If using build-context approach, copy source dirs too. For initial bootstrap I r
 rsync -avz -e "ssh -J root@155.212.217.226" \
   --exclude '.git' --exclude '__pycache__' --exclude 'node_modules' \
   --exclude '*.pyc' --exclude '.venv' --exclude 'AvitoAll' \
-  C:/Projects/Sync/AvitoSystem/ root@193.168.49.24:/opt/avito-system/repo/
+  C:/Projects/Sync/AvitoSystem/ root@217.114.12.174:/opt/avito-system/repo/
 
 # Adjust docker-compose.yml `image:` lines to `build: ../repo/avito-xapi` etc.
 ```
@@ -1036,28 +1036,28 @@ Requires Phase 0.1 (Beget firewall) + Phase 0.3 (DuckDNS or domain) done.
 - [ ] **Step 1: From local PowerShell**
 
 ```powershell
-Test-NetConnection -ComputerName 193.168.49.24 -Port 22 -InformationLevel Quiet
-Test-NetConnection -ComputerName 193.168.49.24 -Port 80 -InformationLevel Quiet
-Test-NetConnection -ComputerName 193.168.49.24 -Port 443 -InformationLevel Quiet
+Test-NetConnection -ComputerName 217.114.12.174 -Port 22 -InformationLevel Quiet
+Test-NetConnection -ComputerName 217.114.12.174 -Port 80 -InformationLevel Quiet
+Test-NetConnection -ComputerName 217.114.12.174 -Port 443 -InformationLevel Quiet
 ```
 Expected: all three return `True`. If any returns `False`, escalate Beget ticket — STOP, don't proceed.
 
 - [ ] **Step 2: Direct SSH (no jump host)**
 
 ```bash
-ssh -o BatchMode=yes -o ConnectTimeout=10 root@193.168.49.24 "uptime; docker version --format '{{.Server.Version}}'"
+ssh -o BatchMode=yes -o ConnectTimeout=10 root@217.114.12.174 "uptime; docker version --format '{{.Server.Version}}'"
 ```
 Expected: prints uptime + Docker version. If hangs/refuses — re-verify Step 1.
 
 ### Task 6.2: Configure DuckDNS (if Phase 0 Option B)
 
-- [ ] **Step 1: Register `avitosystem.duckdns.org` at https://www.duckdns.org**, point to `193.168.49.24`. Save the DuckDNS token (will use for keep-updated cron, optional).
+- [ ] **Step 1: Register `avitosystem.duckdns.org` at https://www.duckdns.org**, point to `217.114.12.174`. Save the DuckDNS token (will use for keep-updated cron, optional).
 - [ ] **Step 2: Verify DNS resolution**
 
 ```bash
 nslookup avitosystem.duckdns.org 1.1.1.1
 ```
-Expected: A record `193.168.49.24`.
+Expected: A record `217.114.12.174`.
 
 - [ ] **Step 3: Verify HTTP reachability via hostname**
 
@@ -1072,7 +1072,7 @@ Expected: connection succeeds (probably 502 since no service yet — that's fine
 - [ ] **Step 1: Edit `.env` on server with real secrets**
 
 ```bash
-ssh root@193.168.49.24 'nano /opt/avito-system/.env'  # interactive
+ssh root@217.114.12.174 'nano /opt/avito-system/.env'  # interactive
 ```
 Fill in:
 - `DATABASE_URL` (Supabase Pooled URI, port 6543)
@@ -1084,21 +1084,21 @@ Fill in:
 - [ ] **Step 2: First `docker compose up -d`**
 
 ```bash
-ssh root@193.168.49.24 'cd /opt/avito-system && docker compose up -d --build 2>&1 | tail -30'
+ssh root@217.114.12.174 'cd /opt/avito-system && docker compose up -d --build 2>&1 | tail -30'
 ```
 Expected: 4 containers `Created` and `Started`: `caddy`, `avito-xapi`, `avito-monitor`, `redis`.
 
 - [ ] **Step 3: Verify containers healthy**
 
 ```bash
-ssh root@193.168.49.24 'docker compose -f /opt/avito-system/docker-compose.yml ps'
+ssh root@217.114.12.174 'docker compose -f /opt/avito-system/docker-compose.yml ps'
 ```
 Expected: all four `Up` (avito-monitor may take 30-60s for first boot).
 
 - [ ] **Step 4: Verify Caddy issued TLS cert**
 
 ```bash
-ssh root@193.168.49.24 'docker logs avito-system-caddy-1 2>&1 | grep -E "certificate|certificate_obtained|ok" | tail -5'
+ssh root@217.114.12.174 'docker logs avito-system-caddy-1 2>&1 | grep -E "certificate|certificate_obtained|ok" | tail -5'
 ```
 Expected: Let's Encrypt-related success log within 1-2 minutes of first up.
 
@@ -1112,7 +1112,7 @@ Expected: 200 OK with JSON `{"status":"ok",...}` (avito-monitor's standard healt
 - [ ] **Step 6: Verify avito-xapi reachable internally**
 
 ```bash
-ssh root@193.168.49.24 'curl -sH "X-Api-Key: $(grep AVITO_XAPI_API_KEY /opt/avito-system/.env | cut -d= -f2)" \
+ssh root@217.114.12.174 'curl -sH "X-Api-Key: $(grep AVITO_XAPI_API_KEY /opt/avito-system/.env | cut -d= -f2)" \
   http://localhost/api/v1/accounts | python3 -m json.tool | head -20'
 ```
 Expected: JSON list with accounts (Main + Clone migrated from homelab). If 401 — API key mismatch. If empty — verify Phase 2 data migration ran.
@@ -1134,7 +1134,7 @@ Manual UI changes in the AvitoSessionManager APK. No code change.
 - [ ] **Step 3** (user) — Replace current value (likely `http://213.108.170.194:8080` — homelab) with `https://avitosystem.duckdns.org`. **No port suffix** — Caddy handles 443 automatically.
 - [ ] **Step 4** (user) — Find `Server API Key` field. Replace with the value of `AVITO_XAPI_API_KEY` from server `.env`. Get this value via:
 ```bash
-ssh root@193.168.49.24 'grep AVITO_XAPI_API_KEY /opt/avito-system/.env'
+ssh root@217.114.12.174 'grep AVITO_XAPI_API_KEY /opt/avito-system/.env'
 ```
 Type it into APK Settings.
 - [ ] **Step 5** (user) — Find `Auto Launch Avito` toggle, turn it **OFF**. (This was the monkey-scroll behavior we don't want anymore.)
@@ -1143,7 +1143,7 @@ Type it into APK Settings.
 
 Verify on server side:
 ```bash
-ssh root@193.168.49.24 \
+ssh root@217.114.12.174 \
   'curl -sH "X-Api-Key: $(grep AVITO_XAPI_API_KEY /opt/avito-system/.env | cut -d= -f2)" \
    https://localhost/api/v1/sessions/current -k'
 ```
@@ -1158,7 +1158,7 @@ ssh root@193.168.49.24 \
 - [ ] **Step 1** (user) — In user_10, open Avito-app. Wait 60-90 sec.
 - [ ] **Step 2** — Verify on server:
 ```bash
-ssh root@193.168.49.24 'docker logs avito-system-avito-xapi-1 --since=2m 2>&1 | grep -i "POST.*sessions"'
+ssh root@217.114.12.174 'docker logs avito-system-avito-xapi-1 --since=2m 2>&1 | grep -i "POST.*sessions"'
 ```
 Expected: a POST to `/api/v1/sessions` from APK in user_10 within 10-30 sec.
 
@@ -1172,7 +1172,7 @@ Expected: a fresh row with `created_at` matching when user opened Avito-app.
 
 - [ ] **Step 4** — Verify polling resumes:
 ```bash
-ssh root@193.168.49.24 'docker logs avito-system-avito-monitor-1 --since=2m 2>&1 | grep -E "poll-claim|fetch_with_pool" | tail -5'
+ssh root@217.114.12.174 'docker logs avito-system-avito-monitor-1 --since=2m 2>&1 | grep -E "poll-claim|fetch_with_pool" | tail -5'
 ```
 Expected: claim succeeds, listings fetched.
 
@@ -1212,7 +1212,7 @@ With:
 ```markdown
 **Дата:** 2026-05-02. **Server Migration shipped — homelab decommissioned as middleware.**
 
-avito-monitor + avito-proxy + Caddy/TLS на новом VPS (193.168.49.24, RU).
+avito-monitor + avito-proxy + Caddy/TLS на новом VPS (217.114.12.174, RU).
 DB на Supabase Cloud (drwgozasaypgphkxyizt, Frankfurt).
 APK на phone'е POSTит /sessions напрямую на сервер.
 Refresh — manual: утро user_0, вечер user_10. Health-checker эмитит only
@@ -1246,7 +1246,7 @@ After writing the full plan, ran the spec coverage check:
 
 - ✅ **Spec point 1** (Supabase Cloud migration of schema+data from homelab): Phases 1-2 cover both schema (via SQL Editor) and data (selective table dump+restore).
 - ✅ **Spec point 2** (xapi refactor — remove device_switcher / refresh-cycle / device-commands long-poll / monkey-scroll): Phase 3, broken into 5 tasks with TDD safety harness. Note: the **monkey-scroll logic** lives in the APK (`AvitoSessionManager`), not xapi. Cleanup in xapi is correct (remove the cmd-issuing endpoint). The phone-side disabling is handled via APK Settings UI in Phase 7 (`autoLaunchAvito = OFF`).
-- ✅ **Spec point 3** (avito-monitor + avito-proxy deploy on 193.168.49.24): Phase 5 (artifacts) + Phase 6 (deploy).
+- ✅ **Spec point 3** (avito-monitor + avito-proxy deploy on 217.114.12.174): Phase 5 (artifacts) + Phase 6 (deploy).
 - ✅ **Spec point 4** (Caddy + auto-TLS via Let's Encrypt): Phase 5.1 Caddyfile with HTTP-01 via DuckDNS hostname; Phase 6.3 Step 4 verifies cert issued.
 - ✅ **Spec point 5** (APK URL repoint via Settings UI in user_0 and user_10, autoLaunchAvito=false): Phase 7, both users covered, autoLaunchAvito explicitly toggled off.
 - ✅ **Spec point 6** (one-stale alert logic in account_tick replacing proactive-refresh): Phase 4 (TDD), tests cover all 4 cases (both fresh / one stale / recovery / both stale).
