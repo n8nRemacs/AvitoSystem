@@ -76,9 +76,11 @@ FIRED_SENTINELS: dict[str, datetime] = {}
 # instead of just the bare letter.
 SCENARIO_DESCRIPTIONS: dict[str, dict[str, str | list[str]]] = {
     "A": {
-        "title": "JWT-токен скоро протухнет",
+        # Reason line (filled by scenario_a) carries the deadline in
+        # local time, so the title stays neutral.
+        "title": "JWT-токен",
         "causes": [
-            "До экспирации меньше 4ч — открой Avito-app в нужном android-юзере для refresh",
+            "Открой Avito-app в нужном android-юзере для refresh",
         ],
     },
     "B": {
@@ -265,14 +267,23 @@ def _format_recovery_text(scenario: str, latest: HealthCheck) -> str:
     tz = _local_tz()
     label = _tz_short_label(tz)
     ts = (
-        latest.ts.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S " + label)
+        latest.ts.astimezone(tz).strftime("%H:%M:%S " + label)
         if latest and latest.ts
         else "?"
     )
     desc = SCENARIO_DESCRIPTIONS.get(scenario, {})
     title = desc.get("title", f"сценарий {scenario}")
+
+    # Scenario-specific second line: when scenario_a (or any future scenario)
+    # captured a human-readable PASS detail (``fresh_for``), surface it so
+    # the recovery alert says *why* it's recovered, not just "pass at HH:MM".
+    extra = ""
+    if latest and latest.details:
+        fresh = latest.details.get("fresh_for")
+        if isinstance(fresh, str) and fresh:
+            extra = f" — {fresh}"
     return (
-        f"✅ Восстановлено: {title}  ({scenario})\n"
+        f"✅ Восстановлено: {title}  ({scenario}){extra}\n"
         f"pass в {ts}, latency {latency} мс."
     )
 
