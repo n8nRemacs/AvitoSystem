@@ -49,7 +49,7 @@ class SearchProfile(Base, TimestampMixin):
 
     # V2 LLM pipeline (flag-based evaluation, hot-switchable strategy)
     evaluate_strategy: Mapped[str] = mapped_column(
-        String(16), default="per_listing"
+        String(16), default="per_criterion"
     )
     confidence_threshold: Mapped[float] = mapped_column(
         Numeric(4, 3), default=0.7

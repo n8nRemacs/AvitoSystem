@@ -62,8 +62,8 @@ class SearchProfileBase(BaseModel):
 
     # V2 pipeline (flag-based evaluation)
     evaluate_strategy: str = Field(
-        "per_listing",
-        description="per_listing | per_criterion (hot-switchable)",
+        "per_criterion",
+        description="per_criterion (default — granular cache, accuracy) | per_listing (1 batch call)",
     )
     confidence_threshold: float = Field(0.7, ge=0.5, le=0.99)
 

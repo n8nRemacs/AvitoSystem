@@ -228,13 +228,13 @@
           <span class="text-xs text-avito-text-soft mb-1 block">Стратегия LLM-вызовов</span>
           <select name="evaluate_strategy"
                   class="px-3 py-2 rounded-md border border-avito-border bg-white">
-            <option value="per_listing"
-              {% if not profile or profile.evaluate_strategy in (none, 'per_listing') %}selected{% endif %}>
-              per_listing — 1 вызов на лот (дёшево)
-            </option>
             <option value="per_criterion"
-              {% if profile and profile.evaluate_strategy == 'per_criterion' %}selected{% endif %}>
-              per_criterion — N вызовов (точнее, гранулярный кеш)
+              {% if not profile or profile.evaluate_strategy in (none, 'per_criterion') %}selected{% endif %}>
+              per_criterion — N вызовов (default, точнее, гранулярный кеш)
+            </option>
+            <option value="per_listing"
+              {% if profile and profile.evaluate_strategy == 'per_listing' %}selected{% endif %}>
+              per_listing — 1 batch вызов на лот (дёшево, но грубее)
             </option>
           </select>
         </label>
