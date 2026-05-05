@@ -251,12 +251,151 @@
                  oninput="this.parentElement.querySelector('output').value = parseFloat(this.value).toFixed(2)">
         </label>
 
-        <p class="text-xs text-avito-text-soft">
-          Список criteria настраивается отдельно: либо через
-          <code class="bg-avito-surface-strong px-1 rounded">app/data/criteria_templates.yaml</code>
-          (глобальная библиотека) + ручные INSERT в <code>profile_criteria</code>,
-          либо через будущий UI редактор criteria (Phase B).
-        </p>
+        {# ---------------------------------------------------------- #}
+        {# Library criteria — checkbox-grouped by kind                #}
+        {# ---------------------------------------------------------- #}
+        {% set selected_keys = criteria_state.selected if criteria_state else {} %}
+        {% for grp in criteria_library or [] %}
+        <div class="border-t border-avito-border-soft pt-4 mt-4">
+          <h3 class="text-sm font-semibold text-avito-text mb-2">
+            {% if grp.kind == 'criterion' %}Жёсткие критерии{% endif %}
+            {% if grp.kind == 'info_llm' %}Info-поля (LLM-извлечение){% endif %}
+            {% if grp.kind == 'info_api' %}Info-поля (из параметров объявления){% endif %}
+          </h3>
+          <p class="text-xs text-avito-text-soft mb-3">
+            {% if grp.kind == 'criterion' %}Если критерий «срабатывает» (red) — лот уходит в авто-blacklist и в alert не попадает.{% endif %}
+            {% if grp.kind == 'info_llm' %}LLM извлекает значение из описания, без оценки.{% endif %}
+            {% if grp.kind == 'info_api' %}Берутся прямо из параметров объявления, без LLM.{% endif %}
+          </p>
+          <div class="space-y-3">
+            {% for item in grp['items'] %}
+            {% set is_checked = item.key in selected_keys %}
+            <div class="bg-avito-elev rounded-md p-3 border border-avito-border-soft">
+              <label class="flex items-start gap-2">
+                <input type="checkbox"
+                       name="criteria_template_keys"
+                       value="{{ item.key }}"
+                       {% if is_checked %}checked{% endif %}
+                       class="rounded mt-0.5">
+                <span class="flex-1">
+                  <span class="font-medium text-avito-text">{{ item.title_ru }}</span>
+                  {% if item.description_ru %}
+                  <span class="block text-xs text-avito-text-soft mt-0.5">{{ item.description_ru }}</span>
+                  {% endif %}
+                </span>
+              </label>
+
+              {# Inline params for parametrised templates #}
+              {% if item.key == 'memory_gte' %}
+              <div class="mt-2 pl-6">
+                <label class="block">
+                  <span class="text-xs text-avito-text-soft">Память не ниже, ГБ</span>
+                  <input type="number" min="8" max="4096" step="1"
+                         name="crit_param_memory_gte_gb"
+                         value="{{ selected_keys.get('memory_gte', {}).get('gb', '') }}"
+                         placeholder="например, 128"
+                         class="mt-1 w-32 px-2 py-1 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+                </label>
+              </div>
+              {% elif item.key == 'title_matches_model' %}
+              <div class="mt-2 pl-6">
+                <label class="block">
+                  <span class="text-xs text-avito-text-soft">Допустимые модели (одна на строку)</span>
+                  <textarea rows="3"
+                            name="crit_param_title_matches_model_allowed"
+                            placeholder="iPhone 12 Pro Max&#10;iPhone 13 Pro Max"
+                            class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">{{ selected_keys.get('title_matches_model', {}).get('allowed', []) | join('\n') }}</textarea>
+                </label>
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+
+        {# ---------------------------------------------------------- #}
+        {# Custom rows — repeating block                              #}
+        {# ---------------------------------------------------------- #}
+        <div class="border-t border-avito-border-soft pt-4 mt-4">
+          <h3 class="text-sm font-semibold text-avito-text mb-2">Произвольные критерии</h3>
+          <p class="text-xs text-avito-text-soft mb-3">
+            Свои criterion / info_llm с собственным prompt-фрагментом. Для info_api используй библиотеку.
+          </p>
+          <div id="custom-criteria-rows" class="space-y-3">
+            {% for row in (criteria_state.custom if criteria_state else []) %}
+            <div class="custom-criterion-row bg-avito-elev rounded-md p-3 border border-avito-border-soft">
+              <div class="grid grid-cols-3 gap-2 mb-2">
+                <label class="col-span-2">
+                  <span class="text-xs text-avito-text-soft">Название</span>
+                  <input type="text" name="custom_crit_title[]"
+                         value="{{ row.title }}"
+                         class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
+                </label>
+                <label>
+                  <span class="text-xs text-avito-text-soft">Тип</span>
+                  <select name="custom_crit_kind[]"
+                          class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
+                    <option value="criterion" {% if row.kind == 'criterion' %}selected{% endif %}>criterion</option>
+                    <option value="info_llm" {% if row.kind == 'info_llm' %}selected{% endif %}>info_llm</option>
+                  </select>
+                </label>
+              </div>
+              <label class="block">
+                <span class="text-xs text-avito-text-soft">Prompt-фрагмент</span>
+                <textarea name="custom_crit_prompt[]" rows="2"
+                          class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">{{ row.prompt }}</textarea>
+              </label>
+              <div class="text-right mt-2">
+                <button type="button"
+                        onclick="this.closest('.custom-criterion-row').remove()"
+                        class="text-xs text-avito-negative hover:underline">
+                  Удалить
+                </button>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+
+          {# Hidden template — cloned by JS when user clicks "Добавить свой" #}
+          <template id="custom-criterion-template">
+            <div class="custom-criterion-row bg-avito-elev rounded-md p-3 border border-avito-border-soft">
+              <div class="grid grid-cols-3 gap-2 mb-2">
+                <label class="col-span-2">
+                  <span class="text-xs text-avito-text-soft">Название</span>
+                  <input type="text" name="custom_crit_title[]"
+                         class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
+                </label>
+                <label>
+                  <span class="text-xs text-avito-text-soft">Тип</span>
+                  <select name="custom_crit_kind[]"
+                          class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
+                    <option value="criterion" selected>criterion</option>
+                    <option value="info_llm">info_llm</option>
+                  </select>
+                </label>
+              </div>
+              <label class="block">
+                <span class="text-xs text-avito-text-soft">Prompt-фрагмент</span>
+                <textarea name="custom_crit_prompt[]" rows="2"
+                          class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm"></textarea>
+              </label>
+              <div class="text-right mt-2">
+                <button type="button"
+                        onclick="this.closest('.custom-criterion-row').remove()"
+                        class="text-xs text-avito-negative hover:underline">
+                  Удалить
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <button type="button"
+                  onclick="(function(){ var t=document.getElementById('custom-criterion-template'); var c=t.content.cloneNode(true); document.getElementById('custom-criteria-rows').appendChild(c); })()"
+                  class="mt-3 px-3 py-1.5 rounded-md border border-avito-border text-xs hover:bg-avito-elev">
+            + Добавить свой
+          </button>
+        </div>
       </div>
     </details>
 
