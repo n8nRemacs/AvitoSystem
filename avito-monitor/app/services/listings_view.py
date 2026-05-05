@@ -66,6 +66,7 @@ class ListingRow:
     in_alert_zone: bool
     processing_status: str
     user_action: str | None
+    bucket: str | None
     discovered_at: datetime | None
     last_seen_at: datetime | None
     image_url: str | None
@@ -229,6 +230,7 @@ async def query_listings(
             in_alert_zone=link.in_alert_zone,
             processing_status=link.processing_status,
             user_action=link.user_action,
+            bucket=link.bucket,
             discovered_at=link.discovered_at,
             last_seen_at=listing.last_seen_at,
             image_url=_first_image_url(listing.images),
