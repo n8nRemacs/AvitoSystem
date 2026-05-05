@@ -28,12 +28,13 @@ echo "===== Phase B V2 soak metrics @ $(date -u +%FT%TZ) ====="
 echo
 echo "--- Bucket distribution (last 24h) ---"
 psql "$AVITO_PG_URL" -X -c "
-  SELECT bucket, count(*) AS lots, count(*) FILTER (WHERE in_alert_zone) AS in_alert
+  SELECT e.bucket, count(*) AS lots,
+         count(*) FILTER (WHERE pl.in_alert_zone) AS in_alert
   FROM profile_listing_evaluations e
   JOIN profile_listings pl ON pl.profile_id = e.profile_id AND pl.listing_id = e.listing_id
   WHERE e.evaluated_at > now() - interval '24 hours'
-  GROUP BY bucket
-  ORDER BY bucket;
+  GROUP BY e.bucket
+  ORDER BY e.bucket;
 "
 
 echo "--- Per-profile bucket split (last 24h) ---"
