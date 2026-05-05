@@ -47,14 +47,17 @@ async def scenario_f(client: XapiClient) -> ScenarioResult:
 
     if not read_call.ok:
         details["error"] = read_call.error or f"HTTP {read_call.status_code}"
+        details["reason"] = f"endpoint {details['endpoint']} → HTTP {read_call.status_code} {details['error']}"
         return ScenarioResult(SCENARIO, "fail", read_call.latency_ms, details)
 
     if read_call.latency_ms >= MAX_LATENCY_MS:
         details["reason"] = (
-            f"latency {read_call.latency_ms}ms >= {MAX_LATENCY_MS}ms"
+            f"endpoint {details['endpoint']} → HTTP {read_call.status_code}, latency {read_call.latency_ms}ms >= {MAX_LATENCY_MS}ms"
         )
         return ScenarioResult(SCENARIO, "fail", read_call.latency_ms, details)
 
+    # PASS — record HTTP status for recovery message.
+    details["fresh_for"] = f"OK ({read_call.status_code})"
     return ScenarioResult(SCENARIO, "pass", read_call.latency_ms, details)
 
 

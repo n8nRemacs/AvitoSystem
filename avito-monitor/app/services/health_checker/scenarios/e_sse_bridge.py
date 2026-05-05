@@ -86,16 +86,21 @@ async def scenario_e(
     details["second_event_ms"] = second_event_ms
     details["second_event_name"] = second_event_name
 
-    if connected_ms is None or connected_ms > int(connected_budget_sec * 1000):
+    connected_budget_ms = int(connected_budget_sec * 1000)
+    overall_budget_ms = int(overall_budget_sec * 1000)
+
+    if connected_ms is None or connected_ms > connected_budget_ms:
         details["reason"] = (
-            f"no connected event within {int(connected_budget_sec * 1000)}ms"
+            f"connect {connected_ms}ms, second event {second_event_ms}ms (нужно <{connected_budget_ms}ms)"
         )
         return ScenarioResult(SCENARIO, "fail", elapsed_ms, details)
-    if second_event_ms is None or second_event_ms > int(overall_budget_sec * 1000):
+    if second_event_ms is None or second_event_ms > overall_budget_ms:
         details["reason"] = (
-            f"no post-connected event within {int(overall_budget_sec * 1000)}ms"
+            f"connect {connected_ms}ms, second event {second_event_ms}ms (нужно <{overall_budget_ms}ms)"
         )
         return ScenarioResult(SCENARIO, "fail", elapsed_ms, details)
 
+    # PASS — record connection time for recovery message.
+    details["fresh_for"] = f"connected {connected_ms}ms"
     # Latency reported = time to first proof-of-life (connected event).
     return ScenarioResult(SCENARIO, "pass", connected_ms, details)

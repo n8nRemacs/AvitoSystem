@@ -84,35 +84,35 @@ SCENARIO_DESCRIPTIONS: dict[str, dict[str, str | list[str]]] = {
         ],
     },
     "B": {
-        "title": "Ротации JWT не было >24ч",
+        "title": "Ротация JWT-токена",
         "causes": [
             "Avito-app не открывался сутки — открой его на phone",
             "NotificationListener APK выключен или phone оффлайн",
         ],
     },
     "C": {
-        "title": "Мессенджер Avito временно недоступен",
+        "title": "Мессенджер Avito (доступность)",
         "causes": [
             "Avito API лежит — обычно проходит само за 5-15 мин",
             "Проблемы сети VPS → app.avito.ru",
         ],
     },
     "D": {
-        "title": "Мессенджер Avito медленный или упал",
+        "title": "Мессенджер Avito (latency)",
         "causes": [
             "Avito тормозит (round-trip > 2с) — обычно проходит само",
             "Проблемы в сети между VPS и Avito",
         ],
     },
     "E": {
-        "title": "Real-time мессенджер не работает",
+        "title": "Real-time мессенджер (SSE)",
         "causes": [
             "SSE-стрим /messenger/realtime/events замолк — push-сообщения чата не дойдут",
             "Перезапусти xapi или проверь Avito-WS",
         ],
     },
     "F": {
-        "title": "POST в мессенджер Avito не проходит",
+        "title": "POST в мессенджер Avito",
         "causes": [
             "Avito API отвергает запросы — бот не сможет отвечать",
             "Возможно временный сбой Avito",
@@ -125,7 +125,7 @@ SCENARIO_DESCRIPTIONS: dict[str, dict[str, str | list[str]]] = {
         ],
     },
     "I": {
-        "title": "Push-уведомления с phone не приходят",
+        "title": "Push с phone",
         "causes": [
             "Phone оффлайн или NotificationListener выключен",
             "Avito-app очищен/удалён в одном из android-юзеров",

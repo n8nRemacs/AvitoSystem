@@ -1,16 +1,20 @@
 """SearchProfile CRUD + business logic (URL parse, dual range, overlay)."""
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import datetime, timezone
+from typing import Any, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ProfileRun, SearchProfile
+from app.db.models import CriteriaTemplate, ProfileCriterion, ProfileRun, SearchProfile
 from app.db.models.enums import ProfileRunStatus
 from app.schemas.search_profile import (
     ParsedUrlPreview,
+    ProfileCriterionSpec,
     SearchProfileCreate,
     SearchProfileUpdate,
 )
@@ -19,6 +23,11 @@ from app.services.url_parser import (
     compute_search_range,
     parse_avito_url,
 )
+
+# Bumped together with prompts/evaluate_*.md when the wire-level
+# evaluation contract changes. Folded into criteria_set_hash so a
+# prompt-version change forces re-grading via cache-key mismatch.
+_PROMPT_VERSION = 1
 
 
 def preview_url(url: str) -> ParsedUrlPreview:

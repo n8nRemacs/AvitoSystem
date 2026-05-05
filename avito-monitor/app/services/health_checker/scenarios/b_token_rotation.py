@@ -12,12 +12,21 @@ either.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
+from app.config import get_settings
 from app.services.health_checker.scenarios.base import ScenarioResult
 from app.services.health_checker.xapi_client import XapiClient
 
 SCENARIO = "B"
 MAX_AGE_HOURS = 24.0
+
+
+def _local_tz() -> ZoneInfo:
+    try:
+        return ZoneInfo(get_settings().timezone)
+    except Exception:
+        return ZoneInfo("UTC")
 
 
 def _parse_ts(value: object) -> datetime | None:
@@ -56,13 +65,22 @@ async def scenario_b(client: XapiClient) -> ScenarioResult:
         return ScenarioResult(SCENARIO, "fail", call.latency_ms, details)
 
     age = datetime.now(UTC) - rotated
-    details["age_hours"] = round(age.total_seconds() / 3600.0, 2)
+    age_hours = round(age.total_seconds() / 3600.0, 2)
+    details["age_hours"] = age_hours
+
     if age > timedelta(hours=MAX_AGE_HOURS):
-        details["reason"] = f"token rotation stale ({details['age_hours']}h > {MAX_AGE_HOURS}h)"
+        local = rotated.astimezone(_local_tz())
+        ts_local = local.strftime("%H:%M")
+        tz_label = local.strftime("%Z") or "+00"
+        details["reason"] = f"последняя ротация {age_hours:.1f}ч назад в {ts_local} {tz_label}"
         return ScenarioResult(SCENARIO, "fail", call.latency_ms, details)
     if age.total_seconds() < 0:
         # Clock skew: timestamp is in the future. Treat as stale, surface clearly.
         details["reason"] = "rotation timestamp in the future (clock skew?)"
         return ScenarioResult(SCENARIO, "fail", call.latency_ms, details)
 
+    # PASS — record human-readable rotation timestamp for the recovery message.
+    local = rotated.astimezone(_local_tz())
+    ts_local = local.strftime("%H:%M")
+    details["fresh_for"] = f"последняя ротация {ts_local} (всего {age_hours:.1f}ч назад)"
     return ScenarioResult(SCENARIO, "pass", call.latency_ms, details)
