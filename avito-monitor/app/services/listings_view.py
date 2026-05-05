@@ -99,6 +99,7 @@ class ListingFilters:
     zone: str = ZONE_ALL
     period: str = "7d"
     sort: str = "date"
+    bucket: str | None = None  # V2: green / grey / red
     # Tab filter — translated below into a SQL ``user_action IN (...)`` clause.
     # ``new`` = pending+viewed (still to triage),
     # ``in_progress`` = accepted (taken into работу),
@@ -163,6 +164,8 @@ async def query_listings(
         stmt = stmt.where(ProfileListing.profile_id.in_(f.profile_ids))
     if f.condition_classes:
         stmt = stmt.where(Listing.condition_class.in_(f.condition_classes))
+    if f.bucket:
+        stmt = stmt.where(ProfileListing.bucket == f.bucket)
     if f.zone == ZONE_ALERT:
         stmt = stmt.where(ProfileListing.in_alert_zone.is_(True))
     elif f.zone == ZONE_MARKET:

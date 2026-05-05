@@ -6,33 +6,35 @@
 
 ---
 
-## 1. Production state — 2026-05-04
+## 1. Production state — 2026-05-05 (Phase A V2 LLM pipeline shipped)
 
 | Что | Где |
 |---|---|
-| **VPS** | `81.200.119.132` (Beget RU, 1c/2GB/15GB Ubuntu 24.04, Docker 29). 9 контейнеров: caddy, avito-xapi, avito-monitor (web UI), avito-mcp, redis, worker, scheduler, health-checker, telegram-bot |
+| **VPS** | `81.200.119.132` (Beget RU, **2c/4GB**/15GB Ubuntu 24.04 + 2GB swap, Docker 29). 13 контейнеров: caddy, avito-xapi, avito-monitor, avito-mcp, redis, scheduler, health-checker, telegram-bot + **5×worker (`worker-1..8`)**. Upgraded с 1c/2GB после OOM на 2026-05-05. |
 | **Public URL** | `https://avitosystem.duckdns.org` (Let's Encrypt cert auto-renew, DuckDNS cron-update token в `/usr/local/bin/duckdns-update.sh`) |
-| **БД** | Supabase Cloud `drwgozasaypgphkxyizt` (Frankfurt, eu-central-1). `DATABASE_URL` use pooler 6543 + `?prepared_statement_cache_size=0` (asyncpg+pgbouncer fix). `SUPABASE_KEY` — `sb_secret_*` для xapi REST. |
-| **Phone** | OnePlus 8T (`110139ce`), USB к Windows ПК. APK `com.avitobridge.sessionmanager` в user_0+user_10, оба видят VPS. Magisk policies для UID 10296+1010296 = Allow, multiuser_mode=1. Notification listener granted в обоих юзерах. |
-| **Homelab** | xapi+monitor контейнеры **остановлены**. Rollback: `ssh homelab; cd /mnt/projects/repos/AvitoSystem/avito-{xapi,monitor}; docker compose start`. |
+| **БД** | Supabase Cloud `drwgozasaypgphkxyizt` (Frankfurt, eu-central-1). `DATABASE_URL` pooler 6543 + `prepared_statement_cache_size=0` через `connect_args` (URL query string не работает в современной SQLAlchemy — фикс в `app/db/base.py:50` + `alembic/env.py:53`). `SUPABASE_KEY` = `sb_secret_*`. |
+| **Phone** | OnePlus 8T (`110139ce`), USB к Windows ПК. APK `com.avitobridge.sessionmanager` в user_0+user_10. **На 2026-05-05** Avito-app в user_0 залогинен под другим Avito user (`431483569`), не старый Clone (`157920214`). |
+| **Homelab** | закрыт физически. Rollback на homelab невозможен. |
+| **UI логин** | `owner` / `Avito2026Soak`, `remacs` / `31415926` (admin). |
 
-### Branch state
+### Branch state — main current
 
-`feat/server-migration` — **20 коммитов** поверх main (см. `git log main..HEAD`). НЕ замержена в main, ждёт user-decision.
+После 2026-05-05 Phase A deploy: `feat/server-migration` смержена в `main` (commit `6ca0295`) и pushed на `origin/main`. **Production деплоится из main rsync'ом** (`/opt/avito-system/repo/` — НЕ git). Workflow rsync: `cd avito-monitor && tar -czf - --exclude __pycache__ --exclude .git . | ssh root@81.200.119.132 'cd /opt/avito-system/repo/avito-monitor && tar -xzf -'`.
 
-### Pool state на момент закрытия сессии
+### Pool state на момент закрытия сессии (2026-05-05 ~10:00 UTC)
 
 ```
 avito_accounts:
-  Clone (42c179db…)            user_10  state=dead
-  auto-157920214 (b5cbf28b…)   user_0   state=cooldown
+  Clone                 (42c179db…)  user_10   state=dead       (exp 2026-05-01 18:27)
+  auto-157920214        (b5cbf28b…)  user_0    state=cooldown   (exp 2026-05-05 11:32)
+  auto-431483569 NEW    (14acfef4…)  user_0    state=cooldown   (exp 2026-05-05 15:08)  ← свежий, но в cooldown
 ```
 
-Pool неактивен — Avito-app в обоих юзерах не делал refresh JWT (текущий токен экспирится 2026-05-05 ~08:25 UTC, ещё свежий). Polling возобновится автоматически когда:
-- Avito-app сам решит refresh near-expiry → APK поймает push → POST `/api/v1/sessions` на VPS → state=active.
-- Либо юзер вручную откроет Avito-app в каждом android-юзере на 60-90 сек.
+**Live polling сейчас не работает.** Все 7 search_profiles имеют `owner_account_id=42c179db` (Clone, dead) потому что были импортированы через `autosearch_sync` от Clone-аккаунта. При попытке fetch через нового `431483569` Avito возвращает **403** на `/subscriptions/261149389/items` — autosearch принадлежит старому Clone, не новому юзеру.
 
-Health-checker мониторит, шлёт TG-alerts (см. раздел про alerting ниже).
+**Чтобы оживить polling:**
+- Юзеру **залогиниться обратно в Avito-app под `157920214`** (старый Clone). Avito-app сделает refresh JWT, APK push'нет в xapi `/api/v1/sessions`, существующий аккаунт `b5cbf28b` (auto-157920214) перейдёт в `state=active`.
+- Альтернативно — **сделать full re-import autosearches для нового юзера** через `/search-profiles/sync` UI button после login. Это **сломает** старые 7 профилей (autosearch_id'ы будут архивированы), но создаст новые под `431483569`.
 
 ---
 
@@ -76,48 +78,61 @@ Health-checker мониторит, шлёт TG-alerts (см. раздел про
 
 | # | Задача | Severity | Часы |
 |---|---|---|---|
-| 1 | **Ротация секретов** (засветились в чате 2026-05-04) | high | 0.3 |
+| 1 | **Ротация секретов** (засветились в чате 2026-05-04 + 2026-05-05) | high | 0.3 |
 |   | • Root-пароль VPS `Mi31415926pSss!` — `passwd` под root |   |   |
 |   | • Supabase legacy service_role JWT — Dashboard → Settings → API → «Reset JWT secret» |   |   |
-|   | • Supabase Secret API key `sb_secret_JWTeco7Y5...` — Revoke, создать новый, обновить `/opt/avito-system/.env` |   |   |
+|   | • Supabase Secret API key `sb_secret_*` — Revoke, создать новый, обновить `/opt/avito-system/.env` |   |   |
 |   | • Avito-MCP auth token `7235ad5be6bbc6ea7dc0a3d692eb51e9ccbc136e184f2222` — opt'l rotate |   |   |
+|   | • UI пароли `owner` / `Avito2026Soak` и `remacs` / `31415926` — сменить через `python -m scripts.create_admin <user> <new_pw>` |   |   |
 | 2 | **Зарегистрировать второй Avito-аккаунт** для реального pool=2 | high | 0.5 + регистрация |
-| 3 | **Pool warm-up** — открыть Avito-app в user_0+user_10 на phone (manual one-time, после первой refresh цикл устаканится) | high | 0.1 |
-| 4 | **Avito-MCP в Claude Code** — добавить через `claude mcp add --transport sse avito https://avitosystem.duckdns.org/mcp/sse --header "Authorization: Bearer 7235ad5be6bbc6ea7dc0a3d692eb51e9ccbc136e184f2222"`. Tools: `avito_fetch_search_page`, `avito_get_listing`, `avito_get_listing_images`, `avito_health_check`. | low | 0.1 |
+| 3 | **Pool warm-up** — открыть Avito-app в user_0 под `157920214` (старый Clone). Manual, после первой refresh цикл устаканится | **критично** | 0.1 |
+| 4 | **Avito-MCP в Claude Code** — `claude mcp add --transport sse avito https://avitosystem.duckdns.org/mcp/sse --header "Authorization: Bearer 7235ad5be6bbc6ea7dc0a3d692eb51e9ccbc136e184f2222"`. Tools: `avito_fetch_search_page`, `avito_get_listing`, `avito_get_listing_images`, `avito_health_check`. | low | 0.1 |
 | 5 | **TG bot inbound через прокси** | low | 0.3 |
 | 6 | **Captcha/IP-ban detection** | medium | 2-3 |
 | 7 | **Reboot recovery alert** (FBE PIN unlock detector) | low | 0.5 |
-| 8 | **Merge `feat/server-migration` → main** + cleanup | medium | 0.2 |
+| 8 | ~~Merge `feat/server-migration` → main~~ — done в `6ca0295` (2026-05-05) |   | done |
+| 9 | **Phase C migration** — применить `0009_drop_legacy_v2_artifacts` ПОСЛЕ Phase B соака (3-4 дня) | medium | 0.2 |
 
 ---
 
-## 4. Следующая большая задача — LLM разбор парсинга объявлений
+## 4. Следующая большая задача — Phase B соак V2 LLM pipeline
 
-**Цель:** настроить core monitoring loop — search profile parses Avito search URL → fetches listings via xapi → LLM classifies condition (`working`/`blocked_icloud`/`broken_screen`/...) → LLM matches alert criteria → notification.
+**State:** Phase A V2 LLM pipeline shipped 2026-05-05 (план в `C:/Users/EloNout/.claude/plans/sequential-seeking-trinket.md`). Двухступенчатый ADR-010 заменён на **single-stage flag-based evaluation с 3 корзинами**:
 
-### Что уже есть (надо проверить)
+- **GREEN** = все criteria green ≥ confidence_threshold (0.7) → TG-нотификация если в alert-зоне
+- **GREY** = unknown / низкий confidence → видно в `/listings` с серым chip, без алерта
+- **RED** = любой criterion red ≥ threshold → auto-INSERT в `user_listing_blacklist` reason=`auto_red:<key>` (ADR-011 reuse)
 
-- **`search_profiles`** на Cloud — 7 rows перенесены с homelab. Проверить через `GET /api/v1/accounts` или Cloud SQL.
-- **TaskIQ scheduler + worker** запущены на VPS. Scheduler тикает каждую минуту, worker драинит queues.
-- **OPENROUTER_API_KEY** в `.env` (был ротирован 2026-04-29, действующий).
-- **`app/services/llm_analyzer.py`** + промпты в `app/prompts/` — это блок 3 V1_EXECUTION_PLAN, скорее всего уже реализован, проверить.
-- **`avito_mcp` tools** — могут пригодиться для manual debug Avito-выдачи через Claude.
+**Hot-switch** между `per_listing` (1 batch LLM call) и `per_criterion` (N calls) на лету через `UPDATE search_profiles SET evaluate_strategy='per_criterion' WHERE id=...` — cache гранулярный per-criterion, переключение не инвалидирует.
 
-### Что нужно сделать в этой задаче
+### Что уже задеплоено (Phase A done)
 
-1. **Smoke test:** есть ли активный search_profile, который тикает; что worker делает — `docker logs avito-system-worker-1`. Если `poll_profile(profile_id)` уже запускается, посмотреть что он fetch'ит.
-2. **Проверить блоки 2-3 V1_EXECUTION_PLAN.md (DOCS/V1_EXECUTION_PLAN.md):** что из CRUD/UI search_profiles + LLMAnalyzer уже работает, что нужно доделать.
-3. **End-to-end:** взять реальный URL Avito (например, "iPhone 12 Pro Max до 13.5K"), создать profile, дождаться poll_profile → analyze_listing → notification.
-4. **Двухступенчатый LLM (ADR-010):** дешёвый classify_condition на всех лотах, дорогой match только на alert-зоне с подходящим состоянием.
-5. **Двойная вилка (ADR-008):** search-вилка широкая (±25%), alert-вилка узкая (юзеру важная). Проверить overlay logic.
-6. **Pool активность:** для polling нужна `state=active` сессия — делать **после** того как открыли Avito-app (раздел 3 Backlog #3).
+- 3 новые таблицы (`criteria_templates` 13 templates, `profile_criteria` 5-6 rows на каждый из 7 legacy профилей, `profile_listing_evaluations`).
+- Колонки: `search_profiles.{evaluate_strategy, confidence_threshold, criteria_set_hash, bucket_routing}`, `profile_listings.{bucket, latest_evaluation_id}`.
+- `LLMAnalyzer.evaluate_listing(...)` + 3 prompts (`evaluate_listing_batch.md`, `evaluate_criterion.md`, `extract_info.md`).
+- Новый task `evaluate_listing` в `app/tasks/analysis.py`. Polling routes на v2 если `notification_settings.llm_pipeline_v2=true` или env `LLM_PIPELINE=v2`.
+- UI редактор criteria в форме профиля (`/search-profiles/<id>/edit` → раздел «V2 пайплайн»): chips library + params-формы для memory_gte/title_matches_model + custom rows.
+- Health-checker scenarios A-I — конкретные deadlines в TG-alerts (commit `92079da` + `a5d566a`).
+- Bucket badge на карточках в `/listings` (commit `73072c1`).
+- Migration `0009_drop_legacy_v2_artifacts` написана но **НЕ применена** — для Phase C после соака.
+
+### Что сделать в Phase B (когда оживёт polling)
+
+1. **Pool warm-up**: открыть Avito-app в user_0 под старым `157920214` (старый Clone аккаунт). APK push'нет refresh JWT в xapi → `b5cbf28b` перейдёт в `state=active` → polling возобновится.
+2. **Smoke test live polling**: `iPhone 12 Pro` уже включен V2 (`notification_settings.llm_pipeline_v2=true`). Дождаться один `poll_profile` тик → `evaluate_listing` для каждого нового лота → проверить в БД bucket distribution.
+3. **Соак 3-4 дня** в `per_listing` стратегии. Метрики:
+   - `SELECT bucket, count(*) FROM profile_listing_evaluations GROUP BY 1`
+   - `SELECT type, count(*), sum(cost_usd) FROM llm_analyses WHERE created_at > now()-interval '24h' GROUP BY 1`
+   - `SELECT count(*) FROM user_listing_blacklist WHERE reason LIKE 'auto_red:%' AND created_at > now()-interval '24h'` (false-positive watch)
+   - Latency end-to-end `polling.success → notification.dispatch_pending` на нескольких лотах
+4. **Если качество плохое** в `per_listing` → hot-switch на `per_criterion`: `UPDATE search_profiles SET evaluate_strategy='per_criterion' WHERE id=...`. Cache reuse — лоты не перерасчитываются.
+5. **Phase C** после signoff соака: `docker compose exec avito-monitor alembic upgrade head` (применит 0009 — drop legacy ADR-010 columns + tasks). После — tests, smoke, готово.
 
 ### Перед стартом следующей сессии
 
-- Прочитать `DOCS/TZ_Avito_Monitor_V1.md` разделы 4.1 (Search Profiles), 4.4 (LLM), 4.6 (Worker pipeline).
-- Прочитать `DOCS/DECISIONS.md` ADR-008, ADR-010.
-- Прочитать `DOCS/V1_EXECUTION_PLAN.md` блоки 2-4.
-- Понять текущий state кода — `grep -rn "poll_profile\|analyze_listing\|LLMAnalyzer" avito-monitor/app/` чтобы найти что уже есть.
+- Прочитать `DOCS/V1_EXECUTION_PLAN.md` (блок 4 уже выполнен — V2 заменил ADR-010).
+- Прочитать `DOCS/DECISIONS.md` ADR-008 (двойная вилка) и ADR-010 (про **двухступенчатый — заменён**, остаются термины «clean-метрики» + alert/search вилки).
+- Глянуть `git log main --oneline -10` — последние коммиты Phase A.
 
 ---
 

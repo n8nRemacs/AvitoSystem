@@ -528,6 +528,9 @@ async def listings_feed(
     zone = qp.get("zone") or "all"
     period = qp.get("period") or "7d"
     sort = qp.get("sort") or "date"
+    bucket = qp.get("bucket") or ""
+    if bucket not in ("green", "grey", "red", ""):
+        bucket = ""
     tab = qp.get("tab") or "new"
     if tab not in ("new", "in_progress", "rejected", "all"):
         tab = "new"
@@ -543,6 +546,7 @@ async def listings_feed(
         zone=zone,
         period=period,
         sort=sort,
+        bucket=bucket or None,
         tab=tab,
         limit=limit,
         offset=offset,
@@ -571,6 +575,7 @@ async def listings_feed(
             "zone": filters.zone,
             "period": filters.period,
             "sort": filters.sort,
+            "bucket": filters.bucket or "",
             "offset": str(filters.offset),
         }
         # Apply overrides.

@@ -68,6 +68,13 @@
       {% endfor %}
     </div>
     <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1">Bucket V2:</span>
+      {{ chip(qs(bucket=''),      'Все',       not f.bucket) }}
+      {{ chip(qs(bucket='green'), '✓ Зелёная', f.bucket == 'green') }}
+      {{ chip(qs(bucket='grey'),  '? Серая',   f.bucket == 'grey') }}
+      {{ chip(qs(bucket='red'),   '✗ Красная', f.bucket == 'red') }}
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1">Зона:</span>
       {{ chip(qs(zone='alert'),  '● Alert',       f.zone == 'alert') }}
       {{ chip(qs(zone='market'), '○ Market data', f.zone == 'market') }}
