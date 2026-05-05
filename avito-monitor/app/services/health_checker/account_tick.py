@@ -1,15 +1,19 @@
 """Per-tick проверка состояний accounts pool. Запускается из существующего
-health_checker scheduler'а каждые 30 секунд."""
+health_checker scheduler'а каждые 30 секунд.
+
+После Phase 4 (manual refresh model): NO proactive refresh triggers.
+Only emits TG alerts on session stale (one-shot, idempotent)."""
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from app.services.account_pool import AccountPool
 
 log = logging.getLogger(__name__)
 
-# Module-level set: tracks accounts that have been alerted for consecutive_cooldowns >= 5.
-# Reset when consecutive_cooldowns drops to 0.
-_alerted_24h: set[str] = set()
+# Module-level alert state. Idempotency: emit once per fresh→stale transition.
+# Reset entry when account becomes fresh again.
+# Special key 'pool_dead' tracks the both-stale critical alert.
+_alerted_stale_accounts: set[str] = set()
 
 
 def _parse_ts(s: str | None) -> datetime | None:
@@ -18,68 +22,50 @@ def _parse_ts(s: str | None) -> datetime | None:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+def _is_session_stale(acc: dict, *, now: datetime) -> bool:
+    exp = _parse_ts(acc.get("expires_at"))
+    return exp is None or exp < now
+
+
 async def account_tick_iteration(*, pool: AccountPool, now: datetime, tg) -> None:
     accounts = await pool.list_all_accounts()
-    for acc in accounts:
-        await _process_account(acc, pool=pool, now=now, tg=tg)
-        await _maybe_emit_consecutive_alert(acc, tg=tg)
+    await _check_pool_health(accounts, now=now, tg=tg)
 
 
-async def _process_account(acc: dict, *, pool: AccountPool, now: datetime, tg) -> None:
-    state = acc.get("state")
-    aid = acc["id"]
+async def _check_pool_health(accounts: list[dict], *, now: datetime, tg) -> None:
+    stale = [a for a in accounts if _is_session_stale(a, now=now)]
+    fresh_ids = {a["id"] for a in accounts if not _is_session_stale(a, now=now)}
 
-    if state == "cooldown":
-        until = _parse_ts(acc.get("cooldown_until"))
-        if until and until < now:
-            try:
-                await pool.trigger_refresh_cycle(aid)
-                log.info("refresh-cycle triggered for %s (post-cooldown)", aid)
-            except Exception as e:
-                log.warning("refresh-cycle failed for %s: %s", aid, e)
-        return
-
-    if state == "waiting_refresh":
-        since = _parse_ts(acc.get("waiting_since"))
-        if since and (now - since) > timedelta(minutes=5):
-            await pool.patch_state(aid, "dead", reason="waiting_refresh timeout 5m")
-            await tg(
-                f"⚠️ Account {acc.get('nickname')} (Android-user "
-                f"{acc.get('android_user_id')}) не получил refresh за 5 минут. "
-                f"Открой вручную или проверь APK."
-            )
-        return
-
-    if state == "active":
-        exp = _parse_ts(acc.get("expires_at"))
-        # Trigger refresh when:
-        #   1. expires_at is missing (no active session — pool can't poll anyway)
-        #   2. expires_at < now + 30min (proactive — give Avito-app time to refresh
-        #      while IP is still clean and the JWT hasn't fully expired)
-        if exp is None or (exp - now) < timedelta(minutes=30):
-            try:
-                await pool.trigger_refresh_cycle(aid)
-                log.info("refresh-cycle triggered for %s (proactive, exp=%s)", aid, exp)
-            except Exception as e:
-                log.warning("proactive refresh failed for %s: %s", aid, e)
-        return
-
-
-async def _maybe_emit_consecutive_alert(acc: dict, *, tg) -> None:
-    """Idempotent TG-alert: fires once when consecutive_cooldowns >= 5,
-    resets when account recovers (consecutive=0)."""
-    aid = acc["id"]
-    consec = acc.get("consecutive_cooldowns") or 0
-
-    if consec >= 5 and aid not in _alerted_24h:
-        # Alert fires once
+    # Per-account "one stale" alert (idempotent)
+    for acc in stale:
+        aid = acc["id"]
+        if aid in _alerted_stale_accounts:
+            continue
+        nickname = acc.get("nickname") or aid[:8]
+        user_id = acc.get("android_user_id", 0)
+        other = "Clone" if nickname == "Main" or "Main" in nickname else "Main"
         await tg(
-            f"🚨 Account {acc.get('nickname')} лежит в 24h cooldown "
-            f"(consecutive={consec}). Проверь вручную."
+            f"📩 Аккаунт {nickname} протух (last refresh устарел). "
+            f"Polling работает на {other}. Открой Avito-app в user_{user_id} "
+            f"для восстановления safety net."
         )
-        _alerted_24h.add(aid)
-        return
+        _alerted_stale_accounts.add(aid)
 
-    if consec == 0 and aid in _alerted_24h:
-        # Reset alert state on recovery
-        _alerted_24h.discard(aid)
+    # Reset alert state for accounts that became fresh again
+    _alerted_stale_accounts.intersection_update(
+        {x for x in _alerted_stale_accounts if x not in fresh_ids}
+        | {"pool_dead"}  # preserve pool_dead key, handled separately below
+    )
+    for fid in fresh_ids:
+        _alerted_stale_accounts.discard(fid)
+
+    # Pool-wide critical alert: both stale
+    if len(accounts) >= 2 and len(stale) == len(accounts):
+        if "pool_dead" not in _alerted_stale_accounts:
+            await tg(
+                "🚨 Polling DOWN — все аккаунты протухли. "
+                "Срочно открой Avito-app на phone'е (оба пользователя)."
+            )
+            _alerted_stale_accounts.add("pool_dead")
+    else:
+        _alerted_stale_accounts.discard("pool_dead")

@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     reliability_tg_alert_enabled: bool = True
     reliability_tg_alert_fail_threshold: int = 3
     reliability_tg_alert_daily_summary_hour: int = 9
+    # Comma-separated scenario letters to skip in the periodic loop. Manual API
+    # triggers still honour them. Example: "G,F" disables messenger-bot dedup
+    # check + typing round-trip. Empty = run all.
+    reliability_disabled_scenarios: str = ""
 
     system_paused: bool = False
 

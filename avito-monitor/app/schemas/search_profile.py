@@ -23,6 +23,24 @@ class ParsedUrlPreview(BaseModel):
     suggested_search_max: int | None = None
 
 
+class ProfileCriterionSpec(BaseModel):
+    """One row of profile_criteria, as parsed from the create/edit form.
+
+    Exactly one of (template_key, custom_*) is populated:
+
+    * Library reference — ``template_key`` set, ``params`` filled in for
+      parametrised templates (e.g. ``{"gb": 256}`` for memory_gte).
+    * Custom criterion / info-field — ``custom_title``, ``custom_kind``
+      and ``custom_prompt`` set; ``template_key`` and ``params`` are None.
+    """
+
+    template_key: str | None = None
+    params: dict[str, Any] | None = None
+    custom_title: str | None = None
+    custom_kind: str | None = None
+    custom_prompt: str | None = None
+
+
 class SearchProfileBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     avito_search_url: str = Field(min_length=1)
@@ -42,6 +60,13 @@ class SearchProfileBase(BaseModel):
     llm_match_model: str | None = None
     analyze_photos: bool = False
 
+    # V2 pipeline (flag-based evaluation)
+    evaluate_strategy: str = Field(
+        "per_listing",
+        description="per_listing | per_criterion (hot-switchable)",
+    )
+    confidence_threshold: float = Field(0.7, ge=0.5, le=0.99)
+
     poll_interval_minutes: int = Field(15, ge=1, le=1440)
     active_hours: dict[str, Any] | None = None
     is_active: bool = True
@@ -52,7 +77,11 @@ class SearchProfileBase(BaseModel):
 
 
 class SearchProfileCreate(SearchProfileBase):
-    pass
+    # Not stored on SearchProfile itself — handled separately by
+    # set_profile_criteria() in the service layer. Optional: when None
+    # the service does not touch profile_criteria at all (used by
+    # internal callers like autosearch_sync that don't manage criteria).
+    criteria_specs: list[ProfileCriterionSpec] | None = None
 
 
 class SearchProfileUpdate(BaseModel):
@@ -71,12 +100,17 @@ class SearchProfileUpdate(BaseModel):
     llm_classify_model: str | None = None
     llm_match_model: str | None = None
     analyze_photos: bool | None = None
+    evaluate_strategy: str | None = None
+    confidence_threshold: float | None = None
     poll_interval_minutes: int | None = None
     active_hours: dict[str, Any] | None = None
     is_active: bool | None = None
     blocked_sellers: list[str] | None = None
     notification_settings: dict[str, Any] | None = None
     notification_channels: list[str] | None = None
+    # Same separate-table semantics as SearchProfileCreate; None means
+    # "leave profile_criteria untouched", an empty list means "clear all".
+    criteria_specs: list[ProfileCriterionSpec] | None = None
 
 
 class SearchProfileRead(SearchProfileBase):

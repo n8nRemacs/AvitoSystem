@@ -29,6 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.db.base import get_sessionmaker
 from app.db.models import (
     Listing,
+    ProfileCriterion,
     ProfileListing,
     ProfileRun,
     SearchProfile,
@@ -383,21 +384,39 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
         )
         await session.commit()
 
-    # Enqueue stage-1 classifications AFTER the polling commit. Doing it
-    # outside the DB session keeps the transaction short and lets the
-    # worker pull them up immediately from Redis.
+    # Enqueue analysis AFTER the polling commit. Doing it outside the
+    # DB session keeps the transaction short and lets the worker pull
+    # them up immediately from Redis.
+    #
+    # Phase C: legacy analyze_listing removed. All profiles must have at
+    # least one profile_criteria row. Profiles without criteria are
+    # skipped (safety guard — no silently wrong LLM calls).
     enqueued_for_analysis = 0
     if to_analyze:
-        from app.tasks.analysis import analyze_listing
+        from sqlalchemy import func as sa_func
 
-        for lid in to_analyze:
-            try:
-                await analyze_listing.kiq(str(lid), str(pid))
-                enqueued_for_analysis += 1
-            except Exception:
-                log.exception(
-                    "polling.enqueue_analyze_failed listing_id=%s", lid
+        from app.tasks.analysis import evaluate_listing
+
+        async with sessionmaker() as session:
+            count = await session.scalar(
+                select(sa_func.count(ProfileCriterion.id)).where(
+                    ProfileCriterion.profile_id == pid
                 )
+            )
+        if not count:
+            log.warning(
+                "polling.no_criteria_skip_analysis profile_id=%s",
+                profile_id,
+            )
+        else:
+            for lid in to_analyze:
+                try:
+                    await evaluate_listing.kiq(str(lid), str(pid))
+                    enqueued_for_analysis += 1
+                except Exception:
+                    log.exception(
+                        "polling.enqueue_analyze_failed listing_id=%s", lid
+                    )
 
     log.info(
         "polling.success profile_id=%s seen=%d new=%d in_alert=%d closed=%d analyze=%d",

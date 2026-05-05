@@ -193,7 +193,7 @@ async def _save_browser_session(tenant_id: str, token_data: dict) -> bool:
         }).execute()
 
         # Audit
-        sb.table("audit_log").insert({
+        sb.table("audit_log_xapi").insert({
             "tenant_id": tenant_id,
             "action": "session.browser_auth",
             "details": {"user_id": user_id},

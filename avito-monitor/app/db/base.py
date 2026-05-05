@@ -47,10 +47,20 @@ def get_engine() -> AsyncEngine:
     global _engine, _sessionmaker
     if _engine is None:
         settings = get_settings()
+        # pgbouncer (Supabase pooled port 6543) is in transaction-pool mode
+        # and does NOT support prepared statements. asyncpg's URL-param
+        # `prepared_statement_cache_size=0` is *not* picked up by SQLAlchemy
+        # in newer versions; it has to be passed through connect_args.
+        # Without this every INSERT eventually trips
+        # `DuplicatePreparedStatementError`.
         _engine = create_async_engine(
             settings.database_url,
             pool_pre_ping=True,
             future=True,
+            connect_args={
+                "prepared_statement_cache_size": 0,
+                "statement_cache_size": 0,
+            },
         )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine

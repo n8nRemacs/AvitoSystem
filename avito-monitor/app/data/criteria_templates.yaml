@@ -1,0 +1,155 @@
+# Global library for V2 LLM pipeline. Source of truth for the
+# `criteria_templates` table — the seed migration upserts rows from
+# this file (idempotent on `key`).
+#
+# Bump `version` when changing `prompt_fragment` or `params_schema` —
+# any in-flight `llm_analyses` cache rows tied to the old version
+# become stale and the worker will re-grade affected listings.
+
+# ---------------------------------------------------------------------
+# Hard criteria (LLM returns red/green/unknown + confidence + reasoning)
+# ---------------------------------------------------------------------
+
+- key: icloud_locked
+  kind: criterion
+  title_ru: "Залочен на iCloud"
+  description_ru: "Aktivation Lock / Find My / привязан к Apple ID — устройство нельзя сбросить без пароля владельца."
+  prompt_fragment: |
+    Проверь, упомянута ли в объявлении iCloud-блокировка: "iCloud", "Activation Lock",
+    "найди айфон", "залочен", "привязан", "требует Apple ID", "просит пароль iCloud".
+    Если упомянуто — flag=red. Если явно сказано «не залочен / чистый iCloud / отвязан» — green.
+    Иначе — unknown.
+  version: 1
+
+- key: screen_broken
+  kind: criterion
+  title_ru: "Разбит экран"
+  description_ru: "Дисплей или тачскрин повреждён."
+  prompt_fragment: |
+    Проверь, упомянуты ли повреждения экрана: трещины, разбит, нерабочий тачскрин,
+    выгоревшая матрица, пятна, полосы, битые пиксели.
+    Упомянуто → red. Явно сказано «экран целый / без сколов» → green. Иначе → unknown.
+  version: 1
+
+- key: not_starting
+  kind: criterion
+  title_ru: "Не включается"
+  description_ru: "Устройство не загружается."
+  prompt_fragment: |
+    Проверь, сказано ли что устройство не включается, не загружается дальше логотипа,
+    бутлуп, не реагирует на зарядку, "просит замены матплаты".
+    Сказано → red. Явно сказано «полностью рабочий, включается» → green. Иначе → unknown.
+  version: 1
+
+- key: frp_locked
+  kind: criterion
+  title_ru: "FRP / MDM-блокировка"
+  description_ru: "Заблокирован чужим Google-аккаунтом или корпоративным профилем."
+  prompt_fragment: |
+    Проверь упоминания: "FRP", "Google FRP", "MDM", "корпоративный профиль",
+    "просит чужой Google-аккаунт", "лочка от прошлого владельца Android".
+    Упомянуто → red. Явно сказано «без FRP / сброшен» → green. Иначе → unknown.
+  version: 1
+
+- key: parts_only
+  kind: criterion
+  title_ru: "На запчасти"
+  description_ru: "Лот заведомо нерабочий, продаётся как комплект деталей."
+  prompt_fragment: |
+    Проверь упоминания: "на запчасти", "на разбор", "донор", "по частям",
+    "не работает, на детали".
+    Упомянуто → red. Явно сказано «полностью рабочий» → green. Иначе → unknown.
+  version: 1
+
+- key: account_blocked
+  kind: criterion
+  title_ru: "Заблокирован аккаунтом (не iCloud)"
+  description_ru: "Сторонний аккаунт блокирует устройство (не iCloud, не FRP)."
+  prompt_fragment: |
+    Проверь упоминания блокировки сторонним аккаунтом, не iCloud и не Google FRP:
+    Mi-аккаунт, Samsung-аккаунт, Huawei ID, прочая фирменная блокировка.
+    Упомянуто → red. Явно сказано «не привязан, аккаунт сброшен» → green. Иначе → unknown.
+  version: 1
+
+- key: memory_gte
+  kind: criterion
+  title_ru: "Память не ниже X ГБ"
+  description_ru: "Объём встроенной памяти должен быть ≥ заданного значения."
+  params_schema:
+    type: object
+    required: [gb]
+    properties:
+      gb:
+        type: integer
+        minimum: 8
+        maximum: 4096
+  prompt_fragment: |
+    Объём встроенной памяти устройства должен быть НЕ МЕНЬШЕ {{ params.gb }} ГБ.
+    Если в заголовке/описании/параметрах указан объём ≥ {{ params.gb }} → green.
+    Если указан меньший объём → red.
+    Если объём не указан → unknown.
+  version: 1
+
+- key: title_matches_model
+  kind: criterion
+  title_ru: "Модель в заголовке совпадает"
+  description_ru: "Заголовок и описание должны соответствовать одной из заявленных моделей."
+  params_schema:
+    type: object
+    required: [allowed]
+    properties:
+      allowed:
+        type: array
+        items: {type: string}
+        minItems: 1
+  prompt_fragment: |
+    Заголовок и описание должны соответствовать одной из этих моделей: {{ params.allowed | join(', ') }}.
+    Совпадает → green. Явно другая модель → red. Неоднозначно → unknown.
+  version: 1
+
+# ---------------------------------------------------------------------
+# Info-LLM (LLM extracts a value, no grading)
+# ---------------------------------------------------------------------
+
+- key: battery_health
+  kind: info_llm
+  title_ru: "Здоровье аккумулятора"
+  description_ru: "Процент ёмкости АКБ или состояние."
+  prompt_fragment: |
+    Если в описании указан процент ёмкости АКБ (например, "АКБ 87%", "ёмкость 92"),
+    извлеки число (87 или 92). Если состояние описано словесно ("новый АКБ",
+    "родной АКБ", "слабый АКБ") — верни строку. Иначе null.
+  version: 1
+
+- key: repaired_components
+  kind: info_llm
+  title_ru: "Заменённые/отремонтированные компоненты"
+  description_ru: "Список компонентов, которые были заменены или отремонтированы."
+  prompt_fragment: |
+    Перечисли заменённые/отремонтированные компоненты, упомянутые в описании
+    (экран, АКБ, корпус, разъём зарядки, динамик и т.п.). Верни массив строк
+    или null если не указано.
+  version: 1
+
+# ---------------------------------------------------------------------
+# Info-API (read directly from listing.parameters, no LLM)
+# ---------------------------------------------------------------------
+
+- key: memory_gb
+  kind: info_api
+  title_ru: "Память (ГБ)"
+  description_ru: "Берётся из параметров объявления."
+  api_path: "Встроенная память"
+  version: 1
+
+- key: color
+  kind: info_api
+  title_ru: "Цвет"
+  api_path: "Цвет"
+  version: 1
+
+- key: vendor_model
+  kind: info_api
+  title_ru: "Бренд / модель"
+  api_path: "Производитель"
+  version: 1

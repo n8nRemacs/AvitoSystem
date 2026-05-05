@@ -22,7 +22,10 @@ async def scenario_c(client: XapiClient) -> ScenarioResult:
         if isinstance(call.body, dict):
             channels = call.body.get("channels") or []
             details["returned_channels"] = len(channels) if isinstance(channels, list) else None
+        # PASS — record HTTP status and latency for recovery message.
+        details["fresh_for"] = f"OK ({call.latency_ms} ms)"
         return ScenarioResult(SCENARIO, "pass", call.latency_ms, details)
 
     details["error"] = call.error or f"HTTP {call.status_code}"
+    details["reason"] = f"endpoint {details['endpoint']} → HTTP {call.status_code}"
     return ScenarioResult(SCENARIO, "fail", call.latency_ms, details)

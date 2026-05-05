@@ -71,6 +71,80 @@ def _tz_short_label(tz: ZoneInfo, ref: datetime | None = None) -> str:
 FIRED_SENTINELS: dict[str, datetime] = {}
 
 
+# Human-readable description of each scenario: title (что проверяется) and
+# meaning of failure (что это значит для юзера). Telegram alerts use both
+# instead of just the bare letter.
+SCENARIO_DESCRIPTIONS: dict[str, dict[str, str | list[str]]] = {
+    "A": {
+        # Reason line (filled by scenario_a) carries the deadline in
+        # local time, so the title stays neutral.
+        "title": "JWT-токен",
+        "causes": [
+            "Открой Avito-app в нужном android-юзере для refresh",
+        ],
+    },
+    "B": {
+        "title": "Ротация JWT-токена",
+        "causes": [
+            "Avito-app не открывался сутки — открой его на phone",
+            "NotificationListener APK выключен или phone оффлайн",
+        ],
+    },
+    "C": {
+        "title": "Мессенджер Avito (доступность)",
+        "causes": [
+            "Avito API лежит — обычно проходит само за 5-15 мин",
+            "Проблемы сети VPS → app.avito.ru",
+        ],
+    },
+    "D": {
+        "title": "Мессенджер Avito (latency)",
+        "causes": [
+            "Avito тормозит (round-trip > 2с) — обычно проходит само",
+            "Проблемы в сети между VPS и Avito",
+        ],
+    },
+    "E": {
+        "title": "Real-time мессенджер (SSE)",
+        "causes": [
+            "SSE-стрим /messenger/realtime/events замолк — push-сообщения чата не дойдут",
+            "Перезапусти xapi или проверь Avito-WS",
+        ],
+    },
+    "F": {
+        "title": "POST в мессенджер Avito",
+        "causes": [
+            "Avito API отвергает запросы — бот не сможет отвечать",
+            "Возможно временный сбой Avito",
+        ],
+    },
+    "G": {
+        "title": "Дедупликация авто-ответов мессенджер-бота",
+        "causes": [
+            "Messenger-bot /run-once не работает — возможны двойные ответы",
+        ],
+    },
+    "I": {
+        "title": "Push с phone",
+        "causes": [
+            "Phone оффлайн или NotificationListener выключен",
+            "Avito-app очищен/удалён в одном из android-юзеров",
+        ],
+    },
+}
+
+
+def _md_escape(s: str) -> str:
+    """Escape Telegram Markdown specials in free-text reasons.
+
+    Avoid the 400 'can't parse entities' error when reason contains '*', '_',
+    '`', '[' from arbitrary error strings. Keep ' simple and conservative —
+    we wrap reasons in inline code blocks anyway, so we mostly need to
+    neutralize backticks and the closing brace of code blocks.
+    """
+    return s.replace("`", "ʼ")
+
+
 def _chat_id(settings: Settings) -> str | None:
     """Resolve the first id from the comma-separated allow-list, else None."""
     raw = (settings.telegram_allowed_user_ids or "").strip()
@@ -105,7 +179,6 @@ async def send_alert(
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "Markdown",
         "disable_web_page_preview": True,
     }
 
@@ -165,16 +238,27 @@ def _format_fire_text(
                 break
     tz = _local_tz()
     label = _tz_short_label(tz)
-    timestamps = " · ".join(
-        (r.ts.astimezone(tz).strftime("%H:%M:%S") if r.ts else "?") for r in recent
+    last_ts = (
+        recent[0].ts.astimezone(tz).strftime("%H:%M:%S")
+        if recent and recent[0].ts
+        else "?"
     )
-    lines = [
-        f"\U0001F6A8 *Сбой проверки* — сценарий `{scenario}`",
-        f"{threshold} подряд результата `fail`.",
-    ]
+    desc = SCENARIO_DESCRIPTIONS.get(scenario, {})
+    title = desc.get("title", f"сценарий {scenario}")
+    causes = desc.get("causes") or []
+    detail_parts = []
     if reason:
-        lines.append(f"Причина: `{reason[:300]}`")
-    lines.append(f"Последние {len(recent)} временных меток ({label}): {timestamps}")
+        detail_parts.append(_md_escape(reason)[:80])
+    detail_parts.append(f"{threshold} fail подряд, последний {last_ts} {label}")
+    lines = [
+        f"\U0001F6A8 {title}  ({scenario})",
+        ", ".join(detail_parts) + ".",
+    ]
+    if isinstance(causes, list) and causes:
+        lines.append("")
+        lines.append("Возможные причины:")
+        for c in causes:
+            lines.append(f"• {c}")
     return "\n".join(lines)
 
 
@@ -183,13 +267,24 @@ def _format_recovery_text(scenario: str, latest: HealthCheck) -> str:
     tz = _local_tz()
     label = _tz_short_label(tz)
     ts = (
-        latest.ts.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S " + label)
+        latest.ts.astimezone(tz).strftime("%H:%M:%S " + label)
         if latest and latest.ts
         else "?"
     )
+    desc = SCENARIO_DESCRIPTIONS.get(scenario, {})
+    title = desc.get("title", f"сценарий {scenario}")
+
+    # Scenario-specific second line: when scenario_a (or any future scenario)
+    # captured a human-readable PASS detail (``fresh_for``), surface it so
+    # the recovery alert says *why* it's recovered, not just "pass at HH:MM".
+    extra = ""
+    if latest and latest.details:
+        fresh = latest.details.get("fresh_for")
+        if isinstance(fresh, str) and fresh:
+            extra = f" — {fresh}"
     return (
-        f"✅ *Сценарий восстановлен* — `{scenario}`\n"
-        f"`pass` в {ts}, latency {latency} мс."
+        f"✅ Восстановлено: {title}  ({scenario}){extra}\n"
+        f"pass в {ts}, latency {latency} мс."
     )
 
 

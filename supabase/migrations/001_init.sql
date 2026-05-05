@@ -79,9 +79,10 @@ CREATE TABLE avito_sessions (
 );
 
 -- ============================================================
--- Audit Log
+-- Audit Log (xapi-side; renamed from audit_log to avoid clash with
+-- avito-monitor's own audit_log which uses uuid+user_id schema)
 -- ============================================================
-CREATE TABLE audit_log (
+CREATE TABLE audit_log_xapi (
     id BIGSERIAL PRIMARY KEY,
     tenant_id UUID REFERENCES tenants(id) ON DELETE SET NULL,
     action TEXT NOT NULL,
@@ -129,8 +130,8 @@ CREATE INDEX idx_api_keys_key_hash ON api_keys(key_hash);
 CREATE INDEX idx_api_keys_tenant_id ON api_keys(tenant_id);
 CREATE INDEX idx_avito_sessions_tenant_id ON avito_sessions(tenant_id);
 CREATE INDEX idx_avito_sessions_active ON avito_sessions(tenant_id, is_active) WHERE is_active = true;
-CREATE INDEX idx_audit_log_tenant_id ON audit_log(tenant_id);
-CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX idx_audit_log_xapi_tenant_id ON audit_log_xapi(tenant_id);
+CREATE INDEX idx_audit_log_xapi_created_at ON audit_log_xapi(created_at);
 CREATE INDEX idx_tenants_supervisor_id ON tenants(supervisor_id);
 CREATE INDEX idx_toolkits_supervisor_id ON toolkits(supervisor_id);
 CREATE INDEX idx_account_bindings_tenant_id ON account_bindings(tenant_id);
@@ -144,7 +145,7 @@ ALTER TABLE toolkits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE avito_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log_xapi ENABLE ROW LEVEL SECURITY;
 ALTER TABLE farm_devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE account_bindings ENABLE ROW LEVEL SECURITY;
 

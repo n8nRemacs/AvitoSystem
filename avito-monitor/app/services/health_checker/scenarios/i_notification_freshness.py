@@ -21,6 +21,7 @@ Outcomes
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from app.config import get_settings
 from app.services.health_checker.scenarios.base import ScenarioResult
@@ -28,6 +29,13 @@ from app.services.health_checker.xapi_client import XapiClient
 
 SCENARIO = "I"
 ENDPOINT = "/api/v1/notifications/stats"
+
+
+def _local_tz() -> ZoneInfo:
+    try:
+        return ZoneInfo(get_settings().timezone)
+    except Exception:
+        return ZoneInfo("UTC")
 
 
 async def scenario_i(client: XapiClient) -> ScenarioResult:
@@ -77,9 +85,12 @@ async def scenario_i(client: XapiClient) -> ScenarioResult:
     details["cutoff_hours"] = cutoff_hours
 
     if age_hours > cutoff_hours:
-        details["reason"] = (
-            f"last notification {age_hours:.1f}h ago > cutoff {cutoff_hours}h"
-        )
+        local = last_dt.astimezone(_local_tz())
+        last_received_local = local.strftime("%H:%M")
+        tz_label = local.strftime("%Z") or "+00"
+        details["reason"] = f"последний push {last_received_local} {tz_label} (≈ {age_hours:.1f}ч назад)"
         return ScenarioResult(SCENARIO, "fail", call.latency_ms, details)
 
+    # PASS — record push age for recovery message.
+    details["fresh_for"] = f"последний push {age_hours:.1f}ч назад"
     return ScenarioResult(SCENARIO, "pass", call.latency_ms, details)

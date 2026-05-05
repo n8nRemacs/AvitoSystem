@@ -1,137 +1,168 @@
-# CONTINUE — Быстрый рестарт сессии V1
+# CONTINUE — Быстрый рестарт сессии
 
-> **Если ты — Claude в новой сессии:** прочитай этот файл целиком. Архитектурные решения — в `DOCS/DECISIONS.md` (ADR-011 — autosearch sync). Pool — в `DOCS/superpowers/specs/2026-04-28-account-pool-design.md`.
+> **Если ты — Claude в новой сессии:** прочитай этот файл целиком. Архитектурные решения — в `DOCS/DECISIONS.md`. Production VPS state — раздел 1. Следующая большая задача — раздел 4. Backlog — раздел 3. Команды на проверку — раздел 5.
 >
-> **Если ты — пользователь:** скопируй этот файл в новую сессию Claude Code, работа продолжится.
+> **Если ты — пользователь:** скопируй этот файл в новую сессию Claude Code, работа продолжится с того же места.
 
 ---
 
-## 1. Где мы сейчас
+## 1. Production state — 2026-05-04
 
-**Проект:** `c:/Projects/Sync/AvitoSystem/avito-monitor/` — V1 персонального мониторинга Avito.
-
-**Дата:** 2026-04-30 19:30 UTC. **Refresh Hardening shipped в `main`** (commits `63a4c2b`..`5bc72d3`, ветка `feat/refresh-hardening` мерж-удалена). До этого — Account Pool merged 2026-04-29 (commit `8e12434`). Pool в production, T13 + T23 + refresh hardening пройдены, soak-режим.
-
-### Что покрыто (закрытые задачи)
-
-| Этап | Статус |
+| Что | Где |
 |---|---|
-| **Spec + Plan** | done — `DOCS/superpowers/specs/2026-04-28-account-pool-design.md` + `plans/2026-04-28-account-pool.md` |
-| **Implementation** (24 task'а в 12 фазах) | done — 30 коммитов |
-| **T13 — USB passthrough** | done — `adb` в xapi-контейнере, `device_cgroup_rules: c 189:* rwm` для hot-plug, RSA-fingerprint authorized |
-| **T23 — E2E force-tests 7/7** | done — ratchet 20→40→80m, 401-deactivation, cooldown→refresh-cycle (ADB switch user_0→user_10, APK delivered cmd), waiting>5m→dead+TG (HTTP 200), ADB unplug→503+recovery, worker restart |
-| **Merge → main + deploy** | done — homelab pulled, контейнеры здоровы |
-| **Refresh Hardening (2026-04-30)** | done — план `DOCS/superpowers/plans/2026-04-30-refresh-hardening.md`, 9 task TDD + 2 docker fix, all reviewed, merged. См. § 8. |
+| **VPS** | `81.200.119.132` (Beget RU, 1c/2GB/15GB Ubuntu 24.04, Docker 29). 9 контейнеров: caddy, avito-xapi, avito-monitor (web UI), avito-mcp, redis, worker, scheduler, health-checker, telegram-bot |
+| **Public URL** | `https://avitosystem.duckdns.org` (Let's Encrypt cert auto-renew, DuckDNS cron-update token в `/usr/local/bin/duckdns-update.sh`) |
+| **БД** | Supabase Cloud `drwgozasaypgphkxyizt` (Frankfurt, eu-central-1). `DATABASE_URL` use pooler 6543 + `?prepared_statement_cache_size=0` (asyncpg+pgbouncer fix). `SUPABASE_KEY` — `sb_secret_*` для xapi REST. |
+| **Phone** | OnePlus 8T (`110139ce`), USB к Windows ПК. APK `com.avitobridge.sessionmanager` в user_0+user_10, оба видят VPS. Magisk policies для UID 10296+1010296 = Allow, multiuser_mode=1. Notification listener granted в обоих юзерах. |
+| **Homelab** | xapi+monitor контейнеры **остановлены**. Rollback: `ssh homelab; cd /mnt/projects/repos/AvitoSystem/avito-{xapi,monitor}; docker compose start`. |
 
-### Production state на homelab Supabase
+### Branch state
+
+`feat/server-migration` — **20 коммитов** поверх main (см. `git log main..HEAD`). НЕ замержена в main, ждёт user-decision.
+
+### Pool state на момент закрытия сессии
 
 ```
 avito_accounts:
-  Clone | uuid=42c179db-18b1-40b2-9af2-274c52824ab1
-        | avito_user_id=157920214, android_user_id=10, phone_serial=110139ce
-        | state=active
-
-avito_sessions: 2 active (Clone — fresh JWT until 2026-04-30 08:05;
-                          Main orphan без account_id — V1.5 cleanup)
-search_profiles: 7 active, все owner_account_id=Clone
+  Clone (42c179db…)            user_10  state=dead
+  auto-157920214 (b5cbf28b…)   user_0   state=cooldown
 ```
 
-### Pool=1 фактически — почему
+Pool неактивен — Avito-app в обоих юзерах не делал refresh JWT (текущий токен экспирится 2026-05-05 ~08:25 UTC, ещё свежий). Polling возобновится автоматически когда:
+- Avito-app сам решит refresh near-expiry → APK поймает push → POST `/api/v1/sessions` на VPS → state=active.
+- Либо юзер вручную откроет Avito-app в каждом android-юзере на 60-90 сек.
 
-Открытие из T23: **Main и Clone — один и тот же Avito-юзер 157920214 в разных Android-юзерах**. У них разные `device_id` (`61238c...0491` Main vs `aaf5ce...656d` Clone), но один `u`. `resolve_or_create_account` ключуется по `u`, поэтому upload Main даёт тот же `account_id` что Clone. Round-robin фактически не работает — pool архитектурно = 1.
-
-**Чтобы pool=2 по-настоящему** — нужен второй Avito-аккаунт (другой номер телефона), регистрация занимает 5 мин на телефоне.
-
----
-
-## 2. V1.5 backlog (по приоритету)
-
-| # | Задача | Severity | Часы | Что |
-|---|---|---|---|---|
-| ~~1~~ | ~~**Gap 4 — proactive refresh**~~ | — | — | **CLOSED 2026-04-30** через Refresh Hardening sprint. `GET /accounts` теперь возвращает `expires_at` per row (Task 5), `account_tick` триггерит refresh-cycle при `exp<NOW+30min` или `expires_at IS NULL` (Task 6). Boot-recovery работает автоматически на первом тике после рестарта. |
-| 2 | **Зарегистрировать второй Avito-аккаунт** для реального round-robin pool=2 | high | 0.5 + регистрация | После Refresh Hardening схема готова: migration 008 даёт `UNIQUE(avito_user_id, last_device_id)`, resolver ключует по паре. Можно либо регистрировать второй номер, либо настроить multi-device (один Avito-юзер на user_0+user_10 phone'а — но per-account ban валит обоих, см. ADR/REFERENCE §F). |
-| 3 | **TG bot inbound через прокси** | low | 0.3 | `aiogram` падает в `TelegramNetworkError` потому что `aiohttp-socks` не установлен → fallback to direct → timeout (api.telegram.org заблокирован без прокси). Fix: `pip install aiohttp-socks` в monitor image. Outbound alerts через прямой `httpx` работают. |
-| 4 | **`200 report` не зачищает `cooldown_until`** | cosmetic | 0.1 | После успешного 200 ratchet=0, но `cooldown_until` остаётся (pool по `state` фильтрует, не влияет). |
-| 5 | **Gap 1+3 — `avito_device_commands` per-tenant** | low | 3-4 | Теоретическая race на pool>1 APK. Mitigation: `device_switcher.switch_to` ДО cmd. Fix: migration 008 ADD COLUMN `device_id` + APK update. |
-| 6 | **Captcha/IP-ban detection** | medium | 2-3 | `last_403_body` capture есть, парсера для определения captcha vs IP-ban — нет. |
-| 7 | **Auto-resume agent** через `/schedule` | low | 0.5 | Каждые 30 мин проверять что Clone-токен ≥10 мин TTL. Если нет — alert + поставить polling на паузу. |
-| 8 | **Reboot recovery alert** | low | 0.5 | После reboot phone'а юзера 0 и 10 нужно вручную разблокировать (FBE). Detect по health_checker'у: если `adb shell am switch-user N` + чтение prefs возвращает «empty» — alert. |
+Health-checker мониторит, шлёт TG-alerts (см. раздел про alerting ниже).
 
 ---
 
-## 3. Operational заметки
+## 2. Manual refresh model — как работает
 
-* **Avito anti-fraud per-account** — эмпирически подтверждено. Pool аккаунтов + cooldown ratchet 20→40→80→160→24ч.
-* **Phone reboot — manual step**: после reboot OnePlus FBE требует разблокировки каждого user отдельно (PIN). Без этого `/data/user/N/` зашифрован, Avito-app не сможет refresh'нуть. Ключи в kernel держатся до следующего reboot.
-* **USB renumeration при `am switch-user`** — phone отваливается на ~1с, adb на следующей команде получит «no devices». `device_switcher.switch_to` имеет confirm-loop с retry 5 сек, переживает.
-* **Avito-app refresh JWT** — только near-expiry. При TTL > 1ч app проигнорирует, не пойдёт в сеть. Manual refresh = открыть app на 30-60с когда TTL малый.
-* **AvitoSessionManager НЕ читает SharedPreferences самостоятельно при старте** — триггерится push'ом или нашим `refresh_token` cmd. Reactive workaround при offline-restore: `python scripts/register_clone_session.py` (читает /data/user/N/... через root + POST /api/v1/sessions).
-* **Refresh flow с pool**: health_checker замечает cooldown_expired → `pool.trigger_refresh_cycle` → xapi `POST /accounts/{id}/refresh-cycle` → `device_switcher.switch_to(android_user_id)` + 8с warm-up → INSERT cmd в `avito_device_commands` → APK long-poll'ит → APK триггерит Avito-app → новый JWT в SharedPrefs → APK POST /api/v1/sessions → xapi resolves account → `state=active`.
-* **`/5/subscriptions` отдаёт title/description, без structured params**. Точные search params — через `/2/subscriptions/{filter_id}` → `result.deepLink`.
-* **System Clone в OnePlus 8T:** `pm list users` → 0 + 10. Apps ставятся через `pm install-existing --user 10`. NotificationListener в неактивном user тормозится Android Doze — `device_switcher.switch_to` + 8с warm-up решает.
-* **Magisk root grant per-UID, per-user**: UID = `userId * 100000 + appId`. `magisk --sqlite "INSERT OR REPLACE INTO policies (uid, ...) VALUES (1010296, ...)"`.
-* **TG проксирование** для outbound alerts (health-checker → api.telegram.org) использует прямой `httpx` через Xray-прокси, работает. Inbound (aiogram bot polling) — пока не работает (см. backlog #3).
+1. **Юзер вручную:** утром открыть Avito-app в user_0 (Main), вечером в user_10 (Clone), или просто когда expires_at близко к now.
+2. **Avito-app сам решает refresh** (по своей внутренней логике near-expiry).
+3. **APK ловит push через NotificationListener** → читает Avito-app SharedPrefs (root через Magisk) → `POST https://avitosystem.duckdns.org/api/v1/sessions` с новым session_token + device_id + fingerprint.
+4. **xapi:** `resolve_or_create_account(payload.u, payload.device_id)` → деактивирует старую active session → INSERT новую.
+5. **monitor health-checker (account_tick):** раз в 30 сек проверяет accounts. Если `expires_at < NOW` — one-shot TG-alert. Если все аккаунты stale → critical alert «Polling DOWN».
+
+### V2 reliability scenarios (другой таймер health-checker)
+
+Параллельно с account_tick запускается loop из 8 сценариев (A-G + I) каждые 5 минут. Каждый проверяет конкретный аспект инфраструктуры. После 3 fail подряд шлёт TG-alert в формате:
+
+```
+🚨 <человекочитаемый title>  (<буква>)
+<technical reason>, 3 fail подряд, последний HH:MM:SS +TZ.
+
+Возможные причины:
+• ...
+```
+
+При recovery (один pass) — `✅ Восстановлено: <title> (X)`.
+
+Сценарии:
+- A — JWT-токен скоро протухнет
+- B — Ротации JWT не было >24ч
+- C — Мессенджер Avito временно недоступен
+- D — Мессенджер Avito медленный или упал
+- E — Real-time мессенджер не работает (SSE bridge)
+- F — POST в мессенджер Avito не проходит
+- G — отключён в production (`RELIABILITY_DISABLED_SCENARIOS=G`, messenger-bot не deployed)
+- I — Push-уведомления с phone не приходят
+
+Описания и список причин — `avito-monitor/app/services/health_checker/alerts.py:73` (SCENARIO_DESCRIPTIONS). Чтобы переформулировать — менять там, scp на VPS, `docker compose up -d --build health-checker`.
 
 ---
 
-## 4. Что делать дальше
+## 3. Backlog (по приоритету)
 
-**Soak-режим (текущий):**
-
-1. Просто наблюдать 3-4 дня. Polling будет молотить через pool с Clone-токеном (TTL 24ч, рефрешится автоматически когда Avito-app сам решит).
-2. Раз в день `docker logs avito-monitor-worker-1 --since=24h | grep -E "fetch_with_pool|cooldown|403"` — посмотреть, реальные ли ловят 403.
-3. UI: `http://homelab:8000/settings/accounts` (через Xray VPN) — pool state визуально.
-
-**Параллельно если хочется:**
-
-* Backlog #2 — зарегистрировать второй Avito-аккаунт (раз и навсегда сделать pool=2)
-* Backlog #1 — закрыть Gap 4 (1 час)
-* Backlog #3 — починить TG bot inbound (15 мин)
-
-**Если что-то сломается:**
-
-* `state=dead` → TG-alert придёт; разобраться в `last_403_body`
-* `state=cooldown` дольше 24ч → проверить consecutive_cooldowns; больше 5 → ручной разбор
-* `adb devices` пусто → `device_switcher.health()` 503; проверить кабель и `/dev/bus/usb/`
+| # | Задача | Severity | Часы |
+|---|---|---|---|
+| 1 | **Ротация секретов** (засветились в чате 2026-05-04) | high | 0.3 |
+|   | • Root-пароль VPS `Mi31415926pSss!` — `passwd` под root |   |   |
+|   | • Supabase legacy service_role JWT — Dashboard → Settings → API → «Reset JWT secret» |   |   |
+|   | • Supabase Secret API key `sb_secret_JWTeco7Y5...` — Revoke, создать новый, обновить `/opt/avito-system/.env` |   |   |
+|   | • Avito-MCP auth token `7235ad5be6bbc6ea7dc0a3d692eb51e9ccbc136e184f2222` — opt'l rotate |   |   |
+| 2 | **Зарегистрировать второй Avito-аккаунт** для реального pool=2 | high | 0.5 + регистрация |
+| 3 | **Pool warm-up** — открыть Avito-app в user_0+user_10 на phone (manual one-time, после первой refresh цикл устаканится) | high | 0.1 |
+| 4 | **Avito-MCP в Claude Code** — добавить через `claude mcp add --transport sse avito https://avitosystem.duckdns.org/mcp/sse --header "Authorization: Bearer 7235ad5be6bbc6ea7dc0a3d692eb51e9ccbc136e184f2222"`. Tools: `avito_fetch_search_page`, `avito_get_listing`, `avito_get_listing_images`, `avito_health_check`. | low | 0.1 |
+| 5 | **TG bot inbound через прокси** | low | 0.3 |
+| 6 | **Captcha/IP-ban detection** | medium | 2-3 |
+| 7 | **Reboot recovery alert** (FBE PIN unlock detector) | low | 0.5 |
+| 8 | **Merge `feat/server-migration` → main** + cleanup | medium | 0.2 |
 
 ---
 
-## 5. Команды на проверку pool
+## 4. Следующая большая задача — LLM разбор парсинга объявлений
+
+**Цель:** настроить core monitoring loop — search profile parses Avito search URL → fetches listings via xapi → LLM classifies condition (`working`/`blocked_icloud`/`broken_screen`/...) → LLM matches alert criteria → notification.
+
+### Что уже есть (надо проверить)
+
+- **`search_profiles`** на Cloud — 7 rows перенесены с homelab. Проверить через `GET /api/v1/accounts` или Cloud SQL.
+- **TaskIQ scheduler + worker** запущены на VPS. Scheduler тикает каждую минуту, worker драинит queues.
+- **OPENROUTER_API_KEY** в `.env` (был ротирован 2026-04-29, действующий).
+- **`app/services/llm_analyzer.py`** + промпты в `app/prompts/` — это блок 3 V1_EXECUTION_PLAN, скорее всего уже реализован, проверить.
+- **`avito_mcp` tools** — могут пригодиться для manual debug Avito-выдачи через Claude.
+
+### Что нужно сделать в этой задаче
+
+1. **Smoke test:** есть ли активный search_profile, который тикает; что worker делает — `docker logs avito-system-worker-1`. Если `poll_profile(profile_id)` уже запускается, посмотреть что он fetch'ит.
+2. **Проверить блоки 2-3 V1_EXECUTION_PLAN.md (DOCS/V1_EXECUTION_PLAN.md):** что из CRUD/UI search_profiles + LLMAnalyzer уже работает, что нужно доделать.
+3. **End-to-end:** взять реальный URL Avito (например, "iPhone 12 Pro Max до 13.5K"), создать profile, дождаться poll_profile → analyze_listing → notification.
+4. **Двухступенчатый LLM (ADR-010):** дешёвый classify_condition на всех лотах, дорогой match только на alert-зоне с подходящим состоянием.
+5. **Двойная вилка (ADR-008):** search-вилка широкая (±25%), alert-вилка узкая (юзеру важная). Проверить overlay logic.
+6. **Pool активность:** для polling нужна `state=active` сессия — делать **после** того как открыли Avito-app (раздел 3 Backlog #3).
+
+### Перед стартом следующей сессии
+
+- Прочитать `DOCS/TZ_Avito_Monitor_V1.md` разделы 4.1 (Search Profiles), 4.4 (LLM), 4.6 (Worker pipeline).
+- Прочитать `DOCS/DECISIONS.md` ADR-008, ADR-010.
+- Прочитать `DOCS/V1_EXECUTION_PLAN.md` блоки 2-4.
+- Понять текущий state кода — `grep -rn "poll_profile\|analyze_listing\|LLMAnalyzer" avito-monitor/app/` чтобы найти что уже есть.
+
+---
+
+## 5. Команды на проверку production stack
 
 ```bash
-# Какие аккаунты в pool сейчас
-ssh homelab "PGPASSWORD='Mi31415926pSss!' psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -c \
-  \"SELECT nickname, state, android_user_id, consecutive_cooldowns, last_polled_at FROM avito_accounts;\""
+# Health всех 9 контейнеров
+ssh root@81.200.119.132 'docker compose -f /opt/avito-system/docker-compose.yml ps'
 
-# Pool через xapi
-ssh homelab "curl -s -H 'X-Api-Key: test_dev_key_123' http://127.0.0.1:8080/api/v1/accounts | python3 -m json.tool"
+# Public smoke
+curl -s https://avitosystem.duckdns.org/health
+curl -s -H "X-Api-Key: test_dev_key_123" https://avitosystem.duckdns.org/api/v1/accounts | python3 -m json.tool
 
-# Round-robin claim
-ssh homelab "curl -s -X POST -H 'X-Api-Key: test_dev_key_123' \
-  http://127.0.0.1:8080/api/v1/accounts/poll-claim | python3 -m json.tool"
+# Pool state
+ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 curl -sH "X-Api-Key: test_dev_key_123" http://avito-xapi:8080/api/v1/accounts | python3 -m json.tool'
 
-# Force refresh-cycle вручную (триггерит ADB switch + cmd)
-ssh homelab "curl -s -X POST -H 'X-Api-Key: test_dev_key_123' \
-  http://127.0.0.1:8080/api/v1/accounts/42c179db-18b1-40b2-9af2-274c52824ab1/refresh-cycle"
+# Cloud Supabase прямо
+ssh homelab "PGPASSWORD='Mi31415926pSss!' psql 'postgresql://postgres.drwgozasaypgphkxyizt@aws-1-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require' -c \"SELECT a.nickname,a.state,s.expires_at FROM avito_accounts a LEFT JOIN avito_sessions s ON s.account_id=a.id AND s.is_active;\""
 
-# adb внутри xapi (phone должен показаться)
-ssh homelab "docker exec avito-xapi-xapi-1 adb devices"
+# Логи на VPS
+ssh root@81.200.119.132 'docker compose -f /opt/avito-system/docker-compose.yml logs --tail=50 avito-monitor'
+ssh root@81.200.119.132 'docker compose -f /opt/avito-system/docker-compose.yml logs --tail=50 worker'
+ssh root@81.200.119.132 'docker compose -f /opt/avito-system/docker-compose.yml logs --tail=50 health-checker'
 
-# Логи
-ssh homelab 'docker logs avito-monitor-health-checker-1 --since=2m 2>&1 | grep account_'
-ssh homelab 'docker logs avito-monitor-worker-1 --since=2m 2>&1 | grep -E "poll-claim|fetch_with_pool"'
-```
+# Health-checker manual trigger
+ssh root@81.200.119.132 'docker exec avito-system-health-checker-1 curl -s -X POST http://localhost:9100/run-all | python3 -m json.tool'
+ssh root@81.200.119.132 'docker exec avito-system-health-checker-1 curl -s -X POST http://localhost:9100/alerts/test'
 
-### Промпт-стартер для новой сессии
+# adb через USB к Windows ПК (текущий юзер)
+adb devices
+adb shell 'su -c "cat /data/data/com.avitobridge.sessionmanager/shared_prefs/avito_session_manager.xml"' \
+  | grep -E "server_url|api_key|expires_at|mcp_url"
 
-```
-Проект: c:/Projects/Sync/AvitoSystem/. Pool merged в main (8e12434).
-Refresh Hardening shipped 2026-04-30 (5bc72d3). Прочитай CONTINUE.md
-(текущий статус) + DOCS/REFERENCE/ + при нужде
-DOCS/superpowers/plans/2026-04-30-refresh-hardening.md.
-Глобальные секреты: c:/Projects/Sync/CLAUDE.md.
+# Switch android user (для проверки настроек user_10)
+adb shell am switch-user 10
+adb shell 'su -c "cat /data/user/10/com.avitobridge.sessionmanager/shared_prefs/avito_session_manager.xml"'
+adb shell am switch-user 0  # вернуться в Main
 
-Хочу [Backlog #N / soak-debugging / новая фича / ...]
+# Avito-app SharedPrefs (где session_token реально живёт)
+adb shell 'su -mm -c cat /data/user/0/com.avito.android/shared_prefs/com.avito.android_preferences.xml' | grep -E '"u"|"exp"|device_id'
+
+# Rollback на homelab если совсем сломалось
+ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-xapi && docker compose start'
+ssh homelab 'cd /mnt/projects/repos/AvitoSystem/avito-monitor && docker compose start'
+# и в APK поменять server_url обратно на http://213.108.170.194:8080 через adb sed
 ```
 
 ---
@@ -140,61 +171,62 @@ DOCS/superpowers/plans/2026-04-30-refresh-hardening.md.
 
 | Файл | Что |
 |---|---|
-| `DOCS/superpowers/specs/2026-04-28-account-pool-design.md` | Pool design: state machine, DB schema, error matrix, concurrency, testing |
-| `DOCS/superpowers/plans/2026-04-28-account-pool.md` | Pool implementation plan: 24 task'а с TDD-шагами (для истории) |
-| `DOCS/superpowers/plans/2026-04-30-refresh-hardening.md` | **Refresh Hardening** plan: 7 task TDD — xapi propagate Avito 4xx, multi-device migration, account_tick proactive refresh |
-| `DOCS/REFERENCE/01-avito-api.md` | Все endpoints (mobile + official), headers, structured params |
-| `DOCS/REFERENCE/02-auth-and-tokens.md` | JWT, refresh flow, two refresh_token (Avito-app vs наш), pool state machine |
-| `DOCS/REFERENCE/03-android-setup.md` | OnePlus + System Clone, Magisk, ADB, NL, USB passthrough |
-| `DOCS/REFERENCE/04-reverse-engineering-howto.md` | jadx + curl_cffi workflow, что не работает (Frida) |
-| `DOCS/DECISIONS.md` ADR-011 | Поворот на autosearch-sync через мобильный API |
-| `DOCS/avito_api_snapshots/autosearches/README.md` | Реверс subscription endpoints v222.5 |
+| `DOCS/V1_EXECUTION_PLAN.md` | 8 блоков V1 — что делается, что проверяется. Следующий этап — блоки 2-4. |
+| `DOCS/TZ_Avito_Monitor_V1.md` | Главный ТЗ V1.2 — search profiles, LLM, worker pipeline, telegram bot. |
+| `DOCS/DECISIONS.md` | ADRs (особенно ADR-001 URL-based, ADR-008 двойная вилка, ADR-010 двухступенчатый LLM, ADR-011 autosearch sync). |
+| `DOCS/superpowers/plans/2026-05-02-server-migration.md` | Server migration plan (8 phases, выполнен). |
+| `ops/migration-2026-05-02/README.md` | Audit trail data migration: какие таблицы, сколько rows. |
+| `ops/server/{docker-compose.yml,Caddyfile,.env.template}` | Deploy artifacts production. |
+| `DOCS/REFERENCE/01-avito-api.md` | Все Avito endpoints + headers + structured params. |
+| `DOCS/REFERENCE/02-auth-and-tokens.md` | JWT, refresh flow (manual model post-2026-05-02), pool state machine. |
+| `DOCS/REFERENCE/03-android-setup.md` | OnePlus + System Clone, Magisk grants, ADB, NotificationListener. |
+| `DOCS/REFERENCE/04-reverse-engineering-howto.md` | jadx + curl_cffi workflow. |
+| `DOCS/avito_api_snapshots/` | JSON-снимки Avito API (categories, fields, brands). |
 
 ---
 
 ## 7. Где секреты
 
-* **Глобальные**: `c:/Projects/Sync/CLAUDE.md` — Supabase URLs/keys, JWT, homelab IP, TG bot token, Xray-proxy.
-* **avito-monitor локальный:** `c:/Projects/Sync/AvitoSystem/avito-monitor/.env` — gitignored. **OPENROUTER_API_KEY ротирован** 2026-04-29 (старый утёк в `22b86f5:DOCS/V2_CONTINUE.md`, revoked).
-* **На homelab `.env`** в `/mnt/projects/repos/AvitoSystem/avito-monitor/.env` (TG_BOT_TOKEN, OPENROUTER_API_KEY, TELEGRAM_PROXY_URL).
-* **xapi homelab:** `BASE_URL=https://app.avito.ru/api`, `AVITO_XAPI_API_KEY=test_dev_key_123`, rate_limit_rps=1.0, burst=3.
-* **APK prefs:** `/data/data/com.avitobridge.sessionmanager/shared_prefs/avito_session_manager.xml` (root, и **per-user**: `/data/user/10/...` для clone).
-* **Avito session storage:** `/data/user/{0|10}/com.avito.android/shared_prefs/com.avito.android_preferences.xml` — ключи: `session`, `refresh_token`, `device_id`, `remote_device_id`, `profile_id`.
+* **Глобальные старые:** `c:/Projects/Sync/CLAUDE.md` — homelab Supabase credentials. Cloud-проект (`drwgozasaypgphkxyizt`) — там НЕ задокументирован, секреты на VPS в `/opt/avito-system/.env`.
+* **VPS:** `/opt/avito-system/.env` (chmod 600 root). Содержит:
+  - `DATABASE_URL` (asyncpg pooler 6543 + `?prepared_statement_cache_size=0`)
+  - `SUPABASE_URL=https://drwgozasaypgphkxyizt.supabase.co`
+  - `SUPABASE_KEY=sb_secret_*`
+  - `AVITO_XAPI_API_KEY=test_dev_key_123` (plaintext; hash в `avito_api_keys` table)
+  - `AVITO_MCP_AUTH_TOKEN=7235ad5be6bbc6ea7dc0a3d692eb51e9ccbc136e184f2222`
+  - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`
+  - `OPENROUTER_API_KEY` (ротирован 2026-04-29)
+  - `DOMAIN=avitosystem.duckdns.org`
+  - `RELIABILITY_DISABLED_SCENARIOS=G`
+* **APK prefs:** `/data/data/com.avitobridge.sessionmanager/shared_prefs/avito_session_manager.xml` (per-user в `/data/user/{0|10}/...`). Ключи: `server_url`, `api_key`, `mcp_url`, `mcp_auth_token`, `auto_launch_avito` (false), `auto_sync` (true).
+* **Avito-app session:** `/data/user/{0|10}/com.avito.android/shared_prefs/com.avito.android_preferences.xml` — `session`, `refresh_token`, `device_id`, `remote_device_id`, `profile_id`. user_10 currently без логина (только crash reports), readable через `su -mm` fallback из user_0.
+* **DuckDNS:** token `688fa99d-efaa-41d7-9c42-824569926b8f` в `/usr/local/bin/duckdns-update.sh` на VPS.
 * **Auto-memory:** `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/`
+
+---
+
+## 8. Промпт-стартер для новой сессии
+
+```
+Проект: c:/Projects/Sync/AvitoSystem/. Server migration shipped 2026-05-04 на ветке
+feat/server-migration (20 коммитов). Production: VPS 81.200.119.132 +
+https://avitosystem.duckdns.org + Cloud Supabase Frankfurt. Manual refresh model.
+9 контейнеров на VPS: caddy, xapi, monitor, mcp, redis, worker, scheduler,
+health-checker, telegram-bot. Прочитай CONTINUE.md (текущий статус) +
+DOCS/V1_EXECUTION_PLAN.md (блоки 2-4 для следующего этапа).
+
+Хочу: настроить LLM-pipeline разбора объявлений (двухступенчатый LLM,
+двойная вилка) — следующая большая задача V1 core. Pool warm-up: открой
+Avito-app на phone в user_0+user_10 если ещё не сделал.
+```
 
 ---
 
 **TL;DR для следующей сессии:**
 
-1. Pool **в main** (`8e12434` merged 2026-04-29). Refresh Hardening **в main** (`5bc72d3` merged 2026-04-30). Soak.
-2. Pool=1 фактически (Clone) — Main = тот же `u`. Schema теперь готова к multi-device (`UNIQUE(u, device)`); чтобы pool=2 — либо register второй номер, либо настроить multi-device на одном `u` (см. backlog #2).
-3. T13 (USB) + T23 (7/7 force-тестов) + Refresh Hardening **пройдены E2E** на homelab.
-4. **V1.5 backlog 7 пунктов** в § 2 (Gap 4 закрыт). 
-5. **Известные мелкие issues**: TG bot inbound (aiohttp-socks missing), `200 report` не зачищает `cooldown_until`.
-
----
-
-## 8. Refresh Hardening — что сделано (2026-04-30)
-
-**Контекст инцидента:** 2026-04-30 18:00 UTC. Сервер был выключен → JWT протух → worker стартанул и долбил Avito с мёртвым токеном → Avito отдавал 403 → xapi оборачивал в 500 → pool не видел 403, не переводил в cooldown → молотил часами. JWT в Avito-app тоже истёк, refresh-cycle не сработал, понадобилось ручное открытие Avito-app на phone.
-
-**Корень:** три архитектурные дыры:
-1. xapi оборачивал Avito 401/403/429 в 500 (middleware catch-all) → pool слеп.
-2. `account_tick` читал `expires_at` из `avito_accounts` (где её нет — она в `avito_sessions`) → proactive refresh не работал.
-3. `UNIQUE(avito_user_id)` блокировал multi-device → один phone-юзер = один pool row.
-
-**План:** `DOCS/superpowers/plans/2026-04-30-refresh-hardening.md` — 7 TDD-задач, выполнены через subagent-driven development (по свежему агенту на задачу + spec + code quality review). Итог 9 commits + 2 dockerfix.
-
-**Что в production:**
-- xapi теперь возвращает Avito 401/403/429 наружу как HTTPException (через `reraise_avito_error` helper в `src/routers/_avito_errors.py`). Все Avito-touching call sites в `subscriptions.py` (4 шт) и `messenger.py` (9 шт) обёрнуты.
-- Migration 008: `UNIQUE(avito_user_id, last_device_id)` — multi-device per Avito-юзер допустим в схеме.
-- `resolve_or_create_account` ключует по паре `(u, device_id)`. Каждый device — свой pool row.
-- `GET /api/v1/accounts` возвращает `expires_at` per row (JOIN с `avito_sessions`).
-- `account_tick`: threshold 3min → 30min, треатит `expires_at IS NULL` как trigger. Покрывает boot-recovery (первый тик после рестарта подхватит просроченный JWT).
-- Dockerfile monitor: `pip` вместо `uv` (uv падал с signalfd panic на kernel 6.17).
-
-**Verified live на homelab:** near-expiry simulation (set `expires_at=NOW+5min`) → health_checker fired refresh-cycle через 30с. Phone-side 503 — отдельная история (ADB/APK состояние сейчас).
-
-**Что ОСТАЛОСЬ от плана (Phase 2, ops):**
-- Реальная multi-device активация: APK в user_10 настроить (сейчас пуст), привести Avito-app в обоих юзерах в нужное состояние, разнести refresh на 12ч сдвиг между Main/Clone. Plan §"Phase 2".
-- Известный pre-existing bug в supabase wrapper: `.eq(col, None)` не делает SQL `IS NULL` (генерит `eq.None`). Сейчас не влияет (production flow всегда передаёт `device_id`), но в backlog.
+1. Server Migration **выполнен** 2026-05-04. Production на VPS + Cloud Supabase, homelab остановлен, APK repointed, Avito-MCP доступен через Caddy. Все backend services (worker/scheduler/health-checker/telegram-bot) запущены.
+2. **Backlog #1 — ротация засветившихся секретов** (high priority): VPS root password, Supabase JWT, Supabase API key, Avito-MCP token.
+3. **Backlog #3 — pool warm-up**: открыть Avito-app в user_0+user_10 для естественного refresh. Pool сейчас неактивен.
+4. **Health-checker alerts** в новом формате — короткие, без Markdown, без избыточных «проверь токен» когда мы сами знаем что он fresh. Сценарий G отключён (messenger-bot не deployed).
+5. Ветка `feat/server-migration` НЕ замержена в main — ждёт user-decision (`Backlog #8`).
+6. **Следующий этап** — LLM-pipeline (раздел 4 этого файла + V1_EXECUTION_PLAN.md блоки 2-4).

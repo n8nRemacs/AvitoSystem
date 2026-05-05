@@ -96,15 +96,15 @@ async def on_callback(query: CallbackQuery) -> None:
         else:
             await query.answer("Не удалось — нет продавца", show_alert=True)
     elif action == ACTION_RECLASSIFY:
-        # Re-enqueue stage-1 LLM for this listing.
+        # Re-enqueue V2 evaluation for this listing.
         sessionmaker = get_sessionmaker()
         async with sessionmaker() as session:
             notif = await session.get(Notification, notif_id)
         if notif and notif.related_listing_id and notif.profile_id:
             try:
-                from app.tasks.analysis import analyze_listing
+                from app.tasks.analysis import evaluate_listing
 
-                await analyze_listing.kiq(
+                await evaluate_listing.kiq(
                     str(notif.related_listing_id), str(notif.profile_id)
                 )
                 await query.answer("LLM повторно поставлен в очередь")

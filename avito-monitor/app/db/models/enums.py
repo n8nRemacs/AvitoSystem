@@ -21,9 +21,12 @@ class ListingStatus(StrEnum):
 
 class ProcessingStatus(StrEnum):
     FETCHED = "fetched"
+    # legacy ADR-010 two-stage values — drop in Phase C
     CLASSIFIED = "classified"
     MARKET_DATA = "market_data"
     PENDING_MATCH = "pending_match"
+    # v2 single-stage outcome
+    EVALUATED = "evaluated"
     ANALYZED = "analyzed"
     NOTIFIED = "notified"
     FAILED = "failed"
@@ -51,9 +54,42 @@ class SellerType(StrEnum):
 
 
 class LLMAnalysisType(StrEnum):
+    # legacy ADR-010 — drop in Phase C
     CONDITION = "condition"
     MATCH = "match"
     COMPARE = "compare"
+    # v2 — granular per-criterion / per-info cache rows
+    CRITERION_EVAL = "criterion_eval"
+    INFO_LLM_EXTRACT = "info_llm_extract"
+
+
+class CriteriaTemplateKind(StrEnum):
+    """How a CriteriaTemplate participates in evaluation.
+
+    - ``criterion`` — LLM grades red/green/unknown with a confidence.
+    - ``info_llm`` — LLM extracts a value (no grading).
+    - ``info_api`` — value pulled directly from ``listing.parameters``;
+      never goes to the LLM.
+    """
+
+    CRITERION = "criterion"
+    INFO_LLM = "info_llm"
+    INFO_API = "info_api"
+
+
+class EvaluateStrategy(StrEnum):
+    """Per-profile selector for the LLM call shape (hot-switchable)."""
+
+    PER_LISTING = "per_listing"
+    PER_CRITERION = "per_criterion"
+
+
+class EvaluationBucket(StrEnum):
+    """Final bucket assignment computed in Python from criterion flags."""
+
+    GREEN = "green"
+    GREY = "grey"
+    RED = "red"
 
 
 class NotificationType(StrEnum):

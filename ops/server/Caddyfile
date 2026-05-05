@@ -1,0 +1,99 @@
+# Caddy reverse proxy for AvitoSystem.
+#
+# Two sites, always defined:
+#
+#   1) {$DOMAIN:localhost}  — primary, auto-TLS via Let's Encrypt when
+#      DOMAIN is a real public hostname; falls back to Caddy local CA
+#      when DOMAIN is "localhost" (compose default when DOMAIN is empty).
+#
+#   2) https://81.200.119.132  — direct-IP access using `tls internal`
+#      (Caddy local CA cert with IP literal as subject). Always available
+#      regardless of DOMAIN, useful for ops/curl during DuckDNS setup.
+#
+# `servers.default_sni` ensures clients that connect without SNI (per
+# RFC 6066 curl correctly omits SNI for IP literals) still get a valid
+# TLS handshake against the IP cert.
+#
+# To switch modes: set DOMAIN in /opt/avito-system/.env, then
+# `docker compose up -d caddy` (Caddy reloads on env change at restart).
+{
+	default_sni 81.200.119.132
+}
+
+(routes) {
+	encode zstd gzip
+
+	# APK posts new sessions here from the phone over public internet.
+	handle /api/v1/sessions* {
+		reverse_proxy avito-xapi:8080
+	}
+
+	# Internal-ish xapi endpoints. Authenticated via X-Api-Key middleware.
+	# avito-monitor calls them in-cluster (http://avito-xapi:8080) but we
+	# also expose externally for ops debugging.
+	handle /api/v1/accounts* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/search* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/messenger* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/subscriptions* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/notifications* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/farm* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/calls* {
+		reverse_proxy avito-xapi:8080
+	}
+	handle /api/v1/realtime* {
+		reverse_proxy avito-xapi:8080
+	}
+
+	# avito-mcp FastMCP SSE server. The upstream serves /sse and /messages
+	# at its origin root, so we strip the /mcp prefix before proxying.
+	# flush_interval -1 disables Caddy's response buffering, which is
+	# mandatory for SSE: each event must reach the client immediately.
+	handle_path /mcp/* {
+		reverse_proxy avito-mcp:9000 {
+			flush_interval -1
+		}
+	}
+	handle /mcp {
+		redir /mcp/ 308
+	}
+
+	# Catch-all → avito-monitor dashboard / bot webhook / health
+	handle {
+		reverse_proxy avito-monitor:8000
+	}
+}
+
+# Primary site — uses DOMAIN env, defaults to "localhost" when unset.
+# When DOMAIN is "localhost" Caddy auto-issues an internal cert; when
+# DOMAIN is a real hostname Caddy auto-issues a public LE cert via HTTP-01.
+{$DOMAIN:localhost} {
+	import routes
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}
+
+# Direct-IP access via Caddy's local CA. The global `default_sni` above
+# makes this site's cert the fallback when the client's ClientHello has
+# no SNI extension (curl omits SNI for IP literals per RFC 6066), so
+# `curl -k https://81.200.119.132/` works.
+https://81.200.119.132 {
+	tls internal
+	import routes
+}
