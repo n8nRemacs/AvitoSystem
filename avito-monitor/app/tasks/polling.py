@@ -29,6 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.db.base import get_sessionmaker
 from app.db.models import (
     Listing,
+    ProfileCriterion,
     ProfileListing,
     ProfileRun,
     SearchProfile,
@@ -383,16 +384,46 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
         )
         await session.commit()
 
-    # Enqueue stage-1 classifications AFTER the polling commit. Doing it
-    # outside the DB session keeps the transaction short and lets the
-    # worker pull them up immediately from Redis.
+    # Enqueue analysis AFTER the polling commit. Doing it outside the
+    # DB session keeps the transaction short and lets the worker pull
+    # them up immediately from Redis.
+    #
+    # Routing: V2 single-stage `evaluate_listing` for profiles opted in
+    # (env LLM_PIPELINE=v2 globally OR profile.notification_settings
+    # `llm_pipeline_v2` flag); legacy two-stage `analyze_listing`
+    # otherwise. A v2 profile MUST have at least one profile_criteria
+    # row, otherwise we fall back to legacy.
     enqueued_for_analysis = 0
     if to_analyze:
-        from app.tasks.analysis import analyze_listing
+        import os
 
+        from app.tasks.analysis import analyze_listing, evaluate_listing
+
+        global_v2 = (os.environ.get("LLM_PIPELINE") or "").lower() == "v2"
+        notif_settings = profile.notification_settings or {}
+        profile_v2 = bool(notif_settings.get("llm_pipeline_v2"))
+        use_v2 = global_v2 or profile_v2
+
+        if use_v2:
+            from sqlalchemy import func as sa_func
+
+            async with sessionmaker() as session:
+                count = await session.scalar(
+                    select(sa_func.count(ProfileCriterion.id)).where(
+                        ProfileCriterion.profile_id == pid
+                    )
+                )
+            if not count:
+                log.info(
+                    "polling.v2_no_criteria_fallback_to_legacy profile_id=%s",
+                    profile_id,
+                )
+                use_v2 = False
+
+        task = evaluate_listing if use_v2 else analyze_listing
         for lid in to_analyze:
             try:
-                await analyze_listing.kiq(str(lid), str(pid))
+                await task.kiq(str(lid), str(pid))
                 enqueued_for_analysis += 1
             except Exception:
                 log.exception(

@@ -201,6 +201,18 @@ def _form_get_list(form: dict[str, Any], key: str) -> list[str]:
     return [str(v)] if v else []
 
 
+def _form_get_float(form: dict[str, Any], key: str) -> float | None:
+    v = form.get(key)
+    if v in (None, "", []):
+        return None
+    if isinstance(v, list):
+        v = v[0]
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _form_get_str(form: dict[str, Any], key: str) -> str | None:
     v = form.get(key)
     if isinstance(v, list):
@@ -213,6 +225,9 @@ def _form_get_str(form: dict[str, Any], key: str) -> str | None:
 async def _parse_form_to_create(request: Request) -> SearchProfileCreate:
     raw = await request.form()
     form = {k: raw.getlist(k) if len(raw.getlist(k)) > 1 else raw.get(k) for k in raw}
+    notif_settings: dict[str, Any] = {}
+    if _form_get_bool(form, "enable_v2"):
+        notif_settings["llm_pipeline_v2"] = True
     return SearchProfileCreate(
         name=_form_get_str(form, "name") or "Без названия",
         avito_search_url=_form_get_str(form, "avito_search_url") or "",
@@ -226,8 +241,11 @@ async def _parse_form_to_create(request: Request) -> SearchProfileCreate:
         custom_criteria=_form_get_str(form, "custom_criteria"),
         allowed_conditions=_form_get_list(form, "allowed_conditions") or ["working"],
         analyze_photos=_form_get_bool(form, "analyze_photos"),
+        evaluate_strategy=_form_get_str(form, "evaluate_strategy") or "per_listing",
+        confidence_threshold=_form_get_float(form, "confidence_threshold") or 0.7,
         poll_interval_minutes=_form_get_int(form, "poll_interval_minutes") or 15,
         is_active=_form_get_bool(form, "is_active"),
+        notification_settings=notif_settings,
         notification_channels=_form_get_list(form, "notification_channels") or ["telegram"],
     )
 
@@ -235,6 +253,12 @@ async def _parse_form_to_create(request: Request) -> SearchProfileCreate:
 async def _parse_form_to_update(request: Request) -> SearchProfileUpdate:
     raw = await request.form()
     form = {k: raw.getlist(k) if len(raw.getlist(k)) > 1 else raw.get(k) for k in raw}
+    # The update path always carries the v2 toggle (it's a checkbox in the
+    # form), so unconditionally rebuild notification_settings to reflect
+    # the user's current selection. Other notification_settings keys are
+    # preserved through SearchProfileUpdate's None-means-unset semantics
+    # above plus the service layer's merge logic.
+    notif_settings: dict[str, Any] = {"llm_pipeline_v2": _form_get_bool(form, "enable_v2")}
     return SearchProfileUpdate(
         name=_form_get_str(form, "name"),
         avito_search_url=_form_get_str(form, "avito_search_url"),
@@ -248,8 +272,11 @@ async def _parse_form_to_update(request: Request) -> SearchProfileUpdate:
         custom_criteria=_form_get_str(form, "custom_criteria"),
         allowed_conditions=_form_get_list(form, "allowed_conditions") or None,
         analyze_photos=_form_get_bool(form, "analyze_photos"),
+        evaluate_strategy=_form_get_str(form, "evaluate_strategy"),
+        confidence_threshold=_form_get_float(form, "confidence_threshold"),
         poll_interval_minutes=_form_get_int(form, "poll_interval_minutes"),
         is_active=_form_get_bool(form, "is_active"),
+        notification_settings=notif_settings,
         notification_channels=_form_get_list(form, "notification_channels") or None,
     )
 

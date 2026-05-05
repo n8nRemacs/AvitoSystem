@@ -136,6 +136,16 @@ async def update_profile(
     data: SearchProfileUpdate,
 ) -> SearchProfile:
     payload = data.model_dump(exclude_unset=True)
+    # Merge notification_settings instead of replacing — the form only
+    # carries the v2 toggle, so a plain setattr would wipe other keys
+    # (e.g. min_confidence_threshold for the legacy match flow).
+    if (
+        "notification_settings" in payload
+        and isinstance(payload["notification_settings"], dict)
+    ):
+        merged = dict(profile.notification_settings or {})
+        merged.update(payload["notification_settings"])
+        payload["notification_settings"] = merged
     url_changed = "avito_search_url" in payload
     for k, v in payload.items():
         setattr(profile, k, v)

@@ -210,6 +210,56 @@
       </label>
     </section>
 
+    <!-- Step 5b: V2 pipeline toggle (flag-based eval) -->
+    <details class="bg-avito-surface rounded-lg border border-avito-border p-5"
+             {% if profile and profile.notification_settings and profile.notification_settings.get('llm_pipeline_v2') %}open{% endif %}>
+      <summary class="text-sm font-semibold cursor-pointer text-avito-text">
+        V2 пайплайн (флаг-based, экспериментальный)
+      </summary>
+      <div class="mt-4 space-y-4 text-sm">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="enable_v2" value="true"
+                 {% if profile and profile.notification_settings and profile.notification_settings.get('llm_pipeline_v2') %}checked{% endif %}
+                 class="rounded">
+          <span>Использовать V2 пайплайн вместо ADR-010 двухступенчатого</span>
+        </label>
+
+        <label class="block">
+          <span class="text-xs text-avito-text-soft mb-1 block">Стратегия LLM-вызовов</span>
+          <select name="evaluate_strategy"
+                  class="px-3 py-2 rounded-md border border-avito-border bg-white">
+            <option value="per_listing"
+              {% if not profile or profile.evaluate_strategy in (none, 'per_listing') %}selected{% endif %}>
+              per_listing — 1 вызов на лот (дёшево)
+            </option>
+            <option value="per_criterion"
+              {% if profile and profile.evaluate_strategy == 'per_criterion' %}selected{% endif %}>
+              per_criterion — N вызовов (точнее, гранулярный кеш)
+            </option>
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="text-xs text-avito-text-soft mb-1 block">
+            Порог уверенности (0.50–0.99):
+            <output name="confidence_threshold_value" class="font-mono">{{ '%.2f' | format(profile.confidence_threshold | float if profile and profile.confidence_threshold else 0.7) }}</output>
+          </span>
+          <input type="range" name="confidence_threshold"
+                 min="0.50" max="0.99" step="0.05"
+                 value="{{ profile.confidence_threshold | float if profile and profile.confidence_threshold else 0.7 }}"
+                 class="w-full"
+                 oninput="this.parentElement.querySelector('output').value = parseFloat(this.value).toFixed(2)">
+        </label>
+
+        <p class="text-xs text-avito-text-soft">
+          Список criteria настраивается отдельно: либо через
+          <code class="bg-avito-surface-strong px-1 rounded">app/data/criteria_templates.yaml</code>
+          (глобальная библиотека) + ручные INSERT в <code>profile_criteria</code>,
+          либо через будущий UI редактор criteria (Phase B).
+        </p>
+      </div>
+    </details>
+
     <!-- Step 6: Schedule -->
     <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-3">
       <h2 class="text-sm font-semibold text-avito-text">Расписание</h2>

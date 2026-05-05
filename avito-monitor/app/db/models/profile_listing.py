@@ -46,3 +46,10 @@ class ProfileListing(Base):
     user_action: Mapped[str | None] = mapped_column(
         String(16), default=UserAction.PENDING.value
     )
+
+    # V2 pipeline — denormalised from latest profile_listing_evaluations row
+    bucket: Mapped[str | None] = mapped_column(String(8))
+    latest_evaluation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("profile_listing_evaluations.id", ondelete="SET NULL"),
+    )

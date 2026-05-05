@@ -12,6 +12,7 @@ Stored as the ``result`` JSONB column on ``llm_analyses`` (see
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -72,6 +73,58 @@ class ComparisonResult(BaseModel):
     key_advantages: list[str] = Field(default_factory=list)
     key_disadvantages: list[str] = Field(default_factory=list)
     price_delta_estimate: int | None = None
+
+
+class CriterionFlag(BaseModel):
+    """Single criterion verdict from the v2 evaluation pipeline.
+
+    Cached per-criterion (``llm_analyses.type='criterion_eval'``) so the
+    same row is reused regardless of whether the originating call was
+    a per_listing batch or a per_criterion request.
+    """
+
+    flag: Literal["red", "green", "unknown"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str = ""
+
+
+class InfoFieldExtract(BaseModel):
+    """Single info-field extraction from the v2 pipeline.
+
+    Always produced by ``extract_info.md`` (one batch call per listing).
+    The ``value`` is intentionally typed loosely (``Any``) — concrete
+    schema lives in the ``criteria_templates.output_schema`` for the
+    matching template and is validated downstream when needed.
+    """
+
+    value: Any | None = None
+    reasoning: str = ""
+
+
+class ListingEvaluation(BaseModel):
+    """Aggregated bucket verdict for one (profile, listing).
+
+    Produced after all criteria + info-fields are resolved (cache hit
+    OR fresh LLM call). Persisted as a row in
+    ``profile_listing_evaluations`` (with criteria/info as JSONB).
+    """
+
+    criteria: dict[str, CriterionFlag] = Field(default_factory=dict)
+    info: dict[str, InfoFieldExtract] = Field(default_factory=dict)
+    bucket: Literal["green", "grey", "red"]
+    red_criterion_keys: list[str] = Field(default_factory=list)
+
+
+class BatchEvaluationResponse(BaseModel):
+    """Direct parse of ``evaluate_listing_batch.md`` output.
+
+    Distinct from :class:`ListingEvaluation` because the LLM does NOT
+    decide the bucket — Python applies the confidence threshold after
+    the call, so the bucket can be re-tuned without a re-prompt.
+    """
+
+    criteria: dict[str, CriterionFlag] = Field(default_factory=dict)
+    info: dict[str, Any] = Field(default_factory=dict)
 
 
 class LLMResponse(BaseModel):

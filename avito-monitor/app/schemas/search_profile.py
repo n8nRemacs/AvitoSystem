@@ -42,6 +42,13 @@ class SearchProfileBase(BaseModel):
     llm_match_model: str | None = None
     analyze_photos: bool = False
 
+    # V2 pipeline (flag-based evaluation)
+    evaluate_strategy: str = Field(
+        "per_listing",
+        description="per_listing | per_criterion (hot-switchable)",
+    )
+    confidence_threshold: float = Field(0.7, ge=0.5, le=0.99)
+
     poll_interval_minutes: int = Field(15, ge=1, le=1440)
     active_hours: dict[str, Any] | None = None
     is_active: bool = True
@@ -71,6 +78,8 @@ class SearchProfileUpdate(BaseModel):
     llm_classify_model: str | None = None
     llm_match_model: str | None = None
     analyze_photos: bool | None = None
+    evaluate_strategy: str | None = None
+    confidence_threshold: float | None = None
     poll_interval_minutes: int | None = None
     active_hours: dict[str, Any] | None = None
     is_active: bool | None = None
