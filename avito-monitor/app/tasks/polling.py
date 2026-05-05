@@ -388,47 +388,35 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     # DB session keeps the transaction short and lets the worker pull
     # them up immediately from Redis.
     #
-    # Routing: V2 single-stage `evaluate_listing` for profiles opted in
-    # (env LLM_PIPELINE=v2 globally OR profile.notification_settings
-    # `llm_pipeline_v2` flag); legacy two-stage `analyze_listing`
-    # otherwise. A v2 profile MUST have at least one profile_criteria
-    # row, otherwise we fall back to legacy.
+    # Phase C: legacy analyze_listing removed. All profiles must have at
+    # least one profile_criteria row. Profiles without criteria are
+    # skipped (safety guard — no silently wrong LLM calls).
     enqueued_for_analysis = 0
     if to_analyze:
-        import os
+        from sqlalchemy import func as sa_func
 
-        from app.tasks.analysis import analyze_listing, evaluate_listing
+        from app.tasks.analysis import evaluate_listing
 
-        global_v2 = (os.environ.get("LLM_PIPELINE") or "").lower() == "v2"
-        notif_settings = profile.notification_settings or {}
-        profile_v2 = bool(notif_settings.get("llm_pipeline_v2"))
-        use_v2 = global_v2 or profile_v2
-
-        if use_v2:
-            from sqlalchemy import func as sa_func
-
-            async with sessionmaker() as session:
-                count = await session.scalar(
-                    select(sa_func.count(ProfileCriterion.id)).where(
-                        ProfileCriterion.profile_id == pid
+        async with sessionmaker() as session:
+            count = await session.scalar(
+                select(sa_func.count(ProfileCriterion.id)).where(
+                    ProfileCriterion.profile_id == pid
+                )
+            )
+        if not count:
+            log.warning(
+                "polling.no_criteria_skip_analysis profile_id=%s",
+                profile_id,
+            )
+        else:
+            for lid in to_analyze:
+                try:
+                    await evaluate_listing.kiq(str(lid), str(pid))
+                    enqueued_for_analysis += 1
+                except Exception:
+                    log.exception(
+                        "polling.enqueue_analyze_failed listing_id=%s", lid
                     )
-                )
-            if not count:
-                log.info(
-                    "polling.v2_no_criteria_fallback_to_legacy profile_id=%s",
-                    profile_id,
-                )
-                use_v2 = False
-
-        task = evaluate_listing if use_v2 else analyze_listing
-        for lid in to_analyze:
-            try:
-                await task.kiq(str(lid), str(pid))
-                enqueued_for_analysis += 1
-            except Exception:
-                log.exception(
-                    "polling.enqueue_analyze_failed listing_id=%s", lid
-                )
 
     log.info(
         "polling.success profile_id=%s seen=%d new=%d in_alert=%d closed=%d analyze=%d",

@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db.models.listing import Listing
 from app.db.models.llm_analysis import LLMAnalysis
 
 log = logging.getLogger(__name__)
@@ -88,14 +89,26 @@ class DBLLMCache:
     ) -> None:
         # The ``listings`` table uses UUID primary keys. The analyzer hands us
         # the Avito numeric id (int) as ``listing_id`` because that's what's
-        # in :class:`shared.models.avito.ListingDetail`. We can't store an
-        # int into a UUID FK, so for now we drop the FK link and keep the
-        # numeric id inside ``result["_avito_id"]`` for forensic queries.
-        # When Block 4 wires the real ``listings`` row UUID through, this
-        # branch goes away.
+        # in :class:`shared.models.avito.ListingDetail`. When we receive an
+        # int, resolve it to the DB UUID via a listings lookup so that
+        # llm_analyses.listing_id is always populated.
         listing_uuid: uuid.UUID | None = None
         if isinstance(listing_id, uuid.UUID):
             listing_uuid = listing_id
+        elif isinstance(listing_id, int):
+            try:
+                async with self._sessionmaker() as _lookup_session:
+                    row = (
+                        await _lookup_session.execute(
+                            select(Listing.id).where(Listing.avito_id == listing_id)
+                        )
+                    ).scalar_one_or_none()
+                    if row is not None:
+                        listing_uuid = row
+            except Exception:  # pragma: no cover — DB outage path
+                log.exception(
+                    "llm_cache.listing_uuid_lookup_failed avito_id=%s", listing_id
+                )
 
         ref_uuid: uuid.UUID | None = None
         if isinstance(reference_id, uuid.UUID):

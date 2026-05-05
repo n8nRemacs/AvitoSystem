@@ -1,28 +1,27 @@
-"""LLM-driven listing analysis: classify, match, compare.
+"""LLM-driven listing analysis — V2 pipeline + Price Intelligence.
 
-Two-stage pipeline (ADR-010):
+Two cooperating entry points:
 
-1. ``classify_condition`` — cheap text-only classifier (haiku by default).
-   Runs on every new listing in the worker (Block 4).
-2. ``match_criteria`` — heavyweight check, optionally multimodal.
-   Runs only when ``classify_condition`` lands the listing in
-   ``profile.allowed_conditions`` AND it is in the alert price band.
+* ``evaluate_listing`` — V2 flag-based evaluator. Runs every criterion and
+  info_llm field for a listing in one (or several) LLM calls, assigns a
+  green/grey/red bucket, and caches results per-criterion so re-runs are
+  cheap.
 
-A third method, ``compare_to_reference``, powers Price Intelligence
-(Block 7) — comparing a competitor against the user's reference lot.
+* ``compare_to_reference`` — Price Intelligence (Block 7). Compares a
+  competitor listing against the user's reference lot.
 
-All three methods share the same skeleton:
+Legacy ADR-010 methods (``classify_condition`` / ``match_criteria``) were
+removed in Phase C (migration 0009_drop_legacy_v2_artifacts).
 
-* Compute a deterministic ``cache_key`` (sha256 of model, prompt
-  version, listing id+timestamp, plus any per-method extras) and
-  short-circuit through the DB cache (``llm_analyses`` table) on hit.
-* On cache miss, render the Jinja2 prompt (located under
-  ``app/prompts/<name>.md``), call OpenRouter, parse the JSON response
-  via Pydantic, and persist the entry — so the budget tracker
-  (``app/services/llm_budget.py``) can sum cost across the day.
-* On parse failure, return a SAFE default (``unknown`` / ``matches=False``)
-  and still persist the entry, because we never want to retry an
-  upstream that's just hallucinating malformed JSON.
+Cache skeleton shared by all methods:
+
+* Compute a deterministic ``cache_key`` (sha256 of model, prompt version,
+  listing id+timestamp, per-method extras) and short-circuit through
+  ``llm_analyses`` on hit.
+* On miss, render the Jinja2 prompt, call OpenRouter, parse JSON via
+  Pydantic, persist the entry so the budget tracker can sum cost.
+* On parse failure return a SAFE default and still persist, to avoid
+  retrying a hallucinating upstream.
 """
 from __future__ import annotations
 
@@ -42,13 +41,10 @@ from shared.models.avito import ListingDetail
 from shared.models.llm import (
     BatchEvaluationResponse,
     ComparisonResult,
-    ConditionClass,
-    ConditionClassification,
     CriterionFlag,
     InfoFieldExtract,
     ListingEvaluation,
     LLMResponse,
-    MatchResult,
 )
 
 log = logging.getLogger(__name__)
@@ -272,36 +268,6 @@ class LLMAnalyzer:
     # Cache keys
     # ------------------------------------------------------------------
 
-    def _cache_key_for_condition(self, listing: ListingDetail, model: str) -> str:
-        version, _, _ = _read_prompt("classify_condition", self._prompts_dir)
-        return _hash(
-            "condition",
-            model,
-            version,
-            str(listing.id),
-            listing.first_seen or "",
-        )
-
-    def _cache_key_for_match(
-        self,
-        listing: ListingDetail,
-        model: str,
-        *,
-        criteria: str,
-        allowed_conditions: list[str],
-    ) -> str:
-        version, _, _ = _read_prompt("match_listing", self._prompts_dir)
-        sorted_conds = ",".join(sorted(allowed_conditions))
-        return _hash(
-            "match",
-            model,
-            version,
-            str(listing.id),
-            listing.first_seen or "",
-            criteria,
-            sorted_conds,
-        )
-
     def _cache_key_for_compare(
         self,
         competitor: ListingDetail,
@@ -326,154 +292,6 @@ class LLMAnalyzer:
             ref_id,
             ref_seen,
         )
-
-    # ------------------------------------------------------------------
-    # classify_condition
-    # ------------------------------------------------------------------
-
-    async def classify_condition(
-        self,
-        listing: ListingDetail,
-        *,
-        model: str | None = None,
-    ) -> ConditionClassification:
-        m = model or self._default_text_model
-        cache_key = self._cache_key_for_condition(listing, m)
-
-        cached = await self._cache.get(cache_key)
-        if cached is not None:
-            return _condition_from_dict(cached)
-
-        version, sys_tpl, usr_tpl = _read_prompt(
-            "classify_condition", self._prompts_dir
-        )
-        ctx = _listing_to_render_dict(listing)
-        system_prompt = sys_tpl.render(**ctx)
-        user_content = usr_tpl.render(**ctx)
-
-        resp = await self._openrouter.complete_json(
-            model=m,
-            system_prompt=system_prompt,
-            user_content=user_content,
-            temperature=0.0,
-            max_tokens=400,
-        )
-        parsed = _safe_json_loads(resp.content)
-        if parsed is None:
-            log.warning(
-                "llm_analyzer.classify.bad_json listing_id=%s model=%s raw=%r",
-                listing.id, m, (resp.content or "")[:400],
-            )
-            result = ConditionClassification(
-                condition_class=ConditionClass.UNKNOWN,
-                confidence=0.0,
-                reasoning="LLM returned invalid JSON",
-            )
-        else:
-            try:
-                result = ConditionClassification.model_validate(parsed)
-            except Exception as exc:  # pydantic ValidationError or similar
-                log.warning(
-                    "llm_analyzer.classify.invalid_schema listing_id=%s err=%s",
-                    listing.id, exc,
-                )
-                result = ConditionClassification(
-                    condition_class=ConditionClass.UNKNOWN,
-                    confidence=0.0,
-                    reasoning="LLM JSON did not match schema",
-                )
-
-        await self._cache.put(
-            cache_key=cache_key,
-            type="condition",
-            listing_id=listing.id,
-            reference_id=None,
-            model=m,
-            prompt_version=version,
-            input_tokens=resp.input_tokens,
-            output_tokens=resp.output_tokens,
-            cost_usd=resp.cost_usd,
-            latency_ms=resp.latency_ms,
-            result=result.model_dump(mode="json"),
-        )
-        return result
-
-    # ------------------------------------------------------------------
-    # match_criteria
-    # ------------------------------------------------------------------
-
-    async def match_criteria(
-        self,
-        listing: ListingDetail,
-        *,
-        criteria: str,
-        allowed_conditions: list[str],
-        condition_class: str | None = None,
-        model: str | None = None,
-    ) -> MatchResult:
-        m = model or self._default_text_model
-        cache_key = self._cache_key_for_match(
-            listing, m, criteria=criteria, allowed_conditions=allowed_conditions
-        )
-
-        cached = await self._cache.get(cache_key)
-        if cached is not None:
-            return _match_from_dict(cached)
-
-        version, sys_tpl, usr_tpl = _read_prompt("match_listing", self._prompts_dir)
-        ctx = _listing_to_render_dict(listing)
-        ctx["criteria"] = criteria
-        ctx["allowed_conditions"] = allowed_conditions
-        ctx["condition_class"] = condition_class
-        system_prompt = sys_tpl.render(**ctx)
-        user_content = usr_tpl.render(**ctx)
-
-        resp = await self._openrouter.complete_json(
-            model=m,
-            system_prompt=system_prompt,
-            user_content=user_content,
-            temperature=0.1,
-            max_tokens=600,
-        )
-        parsed = _safe_json_loads(resp.content)
-        if parsed is None:
-            log.warning(
-                "llm_analyzer.match.bad_json listing_id=%s model=%s",
-                listing.id, m,
-            )
-            result = MatchResult(
-                matches=False, score=0,
-                reasoning="LLM returned invalid JSON",
-                key_pros=[], key_cons=["llm_parse_error"],
-            )
-        else:
-            try:
-                result = MatchResult.model_validate(parsed)
-            except Exception as exc:
-                log.warning(
-                    "llm_analyzer.match.invalid_schema listing_id=%s err=%s",
-                    listing.id, exc,
-                )
-                result = MatchResult(
-                    matches=False, score=0,
-                    reasoning="LLM JSON did not match schema",
-                    key_pros=[], key_cons=["llm_schema_error"],
-                )
-
-        await self._cache.put(
-            cache_key=cache_key,
-            type="match",
-            listing_id=listing.id,
-            reference_id=None,
-            model=m,
-            prompt_version=version,
-            input_tokens=resp.input_tokens,
-            output_tokens=resp.output_tokens,
-            cost_usd=resp.cost_usd,
-            latency_ms=resp.latency_ms,
-            result=result.model_dump(mode="json"),
-        )
-        return result
 
     # ------------------------------------------------------------------
     # compare_to_reference
@@ -901,24 +719,6 @@ class LLMAnalyzer:
 # ----------------------------------------------------------------------
 # Cached → typed result helpers.
 # ----------------------------------------------------------------------
-
-def _condition_from_dict(d: dict[str, Any]) -> ConditionClassification:
-    try:
-        return ConditionClassification.model_validate(d)
-    except Exception:
-        return ConditionClassification(
-            condition_class=ConditionClass.UNKNOWN,
-            confidence=0.0,
-            reasoning="invalid cached payload",
-        )
-
-
-def _match_from_dict(d: dict[str, Any]) -> MatchResult:
-    try:
-        return MatchResult.model_validate(d)
-    except Exception:
-        return MatchResult(matches=False, score=0, reasoning="invalid cached payload")
-
 
 def _comparison_from_dict(d: dict[str, Any]) -> ComparisonResult:
     try:
