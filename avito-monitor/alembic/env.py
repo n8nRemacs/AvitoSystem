@@ -46,10 +46,17 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
+    # asyncpg + Supabase pgbouncer (transaction-pool) cannot reuse
+    # prepared statements; pass through statement_cache_size=0 the same
+    # way app/db/base.py does for runtime sessions.
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={
+            "prepared_statement_cache_size": 0,
+            "statement_cache_size": 0,
+        },
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
