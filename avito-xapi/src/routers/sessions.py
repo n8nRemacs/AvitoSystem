@@ -83,10 +83,17 @@ async def upload_session(body: SessionUploadRequest, request: Request,
 
     resp = sb.table("avito_sessions").insert(row).execute()
 
-    # Transition account from waiting_refresh → active when a fresh session arrives
-    if account.get("state") == "waiting_refresh":
+    # Transition account back to active when a fresh session arrives.
+    # Covers all non-active states except 'dead' (terminal — needs explicit
+    # operator action). For 'cooldown' we also reset cooldown_until and the
+    # consecutive ratchet — manual refresh during cooldown means user wants
+    # the new token tried; if Avito 403s again, the state machine will
+    # re-cooldown from a clean slate.
+    if account.get("state") in ("waiting_refresh", "needs_refresh", "cooldown"):
         sb.table("avito_accounts").update({
             "state": "active",
+            "cooldown_until": None,
+            "consecutive_cooldowns": 0,
             "waiting_since": None,
             "last_session_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", account["id"]).execute()
