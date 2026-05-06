@@ -1,6 +1,6 @@
 """Account pool router — list, claim, report, session-for-sync, state."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -89,16 +89,22 @@ async def poll_claim():
             # CAS miss — another worker grabbed this account; retry next LRU.
             continue
 
+        # Liveness predicate: session must NOT be near-expiry. 5 min margin
+        # covers polling tick + Avito network roundtrip — never serve a token
+        # that's about to die mid-request.
+        fresh_threshold = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
         sess_res = (
             sb.table("avito_sessions")
             .select("*")
             .eq("account_id", acc["id"])
             .eq("is_active", True)
+            .gt("expires_at", fresh_threshold)
             .limit(1)
             .execute()
         )
         if not sess_res.data:
-            # Account has no active session — skip and try next LRU.
+            # Account either has no active session OR session is stale.
+            # Skip — try next LRU.
             continue
 
         s = sess_res.data[0]
