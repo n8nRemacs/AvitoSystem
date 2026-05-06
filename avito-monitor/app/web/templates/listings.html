@@ -165,7 +165,7 @@
                 {% if r.region %}<span class="text-avito-text-muted">·</span><span>{{ r.region }}</span>{% endif %}
                 {% if r.seller_type == 'company' %}<span class="text-avito-text-muted">·</span><span>🏢 компания</span>
                 {% elif r.seller_type == 'private' %}<span class="text-avito-text-muted">·</span><span>👤 частник</span>{% endif %}
-                {% if r.discovered_at %}<span class="text-avito-text-muted">·</span><span>{{ r.discovered_at.strftime('%d.%m %H:%M') }}</span>{% endif %}
+                {% if r.discovered_at %}<span class="text-avito-text-muted">·</span><time data-utc="{{ r.discovered_at.isoformat() }}">{{ r.discovered_at.strftime('%d.%m %H:%M') }}</time>{% endif %}
               </div>
             </div>
           </summary>

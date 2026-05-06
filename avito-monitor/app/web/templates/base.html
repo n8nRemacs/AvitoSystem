@@ -108,5 +108,30 @@
 </head>
 <body class="min-h-screen">
 {% block body %}{% endblock %}
+<script>
+  // Convert all <time data-utc="..."> elements to browser local time.
+  // Server renders timestamps in UTC; client formats them in the user's TZ.
+  (function () {
+    const fmt = new Intl.DateTimeFormat('ru-RU', {
+      day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+      hour12: false,
+    });
+    function localize(root) {
+      root.querySelectorAll('time[data-utc]').forEach(function (el) {
+        if (el.dataset.localized) return;
+        const d = new Date(el.dataset.utc);
+        if (!isNaN(d)) {
+          el.textContent = fmt.format(d);
+          el.title = d.toLocaleString('ru-RU');
+          el.dataset.localized = '1';
+        }
+      });
+    }
+    document.addEventListener('DOMContentLoaded', function () { localize(document); });
+    // HTMX swaps in fragments — re-localize after each swap.
+    document.body.addEventListener('htmx:afterSwap', function (e) { localize(e.target); });
+  })();
+</script>
 </body>
 </html>

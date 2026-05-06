@@ -34,7 +34,7 @@
       <tbody class="divide-y divide-avito-border-soft">
         {% for r in runs %}
         <tr class="hover:bg-avito-elev">
-          <td class="px-4 py-3 tabular-nums">{{ r.started_at.strftime('%d.%m %H:%M') }}</td>
+          <td class="px-4 py-3 tabular-nums"><time data-utc="{{ r.started_at.isoformat() }}">{{ r.started_at.strftime('%d.%m %H:%M') }}</time></td>
           <td class="px-4 py-3">
             {% if r.status == 'success' %}
               <span class="text-avito-positive">✓ success</span>

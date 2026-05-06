@@ -48,7 +48,7 @@
         <div>
           <dt class="text-xs text-avito-text-soft">Тихие часы до</dt>
           <dd class="text-avito-text font-medium tabular-nums">
-            {% if silent_until %}{{ silent_until.strftime('%d.%m %H:%M') }}{% else %}—{% endif %}
+            {% if silent_until %}<time data-utc="{{ silent_until.isoformat() }}">{{ silent_until.strftime('%d.%m %H:%M') }}</time>{% else %}—{% endif %}
           </dd>
         </div>
       </dl>

@@ -27,7 +27,7 @@
       </p>
       <div class="bg-avito-elev rounded-md p-3 text-xs text-avito-text-soft space-y-1">
         <div>🆔 filterId: <strong class="text-avito-text font-mono">{{ profile.avito_autosearch_id }}</strong></div>
-        {% if profile.last_synced_at %}<div>🕒 Последний sync: <strong class="text-avito-text">{{ profile.last_synced_at.strftime('%Y-%m-%d %H:%M UTC') }}</strong></div>{% endif %}
+        {% if profile.last_synced_at %}<div>🕒 Последний sync: <strong class="text-avito-text"><time data-utc="{{ profile.last_synced_at.isoformat() }}">{{ profile.last_synced_at.strftime('%Y-%m-%d %H:%M') }}</time></strong></div>{% endif %}
         {% if profile.search_params %}
           {% if profile.search_params.get('categoryId') %}<div>📂 categoryId: <strong class="text-avito-text font-mono">{{ profile.search_params['categoryId'] }}</strong></div>{% endif %}
           {% if profile.search_params.get('locationId') %}<div>🌍 locationId: <strong class="text-avito-text font-mono">{{ profile.search_params['locationId'] }}</strong></div>{% endif %}
