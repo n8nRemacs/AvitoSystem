@@ -97,12 +97,18 @@ def _short_price(p: int) -> str:
     return str(p)
 
 
-# Token in slug that looks like the binary `f=` blob
+# Token in slug that looks like the binary `f=` blob.
+# Real Avito filter tokens are URL-safe base64 of a binary protobuf, so they
+# always have at least one uppercase character. Pure-lowercase model slugs
+# (e.g. "iphone_12_pro_max") would otherwise match length+digit heuristics
+# and get stripped, leaving brand/model parser empty.
 _FILTER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{12,}$")
 
 
 def _is_filter_token(s: str) -> bool:
-    return bool(_FILTER_TOKEN_RE.match(s)) and any(c.isdigit() for c in s)
+    if not _FILTER_TOKEN_RE.match(s):
+        return False
+    return any(c.isdigit() for c in s) and any(c.isupper() for c in s)
 
 
 def _extract_brand_model_from_slug(slug: str) -> tuple[str | None, str | None]:
