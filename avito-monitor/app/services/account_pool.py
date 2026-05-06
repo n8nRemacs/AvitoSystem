@@ -25,8 +25,17 @@ class AccountPool:
         self.xapi = xapi_client
 
     @asynccontextmanager
-    async def claim_for_poll(self):
-        resp = await self.xapi.post("/api/v1/accounts/poll-claim", json={})
+    async def claim_for_poll(self, account_id: str | None = None):
+        """Claim an account for polling.
+
+        - account_id=None → round-robin LRU (default)
+        - account_id set → pin to that specific account, raises NoAvailableAccountError
+          if it's not active+fresh (Avito owner-binding for autosearch profiles).
+        """
+        body: dict = {}
+        if account_id is not None:
+            body["account_id"] = account_id
+        resp = await self.xapi.post("/api/v1/accounts/poll-claim", json=body)
         if resp.status_code == 409:
             raise NoAvailableAccountError(resp.json().get("detail", {}))
         resp.raise_for_status()

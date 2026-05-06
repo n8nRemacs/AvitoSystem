@@ -41,18 +41,89 @@ async def list_accounts():
     return accounts
 
 
-@router.post("/poll-claim")
-async def poll_claim():
-    """Atomic round-robin claim of an active account for a polling worker.
+class PollClaimPayload(BaseModel):
+    account_id: str | None = None
 
-    Strategy: optimistic compare-and-swap on `last_polled_at`. We pick the
-    LRU active account, then UPDATE only if its `last_polled_at` matches what
-    we read — if another worker beat us, the UPDATE matches 0 rows and we
-    retry with the next LRU. Two concurrent claims can never return the same
-    account.
+
+@router.post("/poll-claim")
+async def poll_claim(payload: PollClaimPayload | None = None):
+    """Atomic claim of an active account.
+
+    Two modes:
+    1. Round-robin (payload omitted or account_id=None): LRU active +
+       optimistic CAS on last_polled_at. Skips accounts with stale sessions.
+    2. Pinned (payload.account_id set): claim a specific account, used by
+       polling for autosearch-based profiles where the Avito subscription_id
+       is owned by a specific Avito user — wrong owner = guaranteed 403.
+       Returns 409 owner_unavailable if account is not active, has no session,
+       or session is stale.
     """
     sb = get_supabase()
+    payload = payload or PollClaimPayload()
 
+    if payload.account_id:
+        return await _poll_claim_pinned(sb, payload.account_id)
+
+    return await _poll_claim_lru(sb)
+
+
+async def _poll_claim_pinned(sb, account_id: str):
+    """Pinned claim — selects ONE specific account; all failures return 409
+    owner_unavailable so monitor's claim_for_poll uniformly raises
+    NoAvailableAccountError. The discriminator is in detail.state."""
+    res = sb.table("avito_accounts").select("*").eq("id", account_id).limit(1).execute()
+    if not res.data:
+        raise HTTPException(409, detail={"error": "owner_unavailable",
+                                          "account_id": account_id,
+                                          "state": "not_found"})
+    acc = res.data[0]
+    if acc["state"] != "active":
+        raise HTTPException(409, detail={"error": "owner_unavailable",
+                                          "account_id": account_id,
+                                          "state": acc["state"]})
+
+    # CAS to bump last_polled_at — same idempotency guarantee as LRU mode.
+    old_polled = acc.get("last_polled_at")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    upd = sb.table("avito_accounts").update({"last_polled_at": now_iso}).eq("id", acc["id"])
+    if old_polled is None:
+        upd = upd.is_("last_polled_at", None)
+    else:
+        upd = upd.eq("last_polled_at", old_polled)
+    cas_res = upd.execute()
+    if not cas_res.data:
+        # Concurrent claim won — caller should retry next tick.
+        raise HTTPException(503, detail="poll_claim concurrent contention, retry")
+
+    fresh_threshold = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    sess_res = (
+        sb.table("avito_sessions")
+        .select("*")
+        .eq("account_id", acc["id"])
+        .eq("is_active", True)
+        .gt("expires_at", fresh_threshold)
+        .limit(1)
+        .execute()
+    )
+    if not sess_res.data:
+        raise HTTPException(409, detail={"error": "owner_unavailable",
+                                          "account_id": account_id,
+                                          "state": "session_stale"})
+
+    s = sess_res.data[0]
+    tokens = s.get("tokens") or {}
+    return {
+        "account_id": acc["id"],
+        "session_token": tokens.get("session_token"),
+        "device_id": s.get("device_id"),
+        "fingerprint": s.get("fingerprint"),
+        "phone_serial": acc.get("phone_serial"),
+        "android_user_id": acc.get("android_user_id"),
+    }
+
+
+async def _poll_claim_lru(sb):
+    """Original round-robin claim — extracted from old poll_claim body unchanged."""
     for _ in range(_CLAIM_MAX_ATTEMPTS):
         lru_res = (
             sb.table("avito_accounts")
