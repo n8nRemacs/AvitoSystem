@@ -181,6 +181,7 @@ async def fetch_with_pool(
     fetcher_fn,
     pool: AccountPool,
     max_attempts: int = 2,
+    required_owner: str | None = None,
 ):
     """Wraps fetcher_fn(account_claim) → result, with retry on 403/401/5xx.
 
@@ -193,21 +194,26 @@ async def fetch_with_pool(
 
     After every attempt (success or failure) pool.report() is called so the
     xapi account state machine stays up to date.
+
+    required_owner: if set, all claims are pinned to that account_id and
+    effective_attempts is forced to 1 — wrong Avito user can never fetch the
+    autosearch subscription regardless of which token is tried.
     """
+    effective_attempts = 1 if required_owner else max_attempts
     last_error: Exception | None = None
-    for attempt in range(max_attempts):
+    for attempt in range(effective_attempts):
         try:
-            async with pool.claim_for_poll() as acc:
+            async with pool.claim_for_poll(account_id=required_owner) as acc:
                 try:
                     result = await fetcher_fn(acc)
                 except XapiError as exc:
                     body = getattr(exc, "detail", None)
                     body_str = str(body) if body is not None else None
                     await pool.report(acc["account_id"], exc.status_code or 0, body_str)
-                    if exc.status_code in (401, 403) and attempt < max_attempts - 1:
+                    if exc.status_code in (401, 403) and attempt < effective_attempts - 1:
                         last_error = exc
                         continue
-                    if exc.status_code is not None and exc.status_code >= 500 and attempt < max_attempts - 1:
+                    if exc.status_code is not None and exc.status_code >= 500 and attempt < effective_attempts - 1:
                         last_error = exc
                         await asyncio.sleep(5)
                         continue
@@ -216,7 +222,10 @@ async def fetch_with_pool(
                     await pool.report(acc["account_id"], 200)
                     return result
         except NoAvailableAccountError:
-            log.warning("fetch_with_pool: pool drained — skipping")
+            log.warning(
+                "fetch_with_pool: pool drained — skipping (required_owner=%s)",
+                required_owner,
+            )
             return None
     if last_error is not None:
         raise last_error
@@ -273,8 +282,16 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                 )
             return await mcp.fetch_search_page(profile.avito_search_url)
 
+    required_owner: str | None = None
+    if (
+        profile.import_source == "autosearch_sync"
+        and profile.avito_autosearch_id
+        and profile.owner_account_id
+    ):
+        required_owner = str(profile.owner_account_id)
+
     try:
-        page = await fetch_with_pool(fetcher_fn=_fetcher, pool=pool)
+        page = await fetch_with_pool(fetcher_fn=_fetcher, pool=pool, required_owner=required_owner)
     except Exception as exc:  # pragma: no cover — covered by health-checker
         log.exception(
             "polling.fetch_failed profile_id=%s url=%s",

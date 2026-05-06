@@ -81,6 +81,77 @@ def test_poll_claim_picks_oldest_active(client, accounts_in_db):
     assert body["android_user_id"] == 10
 
 
+def test_poll_claim_skips_account_with_stale_session(client, accounts_in_db):
+    """Account with active session but expires_at < NOW()+5min must be skipped.
+
+    Setup: two accounts, both state='active'. acc-1 (LRU) has session expiring
+    in 1 minute (stale). acc-2 has fresh session (24h). poll_claim should pick
+    acc-2 — never serve a stale token.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    fresh_iso = (now + timedelta(hours=24)).isoformat()
+
+    # 1) SELECT active accounts ORDER BY last_polled_at — acc-1 first (LRU).
+    accounts_in_db([
+        {"id": "acc-1", "state": "active", "last_polled_at": "2026-05-06T10:00:00Z",
+         "phone_serial": "S1", "android_user_id": 0, "nickname": "stale"},
+    ])
+    # 2) CAS update for acc-1 — succeeds.
+    accounts_in_db([
+        {"id": "acc-1", "state": "active", "last_polled_at": "2026-05-06T12:30:00Z"},
+    ])
+    # 3) SELECT session for acc-1 — production .gt(expires_at, NOW()+5min) filters
+    #    out the stale row, so DB returns empty. We simulate post-filter result.
+    accounts_in_db([])
+    # 4) Loop continues: SELECT next LRU active — acc-2 (now LRU since acc-1 was bumped).
+    accounts_in_db([
+        {"id": "acc-2", "state": "active", "last_polled_at": "2026-05-06T11:00:00Z",
+         "phone_serial": "S2", "android_user_id": 10, "nickname": "fresh"},
+    ])
+    # 5) CAS update for acc-2 — succeeds.
+    accounts_in_db([
+        {"id": "acc-2", "state": "active", "last_polled_at": "2026-05-06T12:30:01Z"},
+    ])
+    # 6) SELECT session for acc-2 — fresh.
+    accounts_in_db([
+        {"id": "sess-2", "account_id": "acc-2", "is_active": True,
+         "expires_at": fresh_iso,
+         "device_id": "fresh_dev", "fingerprint": "fresh_fp",
+         "tokens": {"session_token": "FRESH_TOKEN"}},
+    ])
+
+    r = client.post("/api/v1/accounts/poll-claim",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["account_id"] == "acc-2"
+    assert body["session_token"] == "FRESH_TOKEN"
+
+
+def test_poll_claim_503_when_all_sessions_stale(client, accounts_in_db):
+    """If every active account's session is stale (.gt() filter empties result),
+    poll_claim retries until _CLAIM_MAX_ATTEMPTS=3 is exhausted, then returns 503.
+    """
+    for _ in range(3):
+        accounts_in_db([
+            {"id": "acc-1", "state": "active", "last_polled_at": "2026-05-06T10:00:00Z",
+             "phone_serial": "S1", "android_user_id": 0, "nickname": "stale"},
+        ])
+        accounts_in_db([
+            {"id": "acc-1", "state": "active", "last_polled_at": "2026-05-06T12:30:00Z"},
+        ])
+        # SELECT session — production .gt() filter drops stale row, returns empty.
+        accounts_in_db([])
+
+    r = client.post("/api/v1/accounts/poll-claim",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={})
+    assert r.status_code == 503
+
+
 def test_poll_claim_returns_409_when_pool_drained(client, accounts_in_db):
     """No active accounts -> 409 with diagnostic detail."""
     # 1) SELECT active accounts -> empty (pool drained).
@@ -276,3 +347,98 @@ def test_patch_state_without_reason(client, accounts_in_db):
                      headers={"X-Api-Key": "test_dev_key_123"},
                      json={"state": "active"})
     assert r.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# T3 Task 3: POST /api/v1/accounts/poll-claim — pinned (owner-aware) mode
+# ---------------------------------------------------------------------------
+
+def test_poll_claim_by_account_id_succeeds_when_active_and_fresh(client, accounts_in_db):
+    """payload.account_id pinned: returns that specific account if active+fresh."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    fresh_iso = (now + timedelta(hours=12)).isoformat()
+
+    # 1) SELECT specific account by id.
+    accounts_in_db([
+        {"id": "acc-target", "state": "active", "last_polled_at": "2026-05-06T08:00:00Z",
+         "phone_serial": "S9", "android_user_id": 0, "nickname": "target"},
+    ])
+    # 2) CAS update for acc-target — succeeds.
+    accounts_in_db([
+        {"id": "acc-target", "state": "active", "last_polled_at": "2026-05-06T12:30:00Z"},
+    ])
+    # 3) SELECT session — fresh.
+    accounts_in_db([
+        {"id": "sess-t", "account_id": "acc-target", "is_active": True,
+         "expires_at": fresh_iso,
+         "device_id": "tdev", "fingerprint": "tfp",
+         "tokens": {"session_token": "TARGET_TOKEN"}},
+    ])
+
+    r = client.post("/api/v1/accounts/poll-claim",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"account_id": "acc-target"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["account_id"] == "acc-target"
+    assert body["session_token"] == "TARGET_TOKEN"
+
+
+def test_poll_claim_by_account_id_409_when_not_active(client, accounts_in_db):
+    """Pinned account in cooldown → 409 with diagnostic."""
+    accounts_in_db([
+        {"id": "acc-dead", "state": "dead", "nickname": "Clone"},
+    ])
+
+    r = client.post("/api/v1/accounts/poll-claim",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"account_id": "acc-dead"})
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["detail"]["error"] == "owner_unavailable"
+    assert body["detail"]["account_id"] == "acc-dead"
+    assert body["detail"]["state"] == "dead"
+
+
+def test_poll_claim_by_account_id_409_when_not_found(client, accounts_in_db):
+    """Pinned account not in DB → 409 owner_unavailable state=not_found.
+
+    A stale profile.owner_account_id (e.g. account hard-deleted post-migration)
+    must surface as NoAvailableAccountError on monitor side, not as an
+    unhandled 404 HTTPStatusError. So 409 is uniform across all pinned-fail modes.
+    """
+    accounts_in_db([])
+
+    r = client.post("/api/v1/accounts/poll-claim",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"account_id": "acc-ghost"})
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["detail"]["error"] == "owner_unavailable"
+    assert body["detail"]["state"] == "not_found"
+    assert body["detail"]["account_id"] == "acc-ghost"
+
+
+def test_poll_claim_by_account_id_409_when_session_stale(client, accounts_in_db):
+    """Pinned account active but session stale → 409 owner_unavailable."""
+    # 1) SELECT acc-target.
+    accounts_in_db([
+        {"id": "acc-target", "state": "active",
+         "last_polled_at": "2026-05-06T08:00:00Z", "nickname": "target"},
+    ])
+    # 2) CAS update succeeds.
+    accounts_in_db([
+        {"id": "acc-target", "state": "active",
+         "last_polled_at": "2026-05-06T12:30:00Z"},
+    ])
+    # 3) SELECT session — stale (gt-filter empty).
+    accounts_in_db([])
+
+    r = client.post("/api/v1/accounts/poll-claim",
+                    headers={"X-Api-Key": "test_dev_key_123"},
+                    json={"account_id": "acc-target"})
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["detail"]["error"] == "owner_unavailable"
+    assert body["detail"]["state"] == "session_stale"

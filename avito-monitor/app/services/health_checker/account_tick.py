@@ -2,9 +2,10 @@
 health_checker scheduler'а каждые 30 секунд.
 
 После Phase 4 (manual refresh model): NO proactive refresh triggers.
-Only emits TG alerts on session stale (one-shot, idempotent)."""
+Two responsibilities: (1) auto-recover expired cooldowns back to active or
+needs_refresh; (2) emit one-shot TG alerts on session stale (idempotent)."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.services.account_pool import AccountPool
 
@@ -27,7 +28,48 @@ def _is_session_stale(acc: dict, *, now: datetime) -> bool:
     return exp is None or exp < now
 
 
+def _is_session_fresh(acc: dict, *, now: datetime) -> bool:
+    """True iff session has expires_at > now+5min.
+
+    The 5-minute margin must match the xapi liveness predicate at
+    avito-xapi/src/routers/accounts.py poll_claim — otherwise an account
+    recovered to 'active' here could still be rejected by xapi as stale,
+    causing recover→reject thrash on every tick.
+    """
+    exp = _parse_ts(acc.get("expires_at"))
+    return exp is not None and exp > now + timedelta(minutes=5)
+
+
+async def _recover_expired_cooldowns(accounts: list[dict], *, pool, now: datetime) -> None:
+    """Auto-rebloom: cooldown with cooldown_until in past gets nudged forward.
+
+    - Fresh session → 'active' (account is usable again).
+    - Stale session → 'needs_refresh' (session must be refreshed before active).
+    Other states are not touched.
+    """
+    for acc in accounts:
+        if acc.get("state") != "cooldown":
+            continue
+        cd_until = _parse_ts(acc.get("cooldown_until"))
+        if cd_until is None or cd_until >= now:
+            continue
+        next_state = "active" if _is_session_fresh(acc, now=now) else "needs_refresh"
+        await pool.patch_state(
+            acc["id"],
+            next_state,
+            reason=f"cooldown expired at {cd_until.isoformat()}, session "
+                   f"{'fresh' if next_state == 'active' else 'stale'}",
+        )
+        log.info(
+            "account_tick.recovered id=%s nickname=%s -> %s",
+            acc["id"], acc.get("nickname"), next_state,
+        )
+
+
 async def account_tick_iteration(*, pool: AccountPool, now: datetime, tg) -> None:
+    accounts = await pool.list_all_accounts()
+    await _recover_expired_cooldowns(accounts, pool=pool, now=now)
+    # Re-fetch — recovery may have flipped some states; alerts must see latest.
     accounts = await pool.list_all_accounts()
     await _check_pool_health(accounts, now=now, tg=tg)
 

@@ -22,7 +22,7 @@ def make_pool(accounts: list[dict]):
     queue = list(accounts)
 
     @asynccontextmanager
-    async def fake_claim():
+    async def fake_claim(account_id=None):
         if not queue:
             raise NoAvailableAccountError({"error": "pool_drained", "accounts": []})
         acc = queue.pop(0)
@@ -172,3 +172,57 @@ def test_poll_profile_imports_fetch_with_pool_and_pool_factory():
     src = open(polling_mod.__file__).read()
     assert "fetch_with_pool" in src, "poll_profile must call fetch_with_pool"
     assert "get_account_pool" in src, "poll_profile must use the shared AccountPool singleton"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: owner-aware claim for autosearch-based profiles
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_owner_binding_calls_pool_with_account_id():
+    """fetch_with_pool with required_owner='X' passes account_id='X' into pool.claim_for_poll."""
+    pool = MagicMock()
+    pool.report = AsyncMock()
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def fake_claim(account_id=None):
+        captured["account_id"] = account_id
+        yield {"account_id": account_id or "fallback"}
+
+    pool.claim_for_poll = fake_claim
+    fetcher = AsyncMock(return_value={"items": []})
+
+    result = await fetch_with_pool(
+        fetcher_fn=fetcher, pool=pool, required_owner="acc-pinned"
+    )
+
+    assert result == {"items": []}
+    assert captured["account_id"] == "acc-pinned"
+
+
+@pytest.mark.asyncio
+async def test_owner_binding_no_retry_on_403():
+    """With required_owner set, 403 must NOT trigger retry — wrong owner = forever wrong."""
+    pool = MagicMock()
+    pool.report = AsyncMock()
+    call_count = {"n": 0}
+
+    @asynccontextmanager
+    async def fake_claim(account_id=None):
+        call_count["n"] += 1
+        yield {"account_id": account_id}
+
+    pool.claim_for_poll = fake_claim
+    fetcher = AsyncMock(side_effect=XapiError("forbidden", status_code=403))
+
+    with pytest.raises(XapiError) as excinfo:
+        await fetch_with_pool(
+            fetcher_fn=fetcher, pool=pool,
+            required_owner="acc-x", max_attempts=2,
+        )
+
+    assert excinfo.value.status_code == 403
+    # only one claim attempt — never retried with another account
+    assert call_count["n"] == 1
+    assert fetcher.await_count == 1
