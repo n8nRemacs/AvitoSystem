@@ -74,6 +74,22 @@ class QueryBuilder:
         self._params[column] = f"is.{rendered}"
         return self
 
+    def gt(self, column: str, value: Any) -> "QueryBuilder":
+        self._params[column] = f"gt.{value}"
+        return self
+
+    def gte(self, column: str, value: Any) -> "QueryBuilder":
+        self._params[column] = f"gte.{value}"
+        return self
+
+    def lt(self, column: str, value: Any) -> "QueryBuilder":
+        self._params[column] = f"lt.{value}"
+        return self
+
+    def lte(self, column: str, value: Any) -> "QueryBuilder":
+        self._params[column] = f"lte.{value}"
+        return self
+
     def order(self, column: str, *, desc: bool = False, nullsfirst: bool = False) -> "QueryBuilder":
         direction = "desc" if desc else "asc"
         suffix = ".nullsfirst" if nullsfirst else ""
