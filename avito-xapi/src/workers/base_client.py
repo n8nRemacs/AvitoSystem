@@ -1,3 +1,4 @@
+import os
 import time
 from curl_cffi import requests as curl_requests
 from src.workers.rate_limiter import TokenBucket
@@ -13,7 +14,22 @@ class BaseAvitoClient:
 
     def __init__(self, session_data: SessionData, rate_limiter: TokenBucket | None = None):
         self.session_data = session_data
-        self.http = curl_requests.Session(impersonate="chrome120")
+        # QRATOR на стороне Avito привязывает trust-score к паре (token, IP).
+        # JWT, выпущенный для Avito-app на телефоне (через VPN-выход
+        # 155.212.217.226), captcha-блокируется при первом же использовании
+        # с любого другого IP — в т.ч. с нашего VPS. Чтобы исходящие запросы
+        # к Avito выходили с того же IP, что и Avito-app, маршрутизируем их
+        # через SOCKS5 (ssh -D туннель до ru-vpn). Все остальные запросы
+        # (Supabase REST, и т.п.) идут напрямую — этот прокси относится
+        # только к curl_cffi-сессии, которая стучится в app.avito.ru.
+        proxy_url = (os.environ.get("AVITO_SOCKS_PROXY") or "").strip()
+        if proxy_url:
+            self.http = curl_requests.Session(
+                impersonate="chrome120",
+                proxies={"http": proxy_url, "https": proxy_url},
+            )
+        else:
+            self.http = curl_requests.Session(impersonate="chrome120")
         self.rate_limiter = rate_limiter or TokenBucket(
             rate=settings.rate_limit_rps,
             burst=settings.rate_limit_burst,

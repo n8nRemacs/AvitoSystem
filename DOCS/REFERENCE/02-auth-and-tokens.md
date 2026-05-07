@@ -3,6 +3,7 @@
 **Компилировано:** 2026-04-28. **Refresh Hardening update:** 2026-04-30 (D.2/D.3/E/G/H/I).
 **Manual refresh model:** 2026-05-02 (D.2/D.3 переписаны, refresh-cycle удалён).
 **Server migration:** 2026-05-04 (E/G.3/I финал-cleanup, deploy на VPS 81.200.119.132 + Cloud Supabase Frankfurt).
+**Pool state refresh:** 2026-05-06 (G.3 — pool drained, нужен manual login Avito-app в user_0 под 157920214).
 **Источники:** AVITO-API.md Блок 1+8, token_farm_system.md, AvitoAll/API_AUTH.md,
   CONTINUE.md §3 + §8, DECISIONS.md, avito-xapi/src/routers/sessions.py,
   avito-xapi/src/routers/device_commands.py, avito-xapi/src/routers/accounts.py,
@@ -278,20 +279,29 @@ CREATE TABLE avito_accounts (
 Альтернативный read-only claim (для autosearch_sync, не двигает `last_polled_at`):
 `GET /api/v1/accounts/{id}/session-for-sync` → 200 / 404 / 409 (state≠active или no_session).
 
-### G.3 Текущее состояние pool (2026-05-04)
+### G.3 Текущее состояние pool (2026-05-06)
 
-| Аккаунт | Android-user | phone_serial | state | last_polled_at |
+| Аккаунт | Android-user | state | expires_at | live? |
 |---|---|---|---|---|
-| Clone (`42c179db…`) | 10 | 110139ce | dead | 2026-04-30T19:46Z |
-| auto-157920214 (`b5cbf28b…`) | 0 | (none) | cooldown | 2026-05-02T06:47Z |
+| Clone (`42c179db…`) | user_10 | dead | 2026-05-01 18:27 UTC | -3д+ |
+| auto-157920214 (`b5cbf28b…`) | user_0 | cooldown | 2026-05-05 11:32 UTC | exp |
+| auto-431483569 (`14ac…`) | user_0 | cooldown | 2026-05-05 15:08 UTC | exp |
 
-Pool merged (`8e12434`, 2026-04-29) → Refresh Hardening (`5bc72d3`, 2026-04-30) → 
+Pool merged (`8e12434`, 2026-04-29) → Refresh Hardening (`5bc72d3`, 2026-04-30) →
 **Server Migration** (feat/server-migration, 2026-05-04) — manual refresh model, VPS
-deploy, Cloud Supabase. После cutover оба pool row пока неактивны: возобновятся при
-открытии Avito-app в соответствующем Android-юзере (APK поймает push → POST /sessions).
+deploy, Cloud Supabase. На 2026-05-06 pool полностью drained — **live polling не
+работает**. Все 7 search_profiles `owner_account_id=42c179db` (Clone, dead) — autosearch_sync
+импортировал их под этим аккаунтом. При попытке fetch через нового `431483569` Avito
+возвращает 403 на `/subscriptions/{id}/items` — autosearch принадлежит старому Clone.
 
-**Pool=1 фактически:** Main и Clone — один Avito-юзер 157920214 на разных device_id. 
-Per-account ban валит оба. Реальный pool=2 требует второго Avito-юзера (см. backlog).
+**Чтобы оживить:** юзер открывает Avito-app в user_0 под `157920214` (старый Clone)
+→ Avito-app сам решит refresh near-expiry → APK NotificationListener поймает push
+→ POST `/api/v1/sessions` → `b5cbf28b` перейдёт в `state=active`.
+
+**Pool=1 фактически:** Main и Clone — один Avito-юзер 157920214 на разных device_id.
+Per-account ban валит оба. Реальный pool=2 требует второго Avito-юзера (см. backlog #3
+в `CONTINUE.md`). На user_0 сейчас активен залогиненный `431483569` (новый Avito-юзер,
+не старый Clone), но autosearches принадлежат `157920214` → 403.
 
 **Round-robin LRU реализован** в `POST /api/v1/accounts/poll-claim` (CAS на
 `last_polled_at`, optimistic compare-and-swap, 3 retry attempts, 409 при `pool_drained`).

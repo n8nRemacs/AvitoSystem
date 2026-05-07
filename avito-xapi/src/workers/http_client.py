@@ -196,7 +196,20 @@ class AvitoHttpClient(BaseAvitoClient):
             params["priceMax"] = price_max
         if location_id is not None:
             params["locationId"] = location_id
-        if category_id is not None:
+        # Avito-app шлёт categoryId ТОЛЬКО в subscription-deeplink-контексте, где
+        # есть полный structured-set: `params[110617][0]=brand_id&params[110618][0]=
+        # model_id&...`. Голый categoryId на /11/items без structured params
+        # QRATOR ловит как бот-формат → 403 captcha с первого запроса (даже с
+        # правильным mobile-id 84, не web 87). Эмпирически подтверждено 2026-05-07
+        # в curl-diff-тестах. См. DOCS/REFERENCE/05-search-query-formation.md
+        # § «Эмпирические находки 2026-05-07 (live curl tests)».
+        # → Передаём categoryId только если params_extra уже содержит structured
+        # params. Простой URL-based polling (text query) идёт без categoryId,
+        # results фильтруются post-filter'ом по brand+model в title (polling.py).
+        _has_structured = bool(params_extra) and any(
+            isinstance(k, str) and k.startswith("params[") for k in (params_extra or {})
+        )
+        if category_id is not None and _has_structured:
             params["categoryId"] = category_id
         if sort:
             params["sort"] = sort

@@ -18,10 +18,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
+
+# Word-boundary tokeniser for post-filter title matching. \w+ матчит alnum
+# и Unicode-буквы (re.UNICODE по умолчанию в Python 3) — кириллица входит.
+# Ловит "iPhone 12 Pro Max, 128 ГБ" → ["iphone","12","pro","max","128","гб"],
+# что предотвращает substring-false-positive «"12" in "128"».
+_WORD_RE = re.compile(r"\w+", re.UNICODE)
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -379,10 +386,13 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
             if item.id in blacklisted_avito_ids:
                 continue
 
-            # Drop fuzzy-search noise: title must contain every brand+model token.
+            # Drop fuzzy-search noise: title must contain every brand+model token
+            # as a *word*, not as a substring. "12" должен матчить "12 ГБ", но
+            # НЕ "128 ГБ" — иначе iPhone 14 Pro Max (128) проходит в выдачу
+            # iPhone 12 Pro Max. См. DOCS/REFERENCE/05.
             if title_must_contain:
-                title_lower = (item.title or "").lower()
-                if not all(tok in title_lower for tok in title_must_contain):
+                title_words = set(_WORD_RE.findall((item.title or "").lower()))
+                if not all(tok in title_words for tok in title_must_contain):
                     listings_filtered_out += 1
                     continue
 

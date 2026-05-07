@@ -1,7 +1,62 @@
 # Search Query Formation — Web URL → Mobile API
 
 **Создано:** 2026-05-07
+**Обновлено:** 2026-05-07 — добавлены эмпирические находки по QRATOR и categoryId
 **Назначение:** как корректно конвертировать поисковый URL из браузера Avito в запрос к Avito mobile API так, чтобы получать **те же** результаты что показывает Avito-app, а не fuzzy-text мусор.
+
+---
+
+## ⚡ Эмпирические находки 2026-05-07 (live curl tests)
+
+Прямые тесты `curl_cffi chrome120` против `https://app.avito.ru/api/11/items` со свежим JWT через
+SOCKS5-туннель (155.212.217.226 = phone-IP):
+
+| Параметр запроса | HTTP status | Что в body |
+|---|---|---|
+| `query=test` (без categoryId) | **200** | count=28296, real listings — есть |
+| `query="Iphone 12 Pro Max"` (без categoryId) | **200** | count=12808, в первой выдаче iPhone 17 Pro Max и др. реальные iPhone'ы |
+| `query=...&categoryId=84` (mobile id) | **403** | `{"too-many-requests": "Доступ с вашего IP-адреса временно ограничен"}` |
+| `query=...&categoryId=87` (web id) | **403** | то же |
+| `query=...&categoryId=84&params[110617][0]=491590&params[110618][0]=469735` | **403** | то же |
+| `query=...&category_id=84` (snake_case) | **403** | то же |
+| `/15/items?...` (любой вариант) | **403** | `/15` — другой эндпоинт, наш токен туда не пускают |
+| Структурный запрос с deeplink-style params БЕЗ query | **403** | без полного set'а structured params Avito отклоняет |
+
+**Выводы:**
+1. **`categoryId` любого значения на `/11/items` без полного structured-params set'а → QRATOR 403.** Это не cooldown, это детект «бот-формат запроса». Даже с правильным mobile-id `84` и парой brand/model (но без всех нужных фильтров категории).
+2. **`/11/items` без categoryId — нормальная text-search**, отдаёт реальные iPhone'ы. Для V1 fuzzy-text+post-filter это рабочий путь.
+3. **`/15/items` — другой контракт**, наш токен/набор headers'ов туда не подходит.
+4. **Avito-app шлёт `categoryId` ТОЛЬКО** когда у него есть полный набор structured params (brand+model+state+etc.) — это subscription-deeplink контекст. Передавать `categoryId` голым без brand/model — антипаттерн, который QRATOR ловит.
+
+### Минимальный фикс для прямого `search_items()`
+
+В `avito-xapi/src/workers/http_client.py:170-220` дропнуть `categoryId` из URL params для не-subscription запросов. Subscription flow (вариант B ниже) шлёт categoryId через `params_extra=` уже с brand+model id'ами и работает.
+
+---
+
+## ⚡ Эмпирические находки 2026-05-07 (QRATOR per-(token, IP) binding)
+
+Подтверждённая дублирующая корреляция:
+
+| origin IP | new token (родился на phone-IP) | old token (прожил сутки на VPS-IP) |
+|---|---|---|
+| VPS 81.200.119.132 (direct egress) | 403 captcha | 200 OK |
+| ru-vpn 155.212.217.226 (= phone outbound) | 200 OK | 403 captcha |
+
+**Толкование:** QRATOR (firewall Avito) хранит trust-score per **(JWT, IP)**. JWT, выпущенный для Avito-app на телефоне, валиден ТОЛЬКО с того IP, на котором телефон сидит в инете в момент его выпуска. Использовать этот же JWT с другого IP = 403 captcha-challenge с первого запроса. После 2-3 captcha-403'ов токен залочивается на all-IP в QRATOR (нужен cooldown ~30-60 мин или новый токен).
+
+**Архитектурное следствие:** все исходящие запросы к Avito из xapi должны выходить с того IP, на котором живёт Avito-app. У нас:
+- VPS 81.200.119.132 → ssh -D 172.18.0.1:1081 → ru-vpn 155.212.217.226 → Avito
+- systemd unit: `/etc/systemd/system/avito-vpn-tunnel.service` (Restart=always)
+- env: `AVITO_SOCKS_PROXY=socks5h://172.18.0.1:1081` в `/opt/avito-system/.env`
+- `avito-xapi/src/workers/base_client.py` читает env и пробрасывает `proxies=` в `curl_cffi.Session`
+
+**Когда это сломается:**
+- ru-vpn IP сменится → весь pool токенов мгновенно тухнет, нужны новые JWT
+- Avito-app на телефоне переключится на другой VPN-выход → правим SOCKS_PROXY на новый IP
+- QRATOR изменит rules
+
+См. memory `reference_qrator_token_ip_binding.md` для дублирующей фиксации.
 
 ---
 

@@ -116,6 +116,10 @@ OkHttp Interceptors Chain (из jadx-анализа APK v215.1):
 
 **ВАЖНО:** Мобильный API (11/items) принимает только **structured params** (`categoryId`, `params[…]`), но НЕ `f=` blob из веб-URL. Веб и мобильный API — разные бэкенды. Передача веб-URL без structured params даёт fuzzy-match с посторонними лотами.
 
+**Эмпирически (2026-05-07):** передача `categoryId` без полного structured-set'а brand+model+state мгновенно ловит **QRATOR 403** с captcha-link, даже с правильным mobile-id `84` (не web `87`). Avito-app шлёт `categoryId` ТОЛЬКО в subscription-deeplink-контексте, где есть весь набор `params[110617][0]=…&params[110618][0]=…`. Для V1 наш xapi должен **не** передавать `categoryId` на простой text-search → возвращается count=12808 fuzzy-iPhone'ов, post-filter режет до настоящих iPhone 12 Pro Max. Полный детальный разбор: `DOCS/REFERENCE/05-search-query-formation.md` § «Эмпирические находки 2026-05-07 (live curl tests)».
+
+**Также эмпирически:** QRATOR держит trust-score **per (JWT, outbound IP)**. JWT валиден только с того IP, где он впервые «обкатался» (для Avito-app — 155.212.217.226 через ru-vpn). Outbound xapi должен совпадать с outbound Avito-app — реализовано через ssh -D туннель + `AVITO_SOCKS_PROXY` env (см. `05-search-query-formation.md` § «QRATOR per-(token, IP) binding»).
+
 Используется в: `avito-xapi/src/workers/http_client.py:170`, `avito-monitor/avito_mcp/integrations/xapi_client.py:88`
 
 Наш endpoint: `GET /api/v1/search/items` (xapi)

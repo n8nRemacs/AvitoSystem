@@ -58,6 +58,16 @@ services:
       RATE_LIMIT_RPS: "1.0"
       RATE_LIMIT_BURST: "3"
       CORS_ORIGINS: '["https://${DOMAIN:-localhost}","http://localhost:3000"]'
+      # Outbound к app.avito.ru идёт через SOCKS5 туннель до ru-vpn
+      # (155.212.217.226). Avito QRATOR привязывает trust-score к паре
+      # (token, IP); JWT, выпущенный для Avito-app на телефоне, captcha-
+      # лочится при попадании на любой другой IP. Туннель = ssh -D от VPS
+      # до ru-vpn, биндится на gateway docker-сети 172.18.0.1.
+      AVITO_SOCKS_PROXY: ${AVITO_SOCKS_PROXY:-}
+    extra_hosts:
+      # На случай если когда-нибудь захотим биндить туннель на host loopback
+      # вместо 172.18.0.1 — использовать host.docker.internal:1081.
+      - "host.docker.internal:host-gateway"
     expose:
       - "8080"
     mem_limit: 256m
