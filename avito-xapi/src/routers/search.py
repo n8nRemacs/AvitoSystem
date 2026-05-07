@@ -1,5 +1,10 @@
 """Avito search endpoints + raw response normalisation.
 
+NB: when curl_cffi raises HTTPError (Avito 401/403/4xx/5xx), we surface it
+as the same HTTP status to caller. AccountPool's state machine relies on
+seeing 403 to schedule cooldown; bare 500 from un-caught HTTPError makes
+the pool think it's our bug, not Avito's.
+
 Avito mobile API returns search results as a *feed* of mixed widgets and items.
 Real listings have ``type == "item"`` and the actual data is under ``value``.
 
@@ -443,14 +448,23 @@ async def search_items(
 ):
     require_feature(request, "avito.search")
     client = _get_client(ctx)
-    data = await client.search_items(
-        query=query, price_min=price_min, price_max=price_max,
-        location_id=location_id, category_id=category_id,
-        sort=sort, page=page, per_page=per_page,
-        with_delivery=with_delivery, owner=owner,
-        search_area=search_area, radius=radius,
-        force_location=force_location,
-    )
+    try:
+        data = await client.search_items(
+            query=query, price_min=price_min, price_max=price_max,
+            location_id=location_id, category_id=category_id,
+            sort=sort, page=page, per_page=per_page,
+            with_delivery=with_delivery, owner=owner,
+            search_area=search_area, radius=radius,
+            force_location=force_location,
+        )
+    except Exception as exc:
+        # curl_cffi.requests.exceptions.HTTPError carries .response.status_code.
+        # Surface Avito's status as-is so AccountPool's state machine sees the
+        # right code (403 → cooldown, 401 → expire session, 5xx → no-op).
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status and 400 <= status < 600:
+            raise HTTPException(status_code=status, detail=f"Avito {status}")
+        raise
 
     result = data.get("result") if isinstance(data.get("result"), dict) else None
     raw_items = data.get("items") or (result.get("items") if result else []) or []

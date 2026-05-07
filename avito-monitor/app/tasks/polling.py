@@ -329,6 +329,37 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     blocked = set(profile.blocked_sellers or [])
     to_analyze: list[uuid.UUID] = []
 
+    # Title pre-filter: Avito free-text search is fuzzy and returns lots of
+    # garbage when query is just "Iphone 12 Pro Max" (chairs called "Apple",
+    # cutting boards, kitchen scales mentioning "iPhone" in description).
+    # Until we wire up structured params[brand][model] queries via autosearch
+    # subscriptions, drop items whose title doesn't contain the expected
+    # brand+model tokens. parsed_brand/parsed_model are populated by
+    # url_parser when the user creates the profile.
+    title_must_contain: list[str] = []
+    eff_brand = profile.parsed_brand
+    eff_model = profile.parsed_model
+    # Self-heal: profiles created before url_parser was tightened may have
+    # NULL parsed_brand / parsed_model. Re-parse the URL on-the-fly so the
+    # filter still works without backfill migration.
+    if (not eff_brand or not eff_model) and profile.avito_search_url:
+        try:
+            from app.services.url_parser import parse_avito_url
+            re_parsed = parse_avito_url(profile.avito_search_url)
+            eff_brand = eff_brand or re_parsed.brand
+            eff_model = eff_model or re_parsed.model
+        except Exception:
+            log.exception("polling.reparse_failed profile_id=%s", profile_id)
+    if eff_brand:
+        title_must_contain.append(eff_brand.lower())
+    if eff_model:
+        # Multi-word models ("12 Pro Max") → every token must appear in title.
+        for tok in eff_model.lower().split():
+            if tok and tok not in title_must_contain:
+                title_must_contain.append(tok)
+
+    listings_filtered_out = 0
+
     async with sessionmaker() as session:
         # Per-user global blacklist (ADR-011): once a user has rejected a
         # listing, it should never resurface in any of their profiles, even
@@ -347,6 +378,13 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                 continue
             if item.id in blacklisted_avito_ids:
                 continue
+
+            # Drop fuzzy-search noise: title must contain every brand+model token.
+            if title_must_contain:
+                title_lower = (item.title or "").lower()
+                if not all(tok in title_lower for tok in title_must_contain):
+                    listings_filtered_out += 1
+                    continue
 
             listings_seen += 1
             listing_id, is_new, price_changed, _prev_price = await _upsert_listing(
