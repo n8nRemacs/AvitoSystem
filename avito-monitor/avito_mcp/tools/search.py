@@ -7,18 +7,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.avito_blob_decoder import decode_url as decode_blob_url
 from app.services.url_parser import ParsedAvitoUrl, parse_avito_url
 from avito_mcp.integrations.xapi_client import XapiClient
 from shared.models.avito import ListingImage, ListingShort, SearchPage
 
 
-# Avito-side category numeric IDs we care about. Used to narrow the search to
-# the right vertical when the user's URL only carries a slug. Without this,
-# the iPhone profile's ``query=Apple`` returns Apple Watches, iPads and AirPods
-# alongside phones because the mobile API otherwise searches across all
-# categories. Add new entries when a profile starts catching foreign garbage.
+# Avito **mobile-API** category numeric IDs (the ones /11/items expects).
+# Web URLs use different numbers (e.g. phones=87 in web vs 84 in mobile);
+# the table below is mobile-only because xapi proxies to app.avito.ru/api/11.
+# Used to narrow the search to the right vertical when the user's URL only
+# carries a slug. Without this, the iPhone profile's ``query=Apple`` returns
+# Apple Watches, iPads and AirPods alongside phones because the mobile API
+# otherwise searches across all categories. Add new entries when a profile
+# starts catching foreign garbage.
 _CATEGORY_SLUG_TO_ID: dict[str, int] = {
-    "mobilnye_telefony": 87,
+    "mobilnye_telefony": 84,
     "noutbuki": 86,
     "planshety": 96,
     "naushniki": 100,
@@ -158,6 +162,11 @@ async def avito_fetch_search_page_impl(
 
     The URL is parsed locally (``app.services.url_parser``) to extract query
     keyword, region, price range, sort, then handed to xapi.
+
+    If the URL contains an ``f=AS...`` filter blob, it is decoded into precise
+    ``params[<param_id>][0]=<value>`` pairs and forwarded as ``extra_params``
+    so the mobile API returns the same listings the Avito app would show
+    (instead of a fuzzy text match that needs heavy post-filtering).
     """
     if not url or not url.strip():
         raise ValueError("url must be a non-empty Avito search URL")
@@ -167,6 +176,19 @@ async def avito_fetch_search_page_impl(
     parsed = parse_avito_url(url)
     query = _build_query_string(parsed)
     category_id = _category_id_for(parsed)
+
+    # Decode the blob: gives us {110617: 1642358, 110618: 469735, 110680: 458500}
+    # for an iPhone-13 URL. Falls back to None on URLs without a blob (plain
+    # category page) — those keep going through the legacy fuzzy path.
+    extra_params: dict[int, int] | None = None
+    try:
+        decoded = decode_blob_url(url)
+    except Exception:
+        # Decoder failures are non-fatal — Avito changing the format must not
+        # take down polling. Fall through to the fuzzy path.
+        decoded = None
+    if decoded is not None and decoded.pairs:
+        extra_params = decoded.as_dict()
 
     xapi = client or XapiClient()
     data = await xapi.search_items(
@@ -178,6 +200,7 @@ async def avito_fetch_search_page_impl(
         sort=_map_sort(parsed.sort),
         with_delivery=parsed.only_with_delivery,
         page=page,
+        extra_params=extra_params,
     )
 
     raw_items = data.get("items") or []

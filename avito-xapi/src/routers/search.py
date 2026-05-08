@@ -444,10 +444,41 @@ async def search_items(
     search_area: str | None = Query(None, description="Область поиска"),
     radius: int | None = Query(None, description="Радиус поиска в км"),
     force_location: bool | None = Query(None, description="Строго по региону"),
+    extra_params: str | None = Query(
+        None,
+        description=(
+            "JSON-encoded {param_id: value} for Avito mobile-API structured "
+            "filters, e.g. '{\"110617\":1642358,\"110618\":469735}'. Each "
+            "entry is forwarded as `params[<param_id>][0]=<value>` so the "
+            "mobile API returns precise results instead of fuzzy text matches."
+        ),
+    ),
     ctx: TenantContext = Depends(get_current_tenant),
 ):
     require_feature(request, "avito.search")
     client = _get_client(ctx)
+
+    # Decode JSON {param_id: value} → curl_cffi-ready {"params[<id>][0]": value}.
+    # Bad JSON is the caller's bug → 400. Each value lands as one element of
+    # the array Avito expects (we always use index 0; multi-value selects can
+    # extend this later).
+    params_extra: dict[str, Any] | None = None
+    if extra_params:
+        import json
+        try:
+            decoded = json.loads(extra_params)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"extra_params: invalid JSON ({exc})",
+            )
+        if not isinstance(decoded, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="extra_params: must be a JSON object {param_id: value}",
+            )
+        params_extra = {f"params[{int(k)}][0]": v for k, v in decoded.items()}
+
     try:
         data = await client.search_items(
             query=query, price_min=price_min, price_max=price_max,
@@ -456,6 +487,7 @@ async def search_items(
             with_delivery=with_delivery, owner=owner,
             search_area=search_area, radius=radius,
             force_location=force_location,
+            params_extra=params_extra,
         )
     except Exception as exc:
         # curl_cffi.requests.exceptions.HTTPError carries .response.status_code.

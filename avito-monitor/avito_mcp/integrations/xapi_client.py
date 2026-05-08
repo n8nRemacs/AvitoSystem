@@ -97,8 +97,17 @@ class XapiClient:
         page: int = 1,
         per_page: int = 30,
         with_delivery: bool | None = None,
+        extra_params: dict[int, int] | None = None,
     ) -> dict[str, Any]:
-        """Call GET /api/v1/search/items. Returns raw normalised dict."""
+        """Call GET /api/v1/search/items. Returns raw normalised dict.
+
+        ``extra_params`` is forwarded as ``params[<param_id>][0]=<value>`` to
+        the mobile API for structured search (replaces the legacy fuzzy
+        text+post-filter path). See ``app.services.avito_blob_decoder`` for
+        how to obtain these pairs from a web URL.
+        """
+        import json
+
         params: dict[str, Any] = {
             "query": query,
             "price_min": price_min,
@@ -110,6 +119,13 @@ class XapiClient:
             "per_page": per_page,
             "with_delivery": with_delivery,
         }
+        if extra_params:
+            # JSON-encode so it survives querystring transport. xapi router
+            # parses it back. Cast keys explicitly — int → str under JSON.
+            params["extra_params"] = json.dumps(
+                {str(k): v for k, v in extra_params.items()},
+                separators=(",", ":"),
+            )
         return await self._get("/api/v1/search/items", params)
 
     async def get_item(self, item_id: int) -> dict[str, Any]:

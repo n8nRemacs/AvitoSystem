@@ -1,5 +1,6 @@
 from app.db.models.activity_log import ActivityLog
 from app.db.models.audit_log import AuditLog
+from app.db.models.avito_param_catalog import AvitoParamCatalog
 from app.db.models.chat_dialog_state import ChatDialogState
 from app.db.models.criteria_template import CriteriaTemplate
 from app.db.models.health_check import HealthCheck
@@ -23,6 +24,7 @@ from app.db.models.user_listing_blacklist import UserListingBlacklist
 __all__ = [
     "ActivityLog",
     "AuditLog",
+    "AvitoParamCatalog",
     "ChatDialogState",
     "CriteriaTemplate",
     "HealthCheck",
