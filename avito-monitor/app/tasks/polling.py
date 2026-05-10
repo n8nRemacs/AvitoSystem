@@ -46,6 +46,7 @@ from app.db.models.enums import ListingStatus, ProfileRunStatus
 from app.integrations.avito_mcp_client.client import AvitoMcpClient
 from app.services.account_pool import AccountPool, NoAvailableAccountError
 from app.services.account_pool_factory import get_account_pool
+from app.services.search_profiles import build_polling_url
 from app.tasks.broker import broker
 from avito_mcp.integrations.xapi_client import XapiError
 from shared.models.avito import ListingShort
@@ -220,6 +221,13 @@ async def fetch_with_pool(
                     if exc.status_code in (401, 403) and attempt < effective_attempts - 1:
                         last_error = exc
                         continue
+                    # 429 = Avito rate-limit on this token. Pool reports it,
+                    # rotates to another account, and we back off briefly so
+                    # the next attempt isn't on a still-warm bucket.
+                    if exc.status_code == 429 and attempt < effective_attempts - 1:
+                        last_error = exc
+                        await asyncio.sleep(3)
+                        continue
                     if exc.status_code is not None and exc.status_code >= 500 and attempt < effective_attempts - 1:
                         last_error = exc
                         await asyncio.sleep(5)
@@ -278,16 +286,25 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     # --- fetch via account pool (rotates on 403/401/5xx) ---
     pool = get_account_pool()
 
-    async def _fetcher(acc: dict):
-        async with AvitoMcpClient(account_id=acc["account_id"]) as mcp:
-            if (
-                profile.import_source == "autosearch_sync"
-                and profile.avito_autosearch_id
-            ):
-                return await mcp.fetch_subscription_items(
-                    int(profile.avito_autosearch_id)
-                )
-            return await mcp.fetch_search_page(profile.avito_search_url)
+    # build_polling_url overlays the profile's search-вилка (search_min_price /
+    # search_max_price), region_slug, delivery, sort onto the base URL so the
+    # query string carries the wide ±25% search range. Without this Avito
+    # returns lots above the alert range — the user-pasted URL often has no
+    # pmin/pmax at all (only `?context=H4sI...` cookies survive copy-paste).
+    polling_url = build_polling_url(profile)
+
+    def _make_fetcher(page_num: int):
+        async def _fetcher(acc: dict):
+            async with AvitoMcpClient(account_id=acc["account_id"]) as mcp:
+                if (
+                    profile.import_source == "autosearch_sync"
+                    and profile.avito_autosearch_id
+                ):
+                    return await mcp.fetch_subscription_items(
+                        int(profile.avito_autosearch_id), page=page_num
+                    )
+                return await mcp.fetch_search_page(polling_url, page=page_num)
+        return _fetcher
 
     required_owner: str | None = None
     if (
@@ -297,13 +314,61 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     ):
         required_owner = str(profile.owner_account_id)
 
-    try:
-        page = await fetch_with_pool(fetcher_fn=_fetcher, pool=pool, required_owner=required_owner)
-    except Exception as exc:  # pragma: no cover — covered by health-checker
-        log.exception(
-            "polling.fetch_failed profile_id=%s url=%s",
-            profile_id, profile.avito_search_url,
-        )
+    # Avito returns ~30 items per page. For an iPhone 12 Pro Max search in a
+    # ±25% price вилка, total results sit around 500 → ~17 pages. The cap of
+    # 25 lets us absorb growth without runaway pagination on a misconfigured
+    # profile. If a profile genuinely needs more, we'll bump the cap rather
+    # than silently truncate.
+    MAX_POLL_PAGES = 25
+
+    # Inter-page delay. Avito caps requests-per-token at ~1 rps; without this
+    # we 429 on page 2 because the analysis fan-out from page 1 already
+    # consumed our budget. The Avito-app paginates lazily on user scroll, so
+    # mimicking that pace stays under the cap.
+    PAGE_DELAY_SECONDS = 1.2
+
+    pages_fetched: list = []  # list[SearchPage]
+    page_total: int | None = None
+    pool_drained = False
+    fetch_error: Exception | None = None
+    for page_num in range(1, MAX_POLL_PAGES + 1):
+        if page_num > 1:
+            await asyncio.sleep(PAGE_DELAY_SECONDS)
+        try:
+            pg = await fetch_with_pool(
+                fetcher_fn=_make_fetcher(page_num),
+                pool=pool,
+                required_owner=required_owner,
+            )
+        except Exception as exc:  # pragma: no cover — covered by health-checker
+            log.exception(
+                "polling.fetch_failed profile_id=%s url=%s page=%d",
+                profile_id, profile.avito_search_url, page_num,
+            )
+            fetch_error = exc
+            break
+
+        if pg is None:
+            # Pool fully drained mid-paginate. Keep what we already have and
+            # bail; next tick will pick up where we left off (since seen=False
+            # listings get _close_disappeared'd only if we DID complete).
+            log.warning(
+                "polling.pool_drained_mid_paginate profile_id=%s page=%d",
+                profile_id, page_num,
+            )
+            pool_drained = True
+            break
+
+        if page_total is None:
+            page_total = pg.total
+        pages_fetched.append(pg)
+        # Stop once Avito tells us there's no next page, OR we get a short
+        # page (defensive — has_more occasionally flaps to True on the very
+        # last page).
+        if not pg.has_more or not pg.items:
+            break
+
+    if fetch_error is not None and not pages_fetched:
         async with sessionmaker() as session:
             await session.execute(
                 update(ProfileRun)
@@ -311,15 +376,13 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                 .values(
                     finished_at=datetime.now(timezone.utc),
                     status=ProfileRunStatus.FAILED.value,
-                    error_message=str(exc)[:512],
+                    error_message=str(fetch_error)[:512],
                 )
             )
             await session.commit()
         return {"status": "failed", "reason": "fetch_failed"}
 
-    if page is None:
-        # Pool fully drained — no account available right now, skip this tick.
-        log.warning("polling.pool_drained profile_id=%s", profile_id)
+    if not pages_fetched:
         async with sessionmaker() as session:
             await session.execute(
                 update(ProfileRun)
@@ -332,6 +395,22 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
             )
             await session.commit()
         return {"status": "skipped", "reason": "pool_drained"}
+
+    # Flatten all pages into a single iteration. _close_disappeared at the end
+    # keys off this run's started_at, so a partially-complete paginate (pool
+    # drained mid-way) WON'T mark the un-fetched tail as closed — _upsert
+    # bumps last_seen only for items we actually saw, and items we never got
+    # to see retain their previous last_seen and stay open.
+    all_items = [it for pg in pages_fetched for it in pg.items]
+    pages_count = len(pages_fetched)
+    log.info(
+        "polling.pagination profile_id=%s pages=%d items=%d total=%s drained=%s",
+        profile_id, pages_count, len(all_items), page_total, pool_drained,
+    )
+
+    # `page` (first SearchPage) is kept around only so the metrics block
+    # below can read `.total` and `.applied_query` without re-derivation.
+    page = pages_fetched[0]
 
     blocked = set(profile.blocked_sellers or [])
     to_analyze: list[uuid.UUID] = []
@@ -380,7 +459,7 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
             )).scalars().all()
         )
 
-        for item in page.items:
+        for item in all_items:
             if item.seller_id is not None and str(item.seller_id) in blocked:
                 continue
             if item.id in blacklisted_avito_ids:

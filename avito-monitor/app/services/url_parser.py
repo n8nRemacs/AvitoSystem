@@ -261,7 +261,11 @@ def apply_overlay(url: str, *, region_slug: str | None,
     segments = [s for s in path.split("/") if s]
     regions = _regions_by_slug()
 
-    if region_slug:
+    # Defensive: legacy rows can carry the literal string "None" instead of a
+    # real NULL, which would otherwise be inserted as a path segment and break
+    # the search ("/None/telefony/..." → Avito returns garbage with no region
+    # context). Treat any falsy-looking value as no override.
+    if region_slug and region_slug.lower() not in ("none", "null", ""):
         if segments and segments[0] in regions:
             segments[0] = region_slug
         else:

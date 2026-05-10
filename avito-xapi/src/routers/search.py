@@ -532,7 +532,16 @@ async def get_item(item_id: int, request: Request,
                    ctx: TenantContext = Depends(get_current_tenant)):
     require_feature(request, "avito.search")
     client = _get_client(ctx)
-    data = await client.get_item_details(item_id)
+    try:
+        data = await client.get_item_details(item_id)
+    except Exception as exc:
+        # Mirror /items: surface Avito's status (429/403/4xx) so callers can
+        # back off instead of seeing a misleading 500. AccountPool / analysis
+        # worker key off the real status code.
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status and 400 <= status < 600:
+            raise HTTPException(status_code=status, detail=f"Avito {status}")
+        raise
 
     raw = data if isinstance(data, dict) and "id" in data else (
         data.get("result", data) if isinstance(data, dict) else {}
