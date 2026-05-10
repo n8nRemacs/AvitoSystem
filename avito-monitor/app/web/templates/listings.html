@@ -290,7 +290,7 @@
                can click it to enlarge / magnify. Shows up to 8 thumbs.
                Click → opens the lightbox at the chosen index. #}
             {% if r.images and r.images|length >= 1 %}
-              <div class="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-3 lightbox-gallery"
+              <div class="grid grid-cols-4 gap-2 mb-3 lightbox-gallery"
                    data-images="{{ r.images|map(attribute='url')|join('|') }}">
                 {% for img in r.images[:8] %}
                   <button type="button" data-idx="{{ loop.index0 }}"

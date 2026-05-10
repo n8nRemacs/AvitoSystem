@@ -393,6 +393,13 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
                     .values(
                         description=fresh.description,
                         parameters=fresh.parameters or {},
+                        # Detail endpoint returns the full gallery (search
+                        # feed only carries the cover image). Persist all
+                        # so the lightbox can show every photo.
+                        images=[
+                            img.model_dump(mode="json")
+                            for img in (fresh.images or [])
+                        ] or None,
                     )
                 )
                 await session.commit()
@@ -671,6 +678,12 @@ async def refresh_listing_detail(listing_id: str) -> dict[str, Any]:
         updates: dict[str, Any] = {
             "description": fresh.description,
             "parameters": fresh.parameters or {},
+            # Detail endpoint carries the full gallery; search feed only
+            # had the cover. Persist all so the lightbox shows them.
+            "images": [
+                img.model_dump(mode="json")
+                for img in (fresh.images or [])
+            ] or None,
         }
         reservation_updated = False
         if (
