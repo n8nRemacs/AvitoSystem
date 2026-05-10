@@ -255,7 +255,10 @@ async def _upsert_listing(
             "title": insert_stmt.excluded.title,
             "region": insert_stmt.excluded.region,
             "url": insert_stmt.excluded.url,
-            "images": insert_stmt.excluded.images,
+            # NOTE: don't refresh images here. Search feed only carries the
+            # cover photo; the full gallery is populated by evaluate_listing /
+            # refresh_listing_detail from /items/{id}. Overwriting on every
+            # poll wipes the gallery back to cover-only.
             "last_seen_at": insert_stmt.excluded.last_seen_at,
             "status": ListingStatus.ACTIVE.value,
         },
