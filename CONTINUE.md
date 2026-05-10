@@ -1,246 +1,256 @@
 # CONTINUE — следующая сессия
 
-> **Если ты Claude в новой сессии:** прочитай этот файл целиком. Главная цель сейчас — **найти числовые ID параметров Avito mobile API** (brand, model, состояние, память, цвет и т.д.), чтобы строить precise structured-запросы вместо fuzzy text + post-filter. Полная методология — `DOCS/REFERENCE/06-structured-params-discovery.md`.
+> **Если ты Claude в новой сессии:** прочитай этот файл целиком + `DOCS/REFERENCE/README.md` (последние «Обновлено» 2026-05-09/10) + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory в `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md`. Главная цель — **автоматизация диалогов с продавцами для лотов в статусе "В работе"**.
 >
-> **Если ты пользователь:** скопируй промпт из §5 в новую сессию.
+> **Если ты пользователь:** скопируй промпт из §9 в новую сессию.
 
 ---
 
-## 1. Главная цель следующей сессии
+## §1. Что было сделано в прошлых сессиях (контекст 30 секунд)
 
-Сейчас polling работает на **fuzzy text + post-filter**: шлём `query="Iphone 12 Pro Max"` без structured params, Avito возвращает ~12'000 fuzzy-iPhone'ов всех моделей, мы режем их `\w+`-токенами по `brand+model` в title. Это работает, но:
-- Не отделяет iPhone 12 Pro Max от iPhone 12 (без "Pro Max")
-- Не даёт фильтровать по объёму памяти, цвету, состоянию батареи на стороне Avito
-- Не масштабируется на не-phone-категории (нет mapping web-slug → mobile-categoryId, нет brand/model ID для машин/одежды/etc.)
+Стек уже работает end-to-end:
+- **Polling** ходит в Avito mobile API через ru-vpn (`155.212.217.226`), достаёт лоты структурированным запросом (`params[110617]=model_id&params[110618]=brand_id&params[110680]=type_id`), пагинация до 25 страниц, jitter 2-5 сек, активные часы 8-23 Moscow, random breaks 8-12 polls / 20-40 мин.
+- **Pre-check API killers** в Python — 5 правил по `listing.parameters` (Работа устройства / Аккумулятор / Не работают функции / Не работают датчики / Камера). На текущей выдаче **35 / 78 листингов** уходят в red bucket без LLM-вызова.
+- **LLM evaluation** (V2 per_criterion strategy) — 8 hard criteria + 2 новых text-based (`modem_broken`, `biometric_broken`). Bucket: red если any criterion red ≥ 0.7, green если ВСЕ green ≥ 0.7, иначе grey.
+- **UI**: thumbnail-сетка фото в expanded body, lightbox с TaoBao magnifier (lens + adjacent zoom 3×) + wheel zoom + drag-pan, цветные bucket-chips с tab-aware counts, 3-state decision toggle (✗/—/✓) + bulk Apply.
+- **Reservation tracking** schema готов (`listings.reservation_status / reserved_at_price` + `listing_status_events` table) — ждём первого живого reserved-event для confirmation field name в Avito payload.
 
-**Решение:** собрать **catalog таблицу** `avito_param_catalog` с тройками `(category_id, param_id, param_value, human_name)`. Источник — subscription deeplink'и (auto-extraction из `autosearch_sync`). Когда catalog заполнен — URL parser резолвит brand+model в `params[110617][0]=491590&params[110618][0]=469735` и polling шлёт structured запрос.
-
-**Полная спека:** `DOCS/REFERENCE/06-structured-params-discovery.md` — 4 подхода (subscription mining ★/catalog API/mitm/jadx), пример schema БД, action items на ~3ч кодинга.
+**Текущая выдача** (профиль `iPhone 12 Pro max 10500-13500`, 78 active listings):
+- red: 52 (api-killers + LLM)
+- grey: 36
+- green: 0 (criteria набор пока довольно строгий — для байер-перепродажи нужно убрать `screen_broken` / `parts_only` из profile_criteria, см. memory `project_screen_broken_not_killer.md`)
 
 ---
 
-## 2. Production state — 2026-05-07 (после today's session)
+## §2. Production state — 2026-05-10
 
 | Что | Где |
 |---|---|
-| **VPS** | `81.200.119.132` (Beget RU). 9 active services. **+ systemd `avito-vpn-tunnel.service`** (новое сегодня) |
-| **Outbound к Avito** | xapi → `socks5h://172.18.0.1:1081` → ssh -D туннель → ru-vpn `155.212.217.226` → Avito |
+| **VPS** | `81.200.119.132` (Beget RU). 9 контейнеров up. systemd `avito-vpn-tunnel.service` up. |
+| **Outbound к Avito** | xapi → `socks5h://172.18.0.1:1081` → ssh -D туннель → ru-vpn `155.212.217.226` |
 | **Public URL** | `https://avitosystem.duckdns.org` |
-| **БД** | Cloud Supabase Frankfurt (`drwgozasaypgphkxyizt`). Pooler 6543. |
-| **Single user** | `remacs` (admin, пароль `31415926`) |
-| **Single profile** | `iPhone 12 Pro max 11000-13500` (manual_url, owner=NULL → LRU). `poll_interval=5min`. **На паузе** (is_active=false) после соак-тестов. |
-| **Phone** | OnePlus 8T `110139ce`, USB → Windows ПК. APK ловит push'ы Avito-app. |
-| **Branch state** | `main` ahead origin = 1 коммит (`0c8e759`). Не пушено. |
-
-### Pool state (2026-05-07 ~09:15 UTC):
-
-| Аккаунт | Avito user | state | JWT TTL |
-|---|---|---|---|
-| Clone (`42c179db`) | 157920214 | dead | истёк 5 дней назад |
-| auto-157920214 (`b5cbf28b`) | 157920214 | active (cooldown reset) | **caa81d6b** TTL≈24h, но **QRATOR-зажат** от тестов (нужен либо ещё один logout/login в Avito-app, либо ~1ч cooldown) |
-| auto-431483569 (`14acfef4`) | 431483569 | active | TTL отрицательный, нужен refresh |
+| **БД** | Cloud Supabase Frankfurt project `drwgozasaypgphkxyizt`. Pooler 6543 + `prepared_statement_cache_size=0` для asyncpg+pgbouncer. |
+| **Single user** | `remacs` (admin) |
+| **Single profile** | `iPhone 12 Pro max 10500-13500`, search=alert=10500-13500, with_delivery=true (в URL — Avito mobile API игнорирует, но в нашем post-filter работает) |
+| **Pool** | `auto-431483569-61238c` active TTL 22ч. `auto-157920214-61238c` needs_refresh (JWT истёк). Cap cooldown 60 мин (было 24ч). |
+| **Phone** | OnePlus 8T `110139ce`, USB к Windows ПК. Multi-profile в Avito-app — ОДИН JWT для всех 4 профилей |
+| **HEAD** | `b80d382` (feat: modem_broken + biometric_broken). Запушено на origin/main. |
+| **Migrations head** | `0012_reservation_tracking` (chain: 0010 catalog → 0011 humanization → 0012 reservation) |
 
 ---
 
-## 3. Что сделано в session 2026-05-07 (commit `0c8e759`)
+## §3. Главная цель next session — диалоги с продавцами
 
-### Новая архитектура outbound
+Когда юзер нажимает **«✓ В работу»** на карточке лота — это значит лот интересен и надо начинать диалог с продавцом. Сейчас этот шаг manual (юзер сам пишет в Avito-app). **Автоматизировать первичный сбор информации** через бот.
 
-- **Найдено эмпирически:** Avito QRATOR делает per-(JWT, IP) trust-binding. Свежий токен с другого IP = 403 captcha с первого запроса. Подтверждено реверсивной корреляцией: `new_token+VPS=403, new_token+phone-IP=200; old_token+VPS=200, old_token+phone-IP=403`.
-- **Решение:** ssh -D туннель от VPS до ru-vpn (`155.212.217.226` — same outbound IP что у Avito-app на телефоне).
-- **Реализация:**
-  - `/etc/systemd/system/avito-vpn-tunnel.service` — `ssh -i /root/.ssh/id_ed25519 -N -D 172.18.0.1:1081 root@155.212.217.226`, `Restart=always`
-  - `AVITO_SOCKS_PROXY=socks5h://172.18.0.1:1081` в `/opt/avito-system/.env`
-  - `avito-xapi/src/workers/base_client.py` читает env → пробрасывает `proxies=` в `curl_cffi.Session`
-  - `ops/server/docker-compose.yml`: `extra_hosts: ["host.docker.internal:host-gateway"]` (на случай если потом захотим биндить на host loopback)
+### §3.1 Что бот должен делать
 
-### Фиксы формата запросов
+После `accept` лота:
+1. **Создать чат с продавцом** через Avito messenger API (`POST /1/messenger/createItemChannel` — есть в xapi).
+2. **Отправить первое сообщение** — приветствие + квалифицирующие вопросы (приоритет — то что не указано в описании / параметрах).
+3. **Слушать ответы** — через SSE стрим (уже есть для текущего messenger_bot reliability).
+4. **Парсить структурированные данные**: уточнённая цена, готовность к торгу, доставка, дополнительные фото, время для встречи/call.
+5. **Передать оператору** (telegram-канал) когда диалог дошёл до точки решения.
 
-- **`/11/items` без structured params не должен иметь categoryId** — голый `categoryId` (даже правильный mobile id `84`) триггерит QRATOR 403. Avito-app шлёт categoryId только в составе deeplink'а с brand+model. Фикс: `http_client.py search_items()` шлёт categoryId только если в `params_extra` уже есть structured `params[X][Y]=Z`.
-- **Bool → lowercase string:** `withDelivery=True` (Python repr "True") тоже триггерит QRATOR. Заменили на `"true"/"false"`. Same для `forceLocation`.
-- **Post-filter word-boundary:** `polling.py` теперь использует `re.findall(r"\w+", title.lower())` set вместо substring `tok in title_lower`. `12` больше не матчит `128` в title'ах iPhone 14 Pro Max. Импорт `re` + `_WORD_RE` constant.
+### §3.2 Состав вопросов (бизнес-логика, нужен brainstorm с юзером)
 
-### Документация (committed)
+Например (нужно подтвердить):
+- «Здравствуйте! Цена окончательная или возможен торг?»
+- «Можно ли увидеть АКБ статус через настройки? Скрин пришлёте?»
+- «Видеообзор сделать сможете? Хочется убедиться что всё работает.»
+- «Доставка Авито? Сколько по времени получится?»
+- «На лоте указано N — это последняя цена или есть рассылочная скидка?»
 
-- **DOCS/REFERENCE/01-avito-api.md** — note про categoryId behavior + per-(token, IP) binding
-- **DOCS/REFERENCE/05-search-query-formation.md** — секция «Эмпирические находки 2026-05-07» с curl-diff таблицами
-- **DOCS/REFERENCE/06-structured-params-discovery.md** — **новый файл**, 4 подхода для сбора param-ID, рекомендуемая `avito_param_catalog` schema
-- **DOCS/TZ_AvitoBridge_PhoneProxy_V1.md** — **новый ТЗ** на phone-MCP-bridge (~10-18ч кодинга), будет нужен только если QRATOR начнёт детектить chrome120 vs OkHttp на TLS-уровне
+Разные категории вопросов для разных профилей (iPhone vs ноутбук vs etc) → возможно тоже YAML-driven как criteria_templates.
 
-### Auto-memory (новые)
+### §3.3 Что хранить per-dialog
 
-- `reference_qrator_token_ip_binding.md` — эмпирика per-(JWT, IP) binding
-
-### Cleanup
-
-- Удалено 41 не-iPhone profile_listing'а (кружки, чайники, весы — наследие fuzzy без post-filter'а), 772 orphan listings purged. В БД остались 14 реальных iPhone 12 Pro Max.
-
-### Soak
-
-- **`09:04:12 success seen=14 new=14`** — единственный успешный прогон сегодня после fix'ов. 14 настоящих iPhone 12 Pro Max в БД (`/listings` UI должно показывать).
-- Дальше тесты пережгли токен, нужен logout/login в Avito-app для нового прогона.
+- `dialog_id` (per chat / per accepted listing)
+- `channel_id` (Avito messenger channel)
+- `state` machine: `awaiting_response`, `negotiating`, `ready_for_operator`, `seller_silent`, `closed`
+- `extracted_data` JSONB: цена_финальная, торг_возможен, акб_фото_url, доставка_возможна, etc.
+- `messages` history (in/out)
+- `next_action_at` для timeouts
 
 ---
 
-## 4. Action items по приоритету
+## §4. Что уже есть в коде (reuse)
 
-### КРИТИЧНО для следующей сессии
+| Где | Что | Статус |
+|---|---|---|
+| `avito-xapi/src/workers/http_client.py` | `create_channel_by_item(item_id)`, `send_text(channel_id, text)`, `get_messages(channel_id)`, `mark_read(channel_ids)` | ✅ ready |
+| `avito-xapi/src/routers/messenger.py` | HTTP wrappers поверх http_client — POST/GET endpoints | ✅ ready |
+| `avito-monitor/app/services/messenger_bot/runner.py` | SSE listener loop (long-lived `/api/v1/messenger/realtime/events`) с reconnect+backoff | ✅ ready (используется reliability ботом) |
+| `avito-monitor/app/services/messenger_bot/handler.py` | Dispatcher для inbound events. `_bump_event() / _bump_reply()` counters | ⚠ нужен новый branch для seller-dialog (сейчас всё уходит в reliability auto-reply) |
+| `avito-monitor/app/services/messenger_bot/{rate_limit,dedup,kill_switch,whitelist}.py` | Anti-detection helpers — глобальный rate-limit, дедуп ответов, kill-switch, whitelist | ✅ reuse |
+| `avito-monitor/app/db/models/messenger_chat.py + messenger_message.py + chat_dialog_state.py` | Schema для chat-state + messages | ✅ reuse — нужно расширить `chat_dialog_state` под новые fields |
 
-1. **Structured params discovery (Phase 1-3, ~3ч)** — главная цель. Полный план в `DOCS/REFERENCE/06-structured-params-discovery.md` §6. Шаги:
-   - SQL миграция `avito_param_catalog` (CREATE TABLE)
-   - `_extract_params_to_catalog()` в `autosearch_sync.py`
-   - Юзер сохраняет 5-10 разных autosearch'ей в Avito-app (разные модели, может разные категории)
-   - URL parser lookup'ит brand+model в catalog → добавляет в `params_extra` для search_items
-   - Profile получает precise результаты (только iPhone 12 Pro Max, ничего больше)
-
-### ОСНОВНОЕ (после structured params)
-
-2. **Refresh-flow gap** (~10ч) — JWT истекает за 24h, Avito-app refresh'ит молча → APK не ловит push → у нас stale JWT → 403. Pull-based архитектура: xapi помечает `refresh_requested_at`, APK polls SharedPrefs Avito-app, POST'ит свежий JWT либо `POST /refresh-failed` → TG alert. Без этого работает только пока юзер ручками logout/login.
-3. **Phase B соак V2 LLM pipeline** — `condition_class` сейчас `unknown` для 14 новых iPhone'ов. План `c:/Users/EloNout/.claude/plans/sequential-seeking-trinket.md` Phase B/C закроет.
-
-### НИЗКИЙ ПРИОРИТЕТ
-
-4. **Catalog API discovery (Variant B в `06-structured-params-discovery.md`)** — попробовать `GET /api/N/categories/{id}/parameters` через jadx grep. Если найдётся — bulk import всех param ID за один прогон. Опционально, ~2-4ч.
-5. **AvitoBridge Phone Proxy** (`DOCS/TZ_AvitoBridge_PhoneProxy_V1.md`) — нужен только если QRATOR начнёт детектить chrome120 vs OkHttp. Триггер: периодические 403 на работающих токенах после 7-14 дней соака.
-6. **Bug: zombie running runs** — polling.py делает early return при `profile.is_active=false` после создания ProfileRun(running) → запись остаётся `running` навсегда. Минор.
+**Важно:** существующий messenger_bot — это **reliability auto-reply** (имитация активности юзера через ответы на чужие чаты). Бизнес-диалоги это **разный** flow: triggered не входящим сообщением, а accept-action юзера. Соответственно нужна отдельная state machine — но reuse `runner.py` для inbound listening + `dedup.py` / `rate_limit.py`.
 
 ---
 
-## 5. Промпт-стартер для новой сессии
+## §5. План на сессию (примерно 4-6 часов)
+
+### §5.1 Brainstorm (~30 мин)
+- Согласовать с юзером список вопросов (по приоритету, по категориям)
+- Согласовать state machine состояний диалога
+- Что считать «готов передать оператору»
+- Когда сдаваться (продавец молчит N часов)
+- TG-канал для оператор-handoff (общий с green-алертами или отдельный?)
+
+### §5.2 Schema (~30 мин)
+- Migration 0013: новая таблица `seller_dialogs` (или расширение `chat_dialog_state`):
+  - `id`, `profile_listing_id` FK, `channel_id` (Avito), `state` enum, `extracted` JSONB, `next_action_at`, `created_at`, `closed_at`, `closed_reason`
+- Migration 0014: `dialog_questions` (если scripted YAML — может не нужно table, всё в YAML)
+
+### §5.3 Question library (~1ч)
+- `app/data/dialog_questions.yaml` — scripted templates с placeholders. Каждый question: `key`, `text`, `expects` (price | yesno | photo | text), `next_question_if_yes`, `next_question_if_no`, `priority`.
+- Или LLM-driven (более гибко, но дорого) — обсудить с юзером.
+
+### §5.4 Trigger + flow (~2ч)
+- Таска `start_seller_dialog(profile_listing_id)` triggered после `user_action='accepted'`.
+- Создать channel через xapi.
+- Послать первое сообщение из question library.
+- SSE listener при inbound от seller → `process_seller_reply(channel_id, message_text)`:
+  - LLM extraction `extract_dialog_field` (или regex для simple cases)
+  - Update `seller_dialogs.extracted`
+  - Решить next question или handoff
+
+### §5.5 UI (~1ч)
+- В таб «В работе» — для каждой карточки показать dialog state + last messages
+- Кнопки: «Передать оператору» / «Закрыть диалог» / «Написать вручную»
+
+### §5.6 Test (~30 мин)
+- Юзер нажимает Accept на одном тестовом лоте → бот стартует → первое сообщение уходит. Watch logs.
+- Имитировать ответ продавца через Avito-app на phone'е → SSE catch → бот следующий вопрос.
+
+---
+
+## §6. Где документация
+
+| Файл | Что |
+|---|---|
+| `DOCS/REFERENCE/README.md` | Главный index. Последняя секция «Обновлено» 2026-05-09/10 описывает все недавние фичи. |
+| `DOCS/REFERENCE/01-avito-api.md` §H | Все endpoints + headers + JWT structure |
+| `DOCS/REFERENCE/02-auth-and-tokens.md` | JWT lifecycle, refresh, ban detection. Memory `reference_avito_token_refresh.md` дополнительно: refresh-flow gap (silent JWT refresh в Avito-app не push'ит — наша БД отстаёт). |
+| `DOCS/REFERENCE/03-android-setup.md` | OnePlus, Magisk, ADB, NotificationListener |
+| `DOCS/REFERENCE/05-search-query-formation.md` | Web URL ↔ mobile API mismatch |
+| `DOCS/REFERENCE/10-blob-decoder.md` | Декодер `f=AS...` blob — как мы вытащили catalog |
+
+**Memory** (auto-loaded в каждую сессию через `MEMORY.md`):
+- `feedback_no_qrator_excuse.md` — НЕ списывать ошибки на QRATOR; Avito-app работает = root cause в наших запросах
+- `reference_outbound_ip.md` — ru-vpn 155.212.217.226 не блокирован per-IP; rate-limit per-JWT
+- `project_filter_change_reeval.md` — bump criteria → re-LLM всех active кроме manual:* blacklist
+- `project_bucket_flow_design.md` — green→urgent TG (план), grey→ручной разбор, red→видим с badge
+- `project_screen_broken_not_killer.md` — для байера разбитый экран не deal-breaker
+- `project_price_tiered_criteria.md` — backlog: строгость criteria зависит от цены внутри alert-вилки
+
+---
+
+## §7. Команды на проверку (любая сессия)
+
+### §7.1 Pool state + JWT TTL
+```bash
+ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm --no-deps avito-monitor python -c "
+import asyncio, asyncpg, os, json, base64
+from datetime import datetime, timezone
+async def m():
+    conn = await asyncpg.connect(os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\",\"postgresql://\"), statement_cache_size=0)
+    rs = await conn.fetch(\"SELECT a.nickname, a.state, s.tokens, s.expires_at FROM avito_accounts a LEFT JOIN avito_sessions s ON s.account_id=a.id AND s.is_active=true ORDER BY a.nickname\")
+    now = datetime.now(timezone.utc)
+    for r in rs:
+        ttl = round((r[\"expires_at\"] - now).total_seconds()/3600, 1) if r[\"expires_at\"] else None
+        print(f\"  {r[\"nickname\"]:<25} state={r[\"state\"]:<14} ttl={ttl}h\")
+    await conn.close()
+asyncio.run(m())
+"'
+```
+
+### §7.2 Bucket distribution + criteria
+```bash
+ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm --no-deps -v /opt/avito-system/repo/final_check.py:/app/d.py avito-monitor python /app/d.py'
+```
+
+### §7.3 Tunnel + containers
+```bash
+ssh root@81.200.119.132 'systemctl is-active avito-vpn-tunnel.service && cd /opt/avito-system && docker compose ps --format "table {{.Service}}\t{{.Status}}"'
+```
+
+### §7.4 UI check
+```bash
+curl -sS -o /dev/null -w "/listings -> %{http_code}\n" https://avitosystem.duckdns.org/listings
+```
+
+---
+
+## §8. Что в backlog (не для этой сессии)
+
+- **TG-канал для urgent green** — уведомление оператору при новом green буцет (`project_bucket_flow_design.md`)
+- **Reservation tracking field name confirmation** — пока probe-only по 5 candidate keys, ждём живой reserved-event
+- **Pool decay через `last_event_at`** — state machine готов, но `routers/accounts.py` пока не пишет колонку, decay inactive
+- **LLM `not_starting` ещё триггерится на marketing-фразы** — иногда false-positive на «не работает фронтальная камера, но сам аппарат рабочий»; переписать prompt v3
+- **Price-tiered criteria** (backlog `project_price_tiered_criteria.md`) — строгость от цены
+- **Profile criteria для байера**: убрать `screen_broken`, `parts_only` (косметика не killer для перепродажи)
+- **Per_listing strategy** для случаев где per_criterion даёт false positives на marketing copy
+
+---
+
+## §9. Промпт-стартер для новой сессии
 
 ```
 Проект: c:/Projects/Sync/AvitoSystem/.
 
-Прочитай CONTINUE.md и DOCS/REFERENCE/06-structured-params-discovery.md.
+Прочитай CONTINUE.md (§1-§5) — там полный контекст текущего state и
+плана новой фазы: автоматизация диалогов с продавцами для лотов
+"в работе".
 
-Главная цель: реализовать сбор catalog'а параметров Avito (brand, model,
-память, цвет, состояние) через subscription mining — Phase 1-3 из §6 doc'а.
-~3ч кодинга. После этого URL parser сможет строить precise structured
-запросы вместо fuzzy text + post-filter.
+Что сейчас работает: polling с humanization, api_killer pre-check,
+V2 LLM pipeline (8 hard criteria + modem_broken/biometric_broken),
+bulk decision UI, reservation tracking schema. Текущая выдача 78
+лотов, 52 red / 36 grey / 0 green на профиле "iPhone 12 Pro max
+10500-13500".
 
-Production: VPS 81.200.119.132 + Cloud Supabase Frankfurt. Один UI юзер
-remacs/31415926. Один profile (iPhone 12 Pro max 11000-13500, manual_url),
-сейчас на паузе. Pool: 1 active токен (но QRATOR-зажат после вчерашних
-тестов — может потребоваться logout/login в Avito-app для свежего).
+Главная цель next: dialog flow с продавцом после accept. Скрипт
+квалифицирующих вопросов (цена/торг/АКБ-фото/доставка), state
+machine диалога, передача оператору. Reuse существующего
+messenger_bot infra (SSE listener, dedup, rate_limit) — но separate
+flow от текущего reliability auto-reply.
 
-Outbound к Avito идёт через ssh -D туннель VPS → ru-vpn 155.212.217.226
-(systemd avito-vpn-tunnel.service, env AVITO_SOCKS_PROXY). Без этого —
-QRATOR 403 на любой свежий токен (per-(JWT, IP) binding).
+Production: VPS 81.200.119.132 + Cloud Supabase Frankfurt. UI
+https://avitosystem.duckdns.org. HEAD = b80d382.
 
-HEAD = 0c8e759.
+Сначала brainstorm с юзером (§5.1) — список вопросов и state
+machine. Затем по плану §5.2-§5.6.
 ```
 
 ---
 
-## 6. Команды на проверку
-
-```bash
-# Containers
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose ps'
-
-# Tunnel + outbound check
-ssh root@81.200.119.132 'systemctl is-active avito-vpn-tunnel.service && docker compose -f /opt/avito-system/docker-compose.yml exec -T avito-xapi sh -c "curl -s -x socks5h://172.18.0.1:1081 -m 10 ifconfig.io"'
-# Должно вернуть: 155.212.217.226
-
-# Pool state + JWT TTL
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose exec -T avito-monitor python -c "
-import asyncio, os, asyncpg, base64, json
-from datetime import datetime, timezone
-async def main():
-    url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\",\"postgresql://\")
-    conn = await asyncpg.connect(url, statement_cache_size=0)
-    now = datetime.now(timezone.utc)
-    rs = await conn.fetch(\"SELECT a.nickname, a.state, s.tokens FROM avito_accounts a LEFT JOIN avito_sessions s ON s.account_id=a.id AND s.is_active=true ORDER BY a.created_at\")
-    for r in rs:
-        tok = r[\"tokens\"]
-        if isinstance(tok, str): tok = json.loads(tok)
-        st = (tok or {}).get(\"session_token\", \"\") if tok else \"\"
-        ttl = \"\"
-        if st:
-            p = json.loads(base64.urlsafe_b64decode(st.split(\".\")[1] + \"==\").decode())
-            ttl_min = int((datetime.fromtimestamp(p[\"exp\"], tz=timezone.utc) - now).total_seconds() / 60)
-            ttl = f\" TTL={ttl_min}min\"
-        print(f\"  {r[\\\"nickname\\\"]:30s} state={r[\\\"state\\\"]:15s}{ttl}\")
-    await conn.close()
-asyncio.run(main())
-"'
-
-# Last 5 runs
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose exec -T avito-monitor python -c "
-import asyncio, os, asyncpg
-async def main():
-    url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\",\"postgresql://\")
-    conn = await asyncpg.connect(url, statement_cache_size=0)
-    rs = await conn.fetch(\"SELECT started_at, status, listings_seen, listings_new, error_message FROM profile_runs ORDER BY started_at DESC LIMIT 5\")
-    for r in rs:
-        print(f\"  {r[\\\"started_at\\\"].strftime(\\\"%H:%M:%S\\\")} {r[\\\"status\\\"]:10s} seen={r[\\\"listings_seen\\\"]} new={r[\\\"listings_new\\\"]} {(r[\\\"error_message\\\"] or \\\"\\\")[:60]}\")
-    await conn.close()
-asyncio.run(main())
-"'
-
-# Unpause + trigger run (когда есть свежий токен)
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose exec -T avito-monitor python -c "
-import sys, asyncio
-sys.path.insert(0, \"/app\")
-import asyncpg, os
-from app.tasks.polling import poll_profile
-async def main():
-    url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\",\"postgresql://\")
-    conn = await asyncpg.connect(url, statement_cache_size=0)
-    await conn.execute(\"UPDATE search_profiles SET is_active=true WHERE id=\\\"a37d2226-3907-4a10-a585-22dd519cb431\\\"\")
-    await conn.execute(\"UPDATE avito_accounts SET state=\\\"active\\\", cooldown_until=NULL, consecutive_cooldowns=0 WHERE id=\\\"b5cbf28b-c9fe-46ff-aea1-bc332abf6bad\\\"\")
-    await conn.close()
-    task = await poll_profile.kiq(\"a37d2226-3907-4a10-a585-22dd519cb431\")
-    print(task.task_id)
-asyncio.run(main())
-"'
-
-# Tunnel debug (если что-то не так)
-ssh root@81.200.119.132 'systemctl status avito-vpn-tunnel.service --no-pager -n 20 ; ss -tlnp | grep 1081'
-```
-
----
-
-## 7. Где детальная документация
-
-| Файл | Что |
-|---|---|
-| **`DOCS/REFERENCE/06-structured-params-discovery.md`** | **Основное для следующей сессии** — методология сбора param ID, schema БД, 4 подхода |
-| `DOCS/REFERENCE/05-search-query-formation.md` | Эмпирические находки 2026-05-07: QRATOR per-(token,IP), categoryId-403 |
-| `DOCS/REFERENCE/01-avito-api.md` | Avito endpoints + headers + structured params + сегодняшние notes |
-| `DOCS/REFERENCE/02-auth-and-tokens.md` | JWT, refresh flow, pool state machine |
-| `DOCS/REFERENCE/03-android-setup.md` | OnePlus + System Clone, Magisk, ADB, NotificationListener |
-| `DOCS/REFERENCE/04-reverse-engineering-howto.md` | jadx + curl_cffi + Frida + mitm workflow |
-| **`DOCS/TZ_AvitoBridge_PhoneProxy_V1.md`** | ТЗ phone-MCP-bridge (V2 escalation, ~10-18ч) |
-| `DOCS/avito_api_snapshots/autosearches/README.md` | реверс /5/subscriptions с live-validated примерами |
-| `c:/Users/EloNout/.claude/plans/sequential-seeking-trinket.md` | План V2 LLM pipeline (Phase A done, B/C ожидают живых лотов) |
-| `ops/server/{docker-compose.yml,Caddyfile,.env.template}` | Production deploy artifacts |
-
----
-
-## 8. Где секреты
+## §10. Где секреты
 
 - **Глобальные:** `c:/Projects/Sync/CLAUDE.md`
-- **VPS** `/opt/avito-system/.env` (chmod 600 root):
-  - `DATABASE_URL` (asyncpg pooler 6543)
-  - `SUPABASE_URL=https://drwgozasaypgphkxyizt.supabase.co`
-  - `SUPABASE_KEY=sb_secret_*`
+- **VPS** `/opt/avito-system/.env`:
+  - `DATABASE_URL=postgresql+asyncpg://postgres.drwgozasaypgphkxyizt:...@aws-1-eu-central-1.pooler.supabase.com:6543/postgres?...`
   - `AVITO_XAPI_API_KEY=test_dev_key_123`
-  - `AVITO_MCP_AUTH_TOKEN=7235ad5be6bbc6ea7dc0a3d692eb51e9ccbc136e184f2222`
-  - `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `OPENROUTER_DAILY_USD_LIMIT=20`
-  - **`AVITO_SOCKS_PROXY=socks5h://172.18.0.1:1081`** (новое сегодня)
-- **VPS SSH ключ к ru-vpn:** `/root/.ssh/id_ed25519` (скопирован сегодня; используется только systemd-юнитом туннеля)
-- **APK prefs:** `/data/data/com.avitobridge.sessionmanager/shared_prefs/avito_session_manager.xml`
-- **Avito-app session:** `/data/user/{0|10}/com.avito.android/shared_prefs/com.avito.android_preferences.xml`
-- **DuckDNS** token в `/usr/local/bin/duckdns-update.sh` на VPS
+  - `AVITO_MCP_AUTH_TOKEN=...`
+  - `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`
+  - `AVITO_SOCKS_PROXY=socks5h://172.18.0.1:1081`
+- **VPS SSH ключ к ru-vpn:** `/root/.ssh/id_ed25519`
 - **Auto-memory:** `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/`
+
+---
+
+## §11. Что НЕ работает (избежать повторений)
+
+- ❌ Не предполагать, что `screen_broken` / `parts_only` — killer для байера. Memory `project_screen_broken_not_killer.md`
+- ❌ Не записывать ошибки 4xx на QRATOR. Memory `feedback_no_qrator_excuse.md`
+- ❌ `auto_red:*` blacklist — НЕ insert'ить, red это визуальный signal, manual:reject — единственный hide
+- ❌ `criteria_set_hash` это VARCHAR(64) — нельзя добавлять long suffixes
+- ❌ `ConditionClass.BROKEN` не существует — enum: WORKING/BLOCKED_ICLOUD/BLOCKED_ACCOUNT/NOT_STARTING/BROKEN_SCREEN/BROKEN_OTHER/PARTS_ONLY/UNKNOWN
+- ❌ `_close_disappeared` пропускать на incremental polls (только full pagination)
+- ❌ `image` column в `listings` — поле JSONB, не Text. Конвертировать через `model_dump(mode='json')`
 
 ---
 
 ## TL;DR
 
-1. **Сегодня прорыв:** найден root cause 403 (per-(JWT,IP) binding QRATOR), решён через ssh -D туннель VPS→ru-vpn. Plus фиксы: `categoryId` без structured params → skip, `bool → lowercase string`, post-filter `\w+` word-boundary. Прогон **успешный**: `seen=14 new=14` настоящих iPhone 12 Pro Max.
-2. **Сейчас работает в режиме fuzzy text + post-filter** — для V1 monitoring этого достаточно. Для precision (точно iPhone 12 Pro Max, без iPhone 12/14, фильтр по памяти/цвету/состоянию) нужны structured `params[brand][model]`.
-3. **Главная цель следующей сессии:** реализовать `avito_param_catalog` collection через subscription deeplink mining. ~3ч кодинга, полная спека в `DOCS/REFERENCE/06-structured-params-discovery.md`.
-4. **Блокер для всего:** refresh-flow gap. Avito-app refresh'ит JWT молча, APK не ловит push. Нужен pull-based флоу — план на ~10ч.
-5. **БД почищена** — 41 не-iPhone листинг удалён, остались 14 настоящих iPhone 12 Pro Max. Profile на паузе до пинга юзера + свежего токена.
+Polling+LLM-pipeline стабильно работает, лоты находятся правильно классифицируются. **Следующий шаг — автоматический диалог с продавцом** для лотов которые юзер пометил «В работу». Reuse существующего messenger_bot infra (SSE listener, rate_limit, dedup), но новый business flow: scripted questions → state machine → operator handoff. Сначала brainstorm вопросов и state machine с юзером.
