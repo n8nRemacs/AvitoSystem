@@ -7,17 +7,20 @@
    ?tab=… would be preserved. #}
 {% set return_to = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
 
-{# Bulk-action button labels per source tab. Mirrors the per-card
-   buttons below: from new/all you can reject or accept; from
-   in_progress and rejected you can only return to "Новые". #}
-{% set bulk_actions = {
-  'new':         [('reject', '✗ Отклонить выбранные', 'bg-avito-surface border border-avito-border text-avito-negative hover:bg-red-50'),
-                  ('accept', '✓ В работу выбранные', 'bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00]')],
-  'all':         [('reject', '✗ Отклонить выбранные', 'bg-avito-surface border border-avito-border text-avito-negative hover:bg-red-50'),
-                  ('accept', '✓ В работу выбранные', 'bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00]')],
-  'in_progress': [('undo',   '↶ Вернуть выбранные в новые', 'bg-avito-surface border border-avito-border text-avito-text-soft hover:bg-avito-elev')],
-  'rejected':    [('undo',   '↶ Вернуть выбранные в новые', 'bg-avito-surface border border-avito-border text-avito-text-soft hover:bg-avito-elev')],
+{# Three-position decision toggle per card: ✗ Отклонить | — | ✓ В работу.
+   Tab determines which "side" actions exist:
+     new/all      — reject + accept (left + right)
+     in_progress  — only "undo back to new" → use only the left side, repurposed
+     rejected     — same: only undo
+   For undo-only tabs we render a 2-state toggle (— | ↶ undo) instead of 3.
+#}
+{% set toggle_modes = {
+  'new':         ('reject', '✗', 'accept', '✓'),
+  'all':         ('reject', '✗', 'accept', '✓'),
+  'in_progress': (none,     none, 'undo',   '↶'),
+  'rejected':    (none,     none, 'undo',   '↶'),
 } %}
+{% set toggle = toggle_modes.get(f.tab) %}
 
 {% macro money(v) -%}
   {% if v is none %}—{% else %}{{ '{:,}'.format(v|int).replace(',', '\xa0') }}&nbsp;₽{% endif %}
@@ -146,15 +149,38 @@
         <details class="group bg-avito-surface rounded-lg border border-avito-border overflow-hidden hover:border-avito-brand-soft transition-all
                   {% if not r.in_alert_zone %}opacity-70 hover:opacity-100{% endif %}">
           <summary class="flex gap-3 p-3 cursor-pointer list-none select-none">
-            {# Bulk-select checkbox. data-bulk-checkbox lets the JS counter
-               track only the visible items. Wrapped in a div with onclick
-               stopPropagation so clicking it doesn't toggle the <details>. #}
+            {# 3-state decision toggle per card. Segments paint the chosen
+               side; the hidden input below carries the actual form value.
+               Wrapper stops click bubbling so toggling the segment does
+               NOT open the <details>. #}
+            {% if toggle %}
+            {% set left_act, left_glyph, right_act, right_glyph = toggle %}
             <div class="flex-shrink-0 flex items-center" onclick="event.stopPropagation()">
-              <input type="checkbox" name="ids" value="{{ r.profile_id }}|{{ r.listing_id }}"
-                     form="bulk-form" data-bulk-checkbox
-                     class="w-4 h-4 accent-avito-brand cursor-pointer"
-                     aria-label="Выбрать лот">
+              <input type="hidden" name="decisions"
+                     data-decision-input
+                     data-pid="{{ r.profile_id }}" data-lid="{{ r.listing_id }}"
+                     form="bulk-form" value="">
+              <div class="decision-toggle inline-flex bg-avito-elev rounded-md border border-avito-border overflow-hidden"
+                   data-pid="{{ r.profile_id }}" data-lid="{{ r.listing_id }}"
+                   role="group" aria-label="Решение по лоту">
+                {% if left_act %}
+                <button type="button" data-decision="{{ left_act }}"
+                        class="decision-seg px-2 py-1 text-sm leading-none transition-colors hover:bg-red-100 text-avito-text-soft"
+                        title="{{ 'Отклонить' if left_act == 'reject' else 'Вернуть в новые' }}"
+                        aria-pressed="false">{{ left_glyph }}</button>
+                {% endif %}
+                <button type="button" data-decision=""
+                        class="decision-seg px-2 py-1 text-sm leading-none transition-colors text-avito-text-muted bg-avito-surface"
+                        title="Без решения" aria-pressed="true">—</button>
+                {% if right_act %}
+                <button type="button" data-decision="{{ right_act }}"
+                        class="decision-seg px-2 py-1 text-sm leading-none transition-colors hover:bg-emerald-100 text-avito-text-soft"
+                        title="{{ 'В работу' if right_act == 'accept' else 'Вернуть в новые' }}"
+                        aria-pressed="false">{{ right_glyph }}</button>
+                {% endif %}
+              </div>
             </div>
+            {% endif %}
             <div class="flex-shrink-0 w-20 h-20 bg-avito-elev rounded-md overflow-hidden">
               {% if r.image_url %}
                 <img src="{{ r.image_url }}" alt="" class="w-full h-full object-cover" loading="lazy">
@@ -298,31 +324,36 @@
       </div>
     {% endif %}
 
-    {# Sticky bottom bar — appears once at least one checkbox is ticked.
-       Buttons are submit-buttons that target the hidden #bulk-form via
-       form="bulk-form"; each carries its own bulk_action value. #}
-    {% set actions_for_tab = bulk_actions.get(f.tab, []) %}
-    {% if actions_for_tab %}
+    {# Sticky bar — appears once any decision toggle is set on this page.
+       Two counters (reject / accept or undo) + one Apply button. The
+       backend looks at "decisions" form values and applies each. #}
+    {% if toggle %}
     <div id="bulk-bar"
          class="fixed bottom-0 left-0 right-0 z-40 bg-avito-surface border-t border-avito-border shadow-lg
                 transform translate-y-full transition-transform duration-200 hidden">
-      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-        <div class="text-sm text-avito-text">
-          <span class="font-medium">Выбрано: </span>
-          <span id="bulk-count" class="tabular-nums font-semibold text-avito-brand">0</span>
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+        <div class="flex items-center gap-4 text-sm text-avito-text">
+          {% if toggle[0] == 'reject' %}
+          <span><span class="text-avito-negative font-medium">✗ Отклонить:</span>
+            <span id="bulk-count-reject" class="tabular-nums font-semibold ml-1">0</span></span>
+          {% endif %}
+          {% if toggle[2] == 'accept' %}
+          <span><span class="text-avito-brand font-medium">✓ В работу:</span>
+            <span id="bulk-count-accept" class="tabular-nums font-semibold ml-1">0</span></span>
+          {% elif toggle[2] == 'undo' %}
+          <span><span class="text-avito-text font-medium">↶ Вернуть:</span>
+            <span id="bulk-count-undo" class="tabular-nums font-semibold ml-1">0</span></span>
+          {% endif %}
         </div>
         <div class="flex items-center gap-2">
           <button type="button" id="bulk-clear"
                   class="text-xs text-avito-text-soft hover:text-avito-text underline">
-            Снять выделение
+            Сбросить решения
           </button>
-          {% for action_key, label, css in actions_for_tab %}
           <button type="submit" form="bulk-form"
-                  name="bulk_action" value="{{ action_key }}"
-                  class="btn btn-sm {{ css }} px-4 py-1.5 rounded-md text-sm font-medium">
-            {{ label }}
+                  class="btn btn-sm bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00] px-5 py-1.5 rounded-md text-sm font-medium">
+            Применить
           </button>
-          {% endfor %}
         </div>
       </div>
     </div>
@@ -332,47 +363,111 @@
 
 <script>
 (function () {
-  // Bulk-select state — show/hide sticky bar, update counter, snap-clear.
+  // 3-state decision toggle: ✗ Отклонить | — | ✓ В работу.
+  // Each card has its own toggle group + a hidden input that carries the
+  // decision through the form. Clicking a segment paints it, clears the
+  // siblings, and writes "<pid>|<lid>|<action>" (or "" for skip) into the
+  // input. Apply button submits all decisions in one POST.
   const bar = document.getElementById('bulk-bar');
   if (!bar) return;
-  const counter = document.getElementById('bulk-count');
-  const clearBtn = document.getElementById('bulk-clear');
-  const checkboxes = () => document.querySelectorAll('input[data-bulk-checkbox]');
 
-  function refresh() {
-    const checked = document.querySelectorAll('input[data-bulk-checkbox]:checked').length;
-    counter.textContent = checked;
-    if (checked > 0) {
+  const SEG_ACTIVE_CLS = {
+    reject: 'bg-avito-negative text-white',
+    accept: 'bg-avito-brand text-white',
+    undo:   'bg-avito-text text-white',
+    '':     'bg-avito-surface text-avito-text-soft',
+  };
+
+  function paintSegment(toggleEl, chosen) {
+    toggleEl.querySelectorAll('.decision-seg').forEach(btn => {
+      const action = btn.dataset.decision;
+      const isActive = (action === chosen);
+      // Reset to the neutral hover style first
+      btn.classList.remove(
+        'bg-avito-negative', 'bg-avito-brand', 'bg-avito-text', 'bg-avito-surface',
+        'text-white', 'text-avito-text-soft', 'text-avito-text-muted',
+      );
+      if (isActive) {
+        const cls = SEG_ACTIVE_CLS[action] || SEG_ACTIVE_CLS[''];
+        cls.split(' ').forEach(c => btn.classList.add(c));
+      } else if (action === '') {
+        btn.classList.add('bg-avito-surface', 'text-avito-text-muted');
+      } else {
+        btn.classList.add('text-avito-text-soft');
+      }
+      btn.setAttribute('aria-pressed', String(isActive));
+    });
+  }
+
+  function refreshCounters() {
+    const counts = {reject: 0, accept: 0, undo: 0};
+    document.querySelectorAll('input[data-decision-input]').forEach(inp => {
+      const v = inp.value;
+      if (!v) return;
+      const parts = v.split('|');
+      const act = parts[2];
+      if (act && counts[act] !== undefined) counts[act]++;
+    });
+    const total = counts.reject + counts.accept + counts.undo;
+    const r = document.getElementById('bulk-count-reject');
+    const a = document.getElementById('bulk-count-accept');
+    const u = document.getElementById('bulk-count-undo');
+    if (r) r.textContent = counts.reject;
+    if (a) a.textContent = counts.accept;
+    if (u) u.textContent = counts.undo;
+    if (total > 0) {
       bar.classList.remove('hidden');
       requestAnimationFrame(() => bar.classList.remove('translate-y-full'));
     } else {
       bar.classList.add('translate-y-full');
-      setTimeout(() => { if (counter.textContent === '0') bar.classList.add('hidden'); }, 200);
+      setTimeout(() => {
+        const stillZero = (!r || r.textContent === '0')
+                       && (!a || a.textContent === '0')
+                       && (!u || u.textContent === '0');
+        if (stillZero) bar.classList.add('hidden');
+      }, 200);
     }
   }
 
-  document.addEventListener('change', (ev) => {
-    if (ev.target.matches('input[data-bulk-checkbox]')) refresh();
-  });
-  clearBtn.addEventListener('click', () => {
-    checkboxes().forEach(c => { c.checked = false; });
-    refresh();
+  document.addEventListener('click', (ev) => {
+    const seg = ev.target.closest('.decision-seg');
+    if (!seg) return;
+    const toggleEl = seg.closest('.decision-toggle');
+    if (!toggleEl) return;
+    const chosen = seg.dataset.decision;
+    paintSegment(toggleEl, chosen);
+    const pid = toggleEl.dataset.pid;
+    const lid = toggleEl.dataset.lid;
+    // Find the hidden input for this card
+    const inp = document.querySelector(
+      `input[data-decision-input][data-pid="${pid}"][data-lid="${lid}"]`
+    );
+    if (inp) {
+      inp.value = chosen ? `${pid}|${lid}|${chosen}` : '';
+      refreshCounters();
+    }
   });
 
-  // Submit guard — confirm if user is rejecting many at once (irreversible-ish).
-  const bulkForm = document.getElementById('bulk-form');
-  if (bulkForm) {
-    bulkForm.addEventListener('submit', (ev) => {
-      const checked = document.querySelectorAll('input[data-bulk-checkbox]:checked').length;
-      if (checked === 0) { ev.preventDefault(); return; }
-      const submitter = ev.submitter;
-      if (submitter && submitter.value === 'reject' && checked >= 10) {
-        if (!confirm(`Отклонить ${checked} лотов? Это действие записывается в твой персональный blacklist.`)) {
-          ev.preventDefault();
-        }
+  document.getElementById('bulk-clear')?.addEventListener('click', () => {
+    document.querySelectorAll('input[data-decision-input]').forEach(inp => { inp.value = ''; });
+    document.querySelectorAll('.decision-toggle').forEach(t => paintSegment(t, ''));
+    refreshCounters();
+  });
+
+  document.getElementById('bulk-form')?.addEventListener('submit', (ev) => {
+    const decisions = Array.from(
+      document.querySelectorAll('input[data-decision-input]')
+    ).filter(i => i.value).length;
+    if (decisions === 0) { ev.preventDefault(); return; }
+    const rejects = Array.from(
+      document.querySelectorAll('input[data-decision-input]')
+    ).filter(i => i.value.endsWith('|reject')).length;
+    if (rejects >= 10) {
+      if (!confirm(`Отклонить ${rejects} лотов? Они попадут в твой персональный blacklist и больше не появятся.`)) {
+        ev.preventDefault();
       }
-    });
-  }
+    }
+  });
 })();
 </script>
 

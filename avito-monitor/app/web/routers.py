@@ -713,54 +713,57 @@ async def listings_bulk_action(
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> RedirectResponse:
-    """Apply reject / accept / undo to multiple listings in one POST.
+    """Apply per-card decisions to multiple listings in one POST.
 
     Form payload:
-      bulk_action : "reject" | "accept" | "undo"
-      ids        : repeated values "<profile_id>|<listing_id>"
+      decisions  : repeated values "<profile_id>|<listing_id>|<action>"
+                   where action ∈ {reject, accept, undo}; empty values
+                   (skipped cards) are dropped client-side.
       return_to  : full path+query to redirect back to (filters preserved)
       from_tab   : fallback if return_to is missing/unsafe
+
+    Mixed actions in one batch are fine — each decision is applied
+    independently with the same DB transition as the single-card endpoint.
     """
-    from sqlalchemy import update, delete
+    from sqlalchemy import select, update, delete
     from sqlalchemy.dialects.postgresql import insert as pg_insert
     from app.db.models import ProfileListing, SearchProfile, UserListingBlacklist
     from app.db.models.enums import UserAction
 
     form = await request.form()
-    action_raw = (form.get("bulk_action") or "").strip().lower()
-    if action_raw == "accept":
-        new_action = UserAction.ACCEPTED.value
-    elif action_raw == "reject":
-        new_action = UserAction.REJECTED.value
-    elif action_raw == "undo":
-        new_action = None
-    else:
-        raise HTTPException(400, f"unknown bulk_action: {action_raw!r}")
 
-    raw_ids = form.getlist("ids")
-    pairs: list[tuple[uuid.UUID, uuid.UUID]] = []
-    for raw in raw_ids:
-        if "|" not in raw:
+    _ACTION_MAP = {
+        "accept": UserAction.ACCEPTED.value,
+        "reject": UserAction.REJECTED.value,
+        "undo":   None,
+    }
+    decisions: list[tuple[uuid.UUID, uuid.UUID, str]] = []
+    for raw in form.getlist("decisions"):
+        if not raw:
             continue
-        pid_str, lid_str = raw.split("|", 1)
+        parts = raw.split("|")
+        if len(parts) != 3:
+            continue
+        pid_str, lid_str, action = parts
+        action = action.strip().lower()
+        if action not in _ACTION_MAP:
+            continue
         try:
-            pairs.append((uuid.UUID(pid_str), uuid.UUID(lid_str)))
+            decisions.append((uuid.UUID(pid_str), uuid.UUID(lid_str), action))
         except ValueError:
             continue
 
-    # Authorization: only touch (profile_id, listing_id) pairs whose profile
-    # belongs to the current user. Filter pid_set against owned profiles in
-    # one query rather than per-pair.
-    if pairs:
-        from sqlalchemy import select
+    # Authorization: drop pairs whose profile isn't owned by current user.
+    if decisions:
         owned = await session.execute(
             select(SearchProfile.id).where(SearchProfile.user_id == user.id)
         )
         owned_ids = {row[0] for row in owned.all()}
-        pairs = [(p, l) for (p, l) in pairs if p in owned_ids]
+        decisions = [d for d in decisions if d[0] in owned_ids]
 
-    affected = 0
-    for pid, lid in pairs:
+    counts = {"accept": 0, "reject": 0, "undo": 0}
+    for pid, lid, action in decisions:
+        new_action = _ACTION_MAP[action]
         res = await session.execute(
             update(ProfileListing)
             .where(
@@ -771,14 +774,14 @@ async def listings_bulk_action(
         )
         if res.rowcount == 0:
             continue
-        affected += 1
-        if action_raw == "reject":
+        counts[action] += 1
+        if action == "reject":
             await session.execute(
                 pg_insert(UserListingBlacklist)
                 .values(user_id=user.id, listing_id=lid, reason="rejected")
                 .on_conflict_do_nothing(index_elements=["user_id", "listing_id"])
             )
-        elif action_raw == "undo":
+        elif action == "undo":
             await session.execute(
                 delete(UserListingBlacklist).where(
                     UserListingBlacklist.user_id == user.id,
@@ -787,8 +790,8 @@ async def listings_bulk_action(
             )
     await session.commit()
     log.info(
-        "listings.bulk_action user=%s action=%s requested=%d affected=%d",
-        user.id, action_raw, len(raw_ids), affected,
+        "listings.bulk_action user=%s submitted=%d accept=%d reject=%d undo=%d",
+        user.id, len(decisions), counts["accept"], counts["reject"], counts["undo"],
     )
 
     target_tab = (form.get("from_tab") or "new").strip() or "new"
