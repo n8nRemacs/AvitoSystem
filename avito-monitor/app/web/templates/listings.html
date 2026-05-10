@@ -1,6 +1,12 @@
 {% extends "_layout.html" %}
 {% block title %}Лоты — Avito Monitor{% endblock %}
 
+{# Full path+query of the current page. After reject/accept/undo the
+   handler redirects here so all active filters (bucket, profile_id,
+   q, offset, sort, …) survive the round-trip. Without this only
+   ?tab=… would be preserved. #}
+{% set return_to = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
+
 {% macro money(v) -%}
   {% if v is none %}—{% else %}{{ '{:,}'.format(v|int).replace(',', '\xa0') }}&nbsp;₽{% endif %}
 {%- endmacro %}
@@ -210,6 +216,7 @@
                   <form method="post" action="/listings/{{ r.profile_id }}/{{ r.listing_id }}/action" class="inline">
                     <input type="hidden" name="action" value="reject">
                     <input type="hidden" name="from_tab" value="{{ f.tab }}">
+                    <input type="hidden" name="return_to" value="{{ return_to }}">
                     <button type="submit"
                             class="btn btn-sm bg-avito-surface border border-avito-border text-avito-negative hover:bg-red-50 px-3 py-1.5 rounded-md text-sm font-medium">
                       ✗ Отклонить
@@ -218,6 +225,7 @@
                   <form method="post" action="/listings/{{ r.profile_id }}/{{ r.listing_id }}/action" class="inline">
                     <input type="hidden" name="action" value="accept">
                     <input type="hidden" name="from_tab" value="{{ f.tab }}">
+                    <input type="hidden" name="return_to" value="{{ return_to }}">
                     <button type="submit"
                             class="btn btn-sm bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00] px-4 py-1.5 rounded-md text-sm font-medium">
                       ✓ В работу
@@ -227,6 +235,7 @@
                   <form method="post" action="/listings/{{ r.profile_id }}/{{ r.listing_id }}/action" class="inline">
                     <input type="hidden" name="action" value="undo">
                     <input type="hidden" name="from_tab" value="{{ f.tab }}">
+                    <input type="hidden" name="return_to" value="{{ return_to }}">
                     <button type="submit"
                             class="btn btn-sm bg-avito-surface border border-avito-border text-avito-text-soft hover:bg-avito-elev px-3 py-1.5 rounded-md text-sm">
                       ↶ Вернуть в новые
@@ -236,6 +245,7 @@
                   <form method="post" action="/listings/{{ r.profile_id }}/{{ r.listing_id }}/action" class="inline">
                     <input type="hidden" name="action" value="undo">
                     <input type="hidden" name="from_tab" value="{{ f.tab }}">
+                    <input type="hidden" name="return_to" value="{{ return_to }}">
                     <button type="submit"
                             class="btn btn-sm bg-avito-surface border border-avito-border text-avito-text-soft hover:bg-avito-elev px-3 py-1.5 rounded-md text-sm">
                       ↶ Вернуть в новые

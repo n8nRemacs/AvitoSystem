@@ -693,12 +693,18 @@ async def listing_action(
     if res.rowcount == 0:
         raise HTTPException(404, "Listing link not found")
 
-    # After the action keep the user on the same tab they came from.
+    # After the action send the user back to the exact same listings view
+    # (preserves bucket, profile filter, free-text q, pagination offset, …).
+    # `return_to` is the full path+query of the page that submitted the form.
+    # Falls back to ?tab=<from_tab> if the form didn't carry it. Validates
+    # against open-redirect by requiring the path to start with `/listings`.
     target_tab = (form.get("from_tab") or "new").strip() or "new"
-    return RedirectResponse(
-        f"/listings?tab={target_tab}",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    return_to = (form.get("return_to") or "").strip()
+    if return_to.startswith("/listings"):
+        target = return_to
+    else:
+        target = f"/listings?tab={target_tab}"
+    return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/price-intelligence", response_class=HTMLResponse)
