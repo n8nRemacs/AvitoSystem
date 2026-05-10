@@ -238,6 +238,23 @@
 
           {# ───── expanded body ───── #}
           <div class="border-t border-avito-border-soft p-4 bg-avito-elev/30">
+            {# Avito-side parameters straight from /items/{id}.parameters.flat —
+               Состояние, Цвет, Встроенная память, АКБ, Комплектация, итд.
+               Render as a compact 2-column grid on top of the description. #}
+            {% if r.parameters %}
+              <div class="bg-avito-surface rounded-md border border-avito-border-soft p-3 mb-3">
+                <div class="text-[11px] uppercase text-avito-text-soft mb-2">Параметры Avito</div>
+                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                  {% for k, v in r.parameters.items() %}
+                    <div class="flex gap-2 leading-snug">
+                      <dt class="text-avito-text-muted flex-shrink-0">{{ k }}:</dt>
+                      <dd class="text-avito-text font-medium break-words">{{ v }}</dd>
+                    </div>
+                  {% endfor %}
+                </dl>
+              </div>
+            {% endif %}
+
             {% if r.description %}
               <div class="text-sm text-avito-text whitespace-pre-line mb-3 leading-relaxed">{{ r.description }}</div>
             {% else %}

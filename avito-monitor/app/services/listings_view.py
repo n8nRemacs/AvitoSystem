@@ -63,6 +63,7 @@ class ListingRow:
     condition_confidence: float | None
     condition_reasoning: str | None
     description: str | None
+    parameters: dict | None
     in_alert_zone: bool
     processing_status: str
     user_action: str | None
@@ -230,6 +231,7 @@ async def query_listings(
             condition_confidence=listing.condition_confidence,
             condition_reasoning=listing.condition_reasoning,
             description=listing.description,
+            parameters=listing.parameters or None,
             in_alert_zone=link.in_alert_zone,
             processing_status=link.processing_status,
             user_action=link.user_action,
