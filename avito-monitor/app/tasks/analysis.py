@@ -436,10 +436,24 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
             )
             session.add(evaluation)
             await session.flush()
+            # Map api_killer to a condition_class for legacy UI badges.
+            # Pick the most specific one — fall back to BROKEN_OTHER.
+            killer_to_condition = {
+                "api:device_not_starting":      ConditionClass.NOT_STARTING.value,
+                "api:motherboard_sensor_dead":  ConditionClass.NOT_STARTING.value,
+                "api:battery_dead":             ConditionClass.BROKEN_OTHER.value,
+                "api:functions_broken":         ConditionClass.BROKEN_OTHER.value,
+                "api:critical_sensors_broken":  ConditionClass.BROKEN_OTHER.value,
+                "api:camera_broken":            ConditionClass.BROKEN_OTHER.value,
+            }
+            cond = next(
+                (killer_to_condition[k] for k in red_keys if k in killer_to_condition),
+                ConditionClass.BROKEN_OTHER.value,
+            )
             await session.execute(
                 update(Listing)
                 .where(Listing.id == lid)
-                .values(condition_class=ConditionClass.BROKEN.value)
+                .values(condition_class=cond)
             )
             await session.execute(
                 update(ProfileListing)
