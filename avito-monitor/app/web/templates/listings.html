@@ -155,7 +155,11 @@
                NOT open the <details>. #}
             {% if toggle %}
             {% set left_act, left_glyph, right_act, right_glyph = toggle %}
-            <div class="flex-shrink-0 flex items-center" onclick="event.stopPropagation()">
+            {# Wrapper has no stopPropagation — that swallowed click events
+               before our JS handler could see them. The buttons themselves
+               stopPropagation in their onclick (via init JS below) so that
+               toggling a segment doesn't also open the <details>. #}
+            <div class="flex-shrink-0 flex items-center">
               <input type="hidden" name="decisions"
                      data-decision-input
                      data-pid="{{ r.profile_id }}" data-lid="{{ r.listing_id }}"
@@ -165,16 +169,16 @@
                    role="group" aria-label="Решение по лоту">
                 {% if left_act %}
                 <button type="button" data-decision="{{ left_act }}"
-                        class="decision-seg px-2 py-1 text-sm leading-none transition-colors hover:bg-red-100 text-avito-text-soft"
+                        class="decision-seg px-2.5 py-1 text-sm leading-none transition-colors hover:bg-red-100 text-avito-text-soft border-r border-avito-border"
                         title="{{ 'Отклонить' if left_act == 'reject' else 'Вернуть в новые' }}"
                         aria-pressed="false">{{ left_glyph }}</button>
                 {% endif %}
                 <button type="button" data-decision=""
-                        class="decision-seg px-2 py-1 text-sm leading-none transition-colors text-avito-text-muted bg-avito-surface"
+                        class="decision-seg px-2.5 py-1 text-sm leading-none transition-colors text-avito-text bg-avito-surface border-r border-avito-border"
                         title="Без решения" aria-pressed="true">—</button>
                 {% if right_act %}
                 <button type="button" data-decision="{{ right_act }}"
-                        class="decision-seg px-2 py-1 text-sm leading-none transition-colors hover:bg-emerald-100 text-avito-text-soft"
+                        class="decision-seg px-2.5 py-1 text-sm leading-none transition-colors hover:bg-emerald-100 text-avito-text-soft"
                         title="{{ 'В работу' if right_act == 'accept' else 'Вернуть в новые' }}"
                         aria-pressed="false">{{ right_glyph }}</button>
                 {% endif %}
@@ -429,24 +433,31 @@
     }
   }
 
-  document.addEventListener('click', (ev) => {
-    const seg = ev.target.closest('.decision-seg');
-    if (!seg) return;
-    const toggleEl = seg.closest('.decision-toggle');
-    if (!toggleEl) return;
-    const chosen = seg.dataset.decision;
-    paintSegment(toggleEl, chosen);
-    const pid = toggleEl.dataset.pid;
-    const lid = toggleEl.dataset.lid;
-    // Find the hidden input for this card
-    const inp = document.querySelector(
-      `input[data-decision-input][data-pid="${pid}"][data-lid="${lid}"]`
-    );
-    if (inp) {
-      inp.value = chosen ? `${pid}|${lid}|${chosen}` : '';
-      refreshCounters();
-    }
-  });
+  // Direct per-button listeners (NOT document delegation): the wrapper
+  // around the toggle used to stopPropagation, which swallowed click
+  // events before they reached document. Now each segment handles its
+  // own click and explicitly stopPropagation so that toggling does not
+  // also open the parent <details>.
+  function bindSegment(btn) {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const toggleEl = btn.closest('.decision-toggle');
+      if (!toggleEl) return;
+      const chosen = btn.dataset.decision;
+      paintSegment(toggleEl, chosen);
+      const pid = toggleEl.dataset.pid;
+      const lid = toggleEl.dataset.lid;
+      const inp = document.querySelector(
+        `input[data-decision-input][data-pid="${pid}"][data-lid="${lid}"]`
+      );
+      if (inp) {
+        inp.value = chosen ? `${pid}|${lid}|${chosen}` : '';
+        refreshCounters();
+      }
+    });
+  }
+  document.querySelectorAll('.decision-seg').forEach(bindSegment);
 
   document.getElementById('bulk-clear')?.addEventListener('click', () => {
     document.querySelectorAll('input[data-decision-input]').forEach(inp => { inp.value = ''; });
