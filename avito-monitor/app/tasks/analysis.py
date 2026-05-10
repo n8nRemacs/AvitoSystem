@@ -467,21 +467,12 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
                     latest_evaluation_id=evaluation.id,
                 )
             )
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO user_listing_blacklist
-                        (user_id, listing_id, reason, created_at)
-                    VALUES (:user_id, :listing_id, :reason, NOW())
-                    ON CONFLICT (user_id, listing_id) DO NOTHING
-                    """
-                ),
-                {
-                    "user_id": profile.user_id,
-                    "listing_id": lid,
-                    "reason": f"auto_red:{red_keys[0]}",
-                },
-            )
+            # NB: NO auto_red blacklist insert here. Red bucket is just a
+            # ranking signal — the user must see red lots in the UI to
+            # confirm/override. Only manual "✗ Отклонить" inserts a
+            # blacklist row (with reason='rejected'), and that one really
+            # hides the lot. See feedback_no_qrator_excuse and
+            # project_filter_change_reeval memory notes.
             await session.commit()
         return {
             "status": "success",
@@ -550,23 +541,11 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
 
         notif_count = 0
         if eval_result.bucket == EvaluationBucket.RED.value and eval_result.red_criterion_keys:
-            # Auto-blacklist (ADR-011 reuse). ON CONFLICT DO NOTHING so a
-            # prior manual reject is preserved as the canonical reason.
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO user_listing_blacklist
-                        (user_id, listing_id, reason, created_at)
-                    VALUES (:user_id, :listing_id, :reason, NOW())
-                    ON CONFLICT (user_id, listing_id) DO NOTHING
-                    """
-                ),
-                {
-                    "user_id": profile.user_id,
-                    "listing_id": lid,
-                    "reason": f"auto_red:{eval_result.red_criterion_keys[0]}",
-                },
-            )
+            # Red is a ranking signal, not a hide signal — leave the lot
+            # visible in the UI with a red badge. The user must confirm by
+            # clicking ✗ Отклонить (which writes reason='rejected'). See
+            # memory: project_filter_change_reeval.
+            pass
         elif eval_result.bucket == EvaluationBucket.GREEN.value and in_alert:
             channels = profile.notification_channels or ["telegram"]
             raw_imgs = listing.images or []
