@@ -98,15 +98,21 @@ def check_api_killers(parameters: dict | None) -> list[tuple[str, str]]:
     matches: list[tuple[str, str]] = []
 
     work_state = str(parameters.get("Работа устройства") or "")
-    if "не включается" in work_state.lower():
+    work_low = work_state.lower()
+    if "не включается" in work_low:
         matches.append((
             "api:device_not_starting",
             f"Avito-параметр «Работа устройства» = «{work_state}» (не включается)",
         ))
-    elif "не работает сенсор" in work_state.lower():
+    elif "не работает сенсор" in work_low:
         matches.append((
             "api:motherboard_sensor_dead",
             f"Avito-параметр «Работа устройства» = «{work_state}» (датчик платы)",
+        ))
+    elif "не звонит" in work_low or "не видит сим" in work_low or "нет сети" in work_low:
+        matches.append((
+            "api:modem_broken",
+            f"Avito-параметр «Работа устройства» = «{work_state}» (модем/связь)",
         ))
 
     battery_state = str(parameters.get("Аккумулятор") or "")
