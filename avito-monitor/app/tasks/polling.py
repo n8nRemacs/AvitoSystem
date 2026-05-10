@@ -767,9 +767,17 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                 )
                 to_refresh_detail.append(listing_id)
 
-        closed = await _close_disappeared(
-            session, profile_id=pid, run_started_at=started_at
-        )
+        # _close_disappeared keys off "anything not bumped to last_seen=now is
+        # gone". That assumption only holds when we paginated EVERYTHING — on
+        # an incremental tick (page=1, ~30 items) we'd wrongly close every
+        # listing past the first page. Skip on incremental runs; the next
+        # full walk (≤1h later) will catch genuine closures.
+        if full_paginate:
+            closed = await _close_disappeared(
+                session, profile_id=pid, run_started_at=started_at
+            )
+        else:
+            closed = 0
 
         await session.execute(
             update(ProfileRun)
