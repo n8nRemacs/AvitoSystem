@@ -553,7 +553,7 @@ async def listings_feed(
     )
 
     rows, total = await query_listings(session, user.id, filters)
-    summary = await filter_summary(session, user.id)
+    summary = await filter_summary(session, user.id, tab=tab)
     counts = await tab_counts(session, user.id)
 
     # Total without filters — for the "238 / 1820" hint in the header.

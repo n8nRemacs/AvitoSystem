@@ -268,9 +268,15 @@ async def tab_counts(
 
 
 async def filter_summary(
-    session: AsyncSession, user_id: uuid.UUID
+    session: AsyncSession, user_id: uuid.UUID, *, tab: str = "new"
 ) -> dict[str, Any]:
-    """Profile names + condition counts for the filter chips."""
+    """Profile names + condition + bucket counts for the filter chips.
+
+    Bucket counts are tab-aware (so the «Новые» view shows how many of
+    pending lots fall into each bucket, not the global total). They
+    intentionally ignore other filter chips (profile/zone/period) — the
+    cost of a fully-faceted summary isn't worth it for a personal tool.
+    """
     profiles_stmt = (
         select(SearchProfile.id, SearchProfile.name, SearchProfile.is_active)
         .where(SearchProfile.user_id == user_id)
@@ -294,4 +300,35 @@ async def filter_summary(
         for cls, cnt in (await session.execute(cond_stmt)).all()
     }
 
-    return {"profiles": profiles, "conditions": conditions}
+    bucket_stmt = (
+        select(ProfileListing.bucket, func.count())
+        .select_from(ProfileListing)
+        .join(SearchProfile, SearchProfile.id == ProfileListing.profile_id)
+        .where(SearchProfile.user_id == user_id)
+        .group_by(ProfileListing.bucket)
+    )
+    actions = _TAB_TO_USER_ACTIONS.get(tab, _TAB_TO_USER_ACTIONS["new"])
+    if actions is not None:
+        if "pending" in actions:
+            bucket_stmt = bucket_stmt.where(
+                or_(
+                    ProfileListing.user_action.in_(actions),
+                    ProfileListing.user_action.is_(None),
+                )
+            )
+        else:
+            bucket_stmt = bucket_stmt.where(
+                ProfileListing.user_action.in_(actions)
+            )
+    buckets_raw = {
+        b: int(cnt)
+        for b, cnt in (await session.execute(bucket_stmt)).all()
+    }
+    buckets = {
+        "green": buckets_raw.get("green", 0),
+        "grey":  buckets_raw.get("grey", 0),
+        "red":   buckets_raw.get("red", 0),
+        "all":   sum(buckets_raw.values()),
+    }
+
+    return {"profiles": profiles, "conditions": conditions, "buckets": buckets}

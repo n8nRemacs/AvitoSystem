@@ -90,10 +90,25 @@
     </div>
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1">Bucket V2:</span>
-      {{ chip(qs(bucket=''),      'Все',       not f.bucket) }}
-      {{ chip(qs(bucket='green'), '✓ Зелёная', f.bucket == 'green') }}
-      {{ chip(qs(bucket='grey'),  '? Серая',   f.bucket == 'grey') }}
-      {{ chip(qs(bucket='red'),   '✗ Красная', f.bucket == 'red') }}
+      {% macro bucket_chip(href, label, active, count, active_cls, inactive_cls) %}
+        <a href="{{ href }}"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+             {% if active %}{{ active_cls }}{% else %}bg-avito-surface border border-avito-border {{ inactive_cls }} hover:bg-avito-elev{% endif %}">
+          {{ label }}<span class="ml-1 text-[10px] opacity-80 tabular-nums">{{ count }}</span>
+        </a>
+      {%- endmacro %}
+      {{ bucket_chip(qs(bucket=''),      'Все',       not f.bucket,        summary.buckets.all,
+                     'bg-avito-brand text-white',
+                     'text-avito-text') }}
+      {{ bucket_chip(qs(bucket='green'), '✓ Зелёная', f.bucket == 'green', summary.buckets.green,
+                     'bg-emerald-600 text-white border border-emerald-700',
+                     'text-emerald-700') }}
+      {{ bucket_chip(qs(bucket='grey'),  '? Серая',   f.bucket == 'grey',  summary.buckets.grey,
+                     'bg-slate-500 text-white border border-slate-600',
+                     'text-slate-600') }}
+      {{ bucket_chip(qs(bucket='red'),   '✗ Красная', f.bucket == 'red',   summary.buckets.red,
+                     'bg-red-600 text-white border border-red-700',
+                     'text-red-700') }}
     </div>
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] uppercase tracking-wide text-avito-text-soft mr-1">Зона:</span>
