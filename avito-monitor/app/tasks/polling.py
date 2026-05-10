@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # Word-boundary tokeniser for post-filter title matching. \w+ матчит alnum
 # и Unicode-буквы (re.UNICODE по умолчанию в Python 3) — кириллица входит.
@@ -33,13 +35,16 @@ _WORD_RE = re.compile(r"\w+", re.UNICODE)
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.config import Settings, get_settings
 from app.db.base import get_sessionmaker
 from app.db.models import (
     Listing,
+    ListingStatusEvent,
     ProfileCriterion,
     ProfileListing,
     ProfileRun,
     SearchProfile,
+    SystemSetting,
     UserListingBlacklist,
 )
 from app.db.models.enums import ListingStatus, ProfileRunStatus
@@ -52,6 +57,130 @@ from avito_mcp.integrations.xapi_client import XapiError
 from shared.models.avito import ListingShort
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Polling humanization helpers (ADR: бот ходит как живой человек)
+# ---------------------------------------------------------------------------
+
+# system_settings key holding {"counter": int, "break_until": iso8601 | null}.
+# counter == polls executed since the last forced break; once it crosses a
+# random target in [BREAK_AFTER_MIN, BREAK_AFTER_MAX], we set break_until
+# to now + uniform(BREAK_DURATION_MIN..MAX) minutes and reset counter.
+_BREAK_STATE_KEY = "polling_break_state"
+BREAK_AFTER_MIN = 8
+BREAK_AFTER_MAX = 12
+BREAK_DURATION_MIN_MINUTES = 20
+BREAK_DURATION_MAX_MINUTES = 40
+
+# How long a "full paginate" stays valid before the next tick must walk all
+# pages again. Between full walks we only fetch page=1 — same shape as a user
+# refreshing the search and only looking at the freshest 30 lots.
+FULL_POLL_INTERVAL = timedelta(hours=1)
+
+
+def is_within_active_hours(now: datetime, settings: Settings) -> bool:
+    """True iff ``now`` (UTC-aware) falls inside ``[start, end)`` in the
+    configured timezone. If the env override is off, always True.
+
+    Window is half-open: ``8 <= h < 23`` for the default 8..23 config —
+    wakes up at 08:00, last allowed minute is 22:59.
+    """
+    if not settings.poll_respect_active_hours:
+        return True
+    tz = ZoneInfo(settings.poll_active_hours_timezone)
+    local = now.astimezone(tz)
+    start = settings.poll_active_hours_start
+    end = settings.poll_active_hours_end
+    return start <= local.hour < end
+
+
+async def _load_break_state(session) -> tuple[int, datetime | None]:
+    """Read polling_break_state row → (counter, break_until)."""
+    row = await session.get(SystemSetting, _BREAK_STATE_KEY)
+    if row is None:
+        return 0, None
+    val = row.value or {}
+    counter = int(val.get("counter") or 0)
+    raw_until = val.get("break_until")
+    break_until: datetime | None = None
+    if raw_until:
+        try:
+            parsed = datetime.fromisoformat(raw_until)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            break_until = parsed
+        except ValueError:
+            log.warning("polling.break_state.bad_until value=%r", raw_until)
+    return counter, break_until
+
+
+async def _save_break_state(
+    session, *, counter: int, break_until: datetime | None
+) -> None:
+    """Upsert polling_break_state — single row, key is the constant."""
+    payload = {
+        "counter": counter,
+        "break_until": break_until.isoformat() if break_until else None,
+    }
+    insert_stmt = pg_insert(SystemSetting).values(
+        key=_BREAK_STATE_KEY, value=payload
+    )
+    do_update = insert_stmt.on_conflict_do_update(
+        index_elements=[SystemSetting.key],
+        set_={"value": insert_stmt.excluded.value},
+    )
+    await session.execute(do_update)
+
+
+async def _check_and_advance_break(sessionmaker, now: datetime) -> str | None:
+    """Return ``None`` to proceed with the poll, or a skip reason string.
+
+    State machine:
+      * if ``break_until`` is in the future → return "on_break"
+      * else increment counter; once it ≥ random target picked at reset,
+        flip into a fresh break (random 20-40 min) and return "on_break"
+      * otherwise persist incremented counter and return None
+    """
+    async with sessionmaker() as session:
+        counter, break_until = await _load_break_state(session)
+
+        if break_until is not None and break_until > now:
+            return "on_break"
+
+        # Break expired (or never started) — resume counting.
+        new_counter = counter + 1
+        target = random.randint(BREAK_AFTER_MIN, BREAK_AFTER_MAX)
+        if new_counter >= target:
+            duration = timedelta(
+                minutes=random.uniform(
+                    BREAK_DURATION_MIN_MINUTES, BREAK_DURATION_MAX_MINUTES
+                )
+            )
+            new_until = now + duration
+            await _save_break_state(
+                session, counter=0, break_until=new_until
+            )
+            await session.commit()
+            log.info(
+                "polling.break.start until=%s after_polls=%d",
+                new_until.isoformat(), new_counter,
+            )
+            return "on_break"
+
+        await _save_break_state(session, counter=new_counter, break_until=None)
+        await session.commit()
+        return None
+
+
+def _should_full_paginate(profile: SearchProfile, now: datetime) -> bool:
+    """True if it's been ≥1h since the last full pagination for this profile."""
+    last = profile.last_full_poll_at
+    if last is None:
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return (now - last) >= FULL_POLL_INTERVAL
 
 
 def _to_decimal(value: int | float | Decimal | None) -> Decimal | None:
@@ -81,15 +210,23 @@ def _images_to_jsonb(item: ListingShort) -> list[dict[str, Any]]:
 
 async def _upsert_listing(
     session, item: ListingShort, run_started_at: datetime
-) -> tuple[uuid.UUID, bool, bool, float | None]:
-    """Upsert one listing by ``avito_id`` and report (id, is_new, price_changed, prev_price).
+) -> tuple[uuid.UUID, bool, bool, float | None, bool, str | None]:
+    """Upsert one listing by ``avito_id`` and return:
+
+    ``(id, is_new, price_changed, prev_price, reservation_changed, prev_reservation_status)``
 
     For an existing row we only refresh ``last_seen_at``, ``price`` (if
     actually changed), ``last_price_change_at`` and the few mutable
     cosmetic fields. Anything LLM-derived stays untouched so a
     re-poll never wipes out a classification we already paid for.
+
+    ``reservation_status`` is seeded from the item on INSERT (default 'active'
+    when xapi couldn't infer); on UPDATE we deliberately do NOT mutate it
+    here — the caller handles the diff so it can also write a status-event
+    row in the same transaction.
     """
     new_price = _to_decimal(item.price)
+    insert_reservation = item.reservation_status or "active"
     insert_stmt = pg_insert(Listing).values(
         avito_id=item.id,
         title=item.title,
@@ -104,7 +241,13 @@ async def _upsert_listing(
         first_seen_at=run_started_at,
         last_seen_at=run_started_at,
         status=ListingStatus.ACTIVE.value,
-    ).returning(Listing.id, Listing.price, Listing.first_seen_at)
+        reservation_status=insert_reservation,
+    ).returning(
+        Listing.id,
+        Listing.price,
+        Listing.first_seen_at,
+        Listing.reservation_status,
+    )
 
     do_update = insert_stmt.on_conflict_do_update(
         index_elements=[Listing.avito_id],
@@ -118,7 +261,10 @@ async def _upsert_listing(
         },
     )
     row = (await session.execute(do_update)).one()
-    listing_id, stored_price, first_seen_at = row.id, row.price, row.first_seen_at
+    listing_id = row.id
+    stored_price = row.price
+    first_seen_at = row.first_seen_at
+    stored_reservation = row.reservation_status
     is_new = first_seen_at == run_started_at
 
     price_changed = False
@@ -136,7 +282,28 @@ async def _upsert_listing(
             )
             price_changed = True
 
-    return listing_id, is_new, price_changed, prev_price
+    # Reservation diff. Only meaningful on existing rows AND when xapi
+    # actually inferred a status (None = unknown, don't fabricate a flip
+    # to/from active).
+    reservation_changed = False
+    prev_reservation: str | None = None
+    if (
+        not is_new
+        and item.reservation_status is not None
+        and stored_reservation is not None
+        and item.reservation_status != stored_reservation
+    ):
+        prev_reservation = stored_reservation
+        reservation_changed = True
+
+    return (
+        listing_id,
+        is_new,
+        price_changed,
+        prev_price,
+        reservation_changed,
+        prev_reservation,
+    )
 
 
 async def _upsert_profile_listing(
@@ -257,6 +424,25 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     sessionmaker = get_sessionmaker()
     pid = uuid.UUID(profile_id)
     started_at = datetime.now(timezone.utc)
+    settings = get_settings()
+
+    # Humanization gate 1: outside active hours → just bail. Cheap, no DB writes,
+    # no ProfileRun row created (we don't want failed-run noise overnight).
+    if not is_within_active_hours(started_at, settings):
+        log.info(
+            "polling.skip.outside_active_hours profile_id=%s",
+            profile_id,
+        )
+        return {"status": "skipped", "reason": "outside_active_hours"}
+
+    # Humanization gate 2: random session break. Same bail-early shape.
+    break_reason = await _check_and_advance_break(sessionmaker, started_at)
+    if break_reason is not None:
+        log.info(
+            "polling.skip.on_break profile_id=%s",
+            profile_id,
+        )
+        return {"status": "skipped", "reason": break_reason}
 
     async with sessionmaker() as session:
         profile = await session.get(SearchProfile, pid)
@@ -266,6 +452,9 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
         if not profile.is_active:
             log.info("polling.profile_inactive id=%s", profile_id)
             return {"status": "skipped", "reason": "profile inactive"}
+
+        # Decide BEFORE the run row is created so the metrics know about it.
+        full_paginate = _should_full_paginate(profile, started_at)
 
         run = ProfileRun(
             profile_id=pid,
@@ -319,13 +508,11 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     # 25 lets us absorb growth without runaway pagination on a misconfigured
     # profile. If a profile genuinely needs more, we'll bump the cap rather
     # than silently truncate.
-    MAX_POLL_PAGES = 25
-
-    # Inter-page delay. Avito caps requests-per-token at ~1 rps; without this
-    # we 429 on page 2 because the analysis fan-out from page 1 already
-    # consumed our budget. The Avito-app paginates lazily on user scroll, so
-    # mimicking that pace stays under the cap.
-    PAGE_DELAY_SECONDS = 1.2
+    #
+    # Humanization: only the once-per-hour "full" tick walks all pages. Every
+    # other tick fetches page=1 only — same shape as a buyer pulling-to-refresh
+    # the search and only glancing at the freshest 30 lots.
+    MAX_POLL_PAGES = 25 if full_paginate else 1
 
     pages_fetched: list = []  # list[SearchPage]
     page_total: int | None = None
@@ -333,7 +520,10 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     fetch_error: Exception | None = None
     for page_num in range(1, MAX_POLL_PAGES + 1):
         if page_num > 1:
-            await asyncio.sleep(PAGE_DELAY_SECONDS)
+            # Random uniform 2-5s instead of fixed 1.2s. Keeps us under Avito's
+            # ~1rps token cap with extra slack and breaks the constant-cadence
+            # pattern that screams "bot".
+            await asyncio.sleep(random.uniform(2.0, 5.0))
         try:
             pg = await fetch_with_pool(
                 fetcher_fn=_make_fetcher(page_num),
@@ -414,6 +604,12 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
 
     blocked = set(profile.blocked_sellers or [])
     to_analyze: list[uuid.UUID] = []
+    # Items whose reservation_status flipped — re-fetch detail (no LLM) so
+    # description / parameters reflect the new state; the detail endpoint
+    # may also carry richer reservation hints than the search card.
+    to_refresh_detail: list[uuid.UUID] = []
+    reservation_changes_count = 0
+    reservations_captured = 0
 
     # Title pre-filter: Avito free-text search is fuzzy and returns lots of
     # garbage when query is just "Iphone 12 Pro Max" (chairs called "Apple",
@@ -476,9 +672,14 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                     continue
 
             listings_seen += 1
-            listing_id, is_new, price_changed, _prev_price = await _upsert_listing(
-                session, item, started_at
-            )
+            (
+                listing_id,
+                is_new,
+                price_changed,
+                prev_price,
+                reservation_changed,
+                prev_reservation,
+            ) = await _upsert_listing(session, item, started_at)
             if is_new:
                 listings_new += 1
             if price_changed:
@@ -495,14 +696,76 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                 discovered_at=started_at,
             )
 
-            # Stage-1 LLM dispatch (Block 4.2).
-            # Trigger conditions:
-            #  - brand-new listing (always classify so we can route it
-            #    into market-data even if it's outside alert zone), OR
-            #  - existing listing whose price just dropped into the
-            #    alert zone (we re-classify because match might change).
-            if is_new or (price_changed and in_alert):
+            # ── Three buckets for what to do next ─────────────────────────
+            # 1. New listing → full LLM evaluation. Same as before.
+            # 2. Price changed (existing) → audit-log row + listings.price
+            #    already updated in _upsert_listing. NO LLM re-eval —
+            #    the description / criteria haven't moved.
+            # 3. Reservation flipped → audit-log row + (if flipped to
+            #    'reserved') a reservation_capture snapshot row + commit
+            #    the new reservation_status / changed_at / reserved_at_price
+            #    onto the listing. Then queue a detail re-fetch (no LLM).
+            if is_new:
                 to_analyze.append(listing_id)
+
+            if price_changed:
+                session.add(
+                    ListingStatusEvent(
+                        listing_id=listing_id,
+                        event_type="price_change",
+                        old_value=str(prev_price) if prev_price is not None else None,
+                        new_value=(
+                            str(item.price) if item.price is not None else None
+                        ),
+                        at=started_at,
+                    )
+                )
+
+            if reservation_changed:
+                reservation_changes_count += 1
+                session.add(
+                    ListingStatusEvent(
+                        listing_id=listing_id,
+                        event_type="status_change",
+                        old_value=prev_reservation,
+                        new_value=item.reservation_status,
+                        at=started_at,
+                    )
+                )
+                listing_updates: dict[str, Any] = {
+                    "reservation_status": item.reservation_status,
+                    "reservation_changed_at": started_at,
+                }
+                if item.reservation_status == "reserved":
+                    # Snapshot the price the seller had at the moment of
+                    # reservation — this is the headline number for market
+                    # intelligence (closest signal we get to a real deal).
+                    captured_price = (
+                        _to_decimal(item.price)
+                        if item.price is not None
+                        else _to_decimal(prev_price)
+                    )
+                    listing_updates["reserved_at_price"] = captured_price
+                    session.add(
+                        ListingStatusEvent(
+                            listing_id=listing_id,
+                            event_type="reservation_capture",
+                            old_value=None,
+                            new_value=(
+                                str(captured_price)
+                                if captured_price is not None
+                                else None
+                            ),
+                            at=started_at,
+                        )
+                    )
+                    reservations_captured += 1
+                await session.execute(
+                    update(Listing)
+                    .where(Listing.id == listing_id)
+                    .values(**listing_updates)
+                )
+                to_refresh_detail.append(listing_id)
 
         closed = await _close_disappeared(
             session, profile_id=pid, run_started_at=started_at
@@ -523,9 +786,25 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                     "page_total": page.total,
                     "applied_query": page.applied_query,
                     "queued_for_analysis": len(to_analyze),
+                    "queued_for_detail_refresh": len(to_refresh_detail),
+                    "reservation_changes": reservation_changes_count,
+                    "reservations_captured": reservations_captured,
+                    "full_paginate": full_paginate,
+                    "pages_fetched": pages_count,
                 },
             )
         )
+
+        # Persist the full-paginate timestamp so the next ≤1h of ticks
+        # take the cheap page=1-only path. Done in the same commit as the
+        # run row so a crash here can't leave us with a stale marker.
+        if full_paginate:
+            await session.execute(
+                update(SearchProfile)
+                .where(SearchProfile.id == pid)
+                .values(last_full_poll_at=started_at)
+            )
+
         await session.commit()
 
     # Enqueue analysis AFTER the polling commit. Doing it outside the
@@ -562,10 +841,30 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
                         "polling.enqueue_analyze_failed listing_id=%s", lid
                     )
 
+    # Detail-refresh fan-out for reservation-flipped items. Independent of
+    # the analyze enqueue: detail re-fetch is cheap (no LLM) and we want it
+    # even on profiles without criteria, since reservation state is profile-
+    # agnostic listing data.
+    enqueued_for_detail_refresh = 0
+    if to_refresh_detail:
+        from app.tasks.analysis import refresh_listing_detail
+
+        for lid in to_refresh_detail:
+            try:
+                await refresh_listing_detail.kiq(str(lid))
+                enqueued_for_detail_refresh += 1
+            except Exception:
+                log.exception(
+                    "polling.enqueue_detail_refresh_failed listing_id=%s", lid
+                )
+
     log.info(
-        "polling.success profile_id=%s seen=%d new=%d in_alert=%d closed=%d analyze=%d",
+        "polling.success profile_id=%s seen=%d new=%d in_alert=%d closed=%d "
+        "analyze=%d detail_refresh=%d reservation_changes=%d "
+        "full_paginate=%s pages=%d",
         profile_id, listings_seen, listings_new, listings_in_alert, closed,
-        enqueued_for_analysis,
+        enqueued_for_analysis, enqueued_for_detail_refresh,
+        reservation_changes_count, full_paginate, pages_count,
     )
     return {
         "status": "success",
@@ -575,4 +874,7 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
         "price_changes": price_changed_count,
         "closed_disappeared": closed,
         "enqueued_for_analysis": enqueued_for_analysis,
+        "enqueued_for_detail_refresh": enqueued_for_detail_refresh,
+        "reservation_changes": reservation_changes_count,
+        "reservations_captured": reservations_captured,
     }

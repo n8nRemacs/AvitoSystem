@@ -23,10 +23,12 @@ from app.db.base import dispose_engine, get_sessionmaker
 from app.db.models import AvitoParamCatalog
 
 
-# Default snapshot directory relative to repo root (avito-monitor's parent).
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# Snapshot files live alongside avito_regions.json / criteria_templates.yaml
+# inside the container build context. The DOCS/avito_api_snapshots/ copy is a
+# documentation mirror — same content, different location.
+_DATA_DIR = Path(__file__).resolve().parent.parent / "app" / "data"
 _DEFAULT_FILES = [
-    _REPO_ROOT / "DOCS" / "avito_api_snapshots" / "iphone_models.json",
+    _DATA_DIR / "iphone_models.json",
 ]
 
 
@@ -37,7 +39,7 @@ def _rows_from_snapshot(snapshot: dict[str, Any], file_path: Path) -> list[dict[
     inline in DOCS/avito_api_snapshots/iphone_models.json.
     """
     category_id = snapshot["category_id_mobile_api"]
-    source_ref = str(file_path.relative_to(_REPO_ROOT)).replace("\\", "/")
+    source_ref = file_path.name
     rows: list[dict[str, Any]] = []
     for kind, spec in snapshot["params"].items():
         param_id = spec["param_id"]

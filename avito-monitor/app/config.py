@@ -93,6 +93,13 @@ class Settings(BaseSettings):
 
     system_paused: bool = False
 
+    # Polling humanization (mimic a human scrolling Avito).
+    # Active-hours window 8..23 in Europe/Moscow; flip off in tests.
+    poll_respect_active_hours: bool = True
+    poll_active_hours_start: int = 8
+    poll_active_hours_end: int = 23
+    poll_active_hours_timezone: str = "Europe/Moscow"
+
 
 @lru_cache
 def get_settings() -> Settings:

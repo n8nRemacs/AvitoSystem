@@ -30,6 +30,10 @@ class ItemCard(BaseModel):
     url: str | None = None
     created_at: str | None = None
     seller_id: int | None = None
+    # Reservation status surfaced from various Avito fields (isReserved,
+    # state, status, bookingState, ...) — exact source TBD by runtime probing.
+    # Values: "active" | "reserved" | "sold" | None (unknown / absent).
+    reservation_status: str | None = None
 
 
 class ItemDetail(BaseModel):
@@ -47,6 +51,7 @@ class ItemDetail(BaseModel):
     seller_name: str | None = None
     params: dict[str, Any] = {}
     created_at: str | None = None
+    reservation_status: str | None = None
 
 
 class SearchResponse(BaseModel):

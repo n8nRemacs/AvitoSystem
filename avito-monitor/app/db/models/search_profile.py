@@ -76,6 +76,12 @@ class SearchProfile(Base, TimestampMixin):
     import_source: Mapped[str] = mapped_column(String(32), default="manual_url")
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Polling humanization: timestamp of the most recent full-pagination
+    # tick. NULL = never paginated → next tick MUST do a full walk.
+    # Otherwise we only fetch page=1 unless >1h has passed since this.
+    last_full_poll_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     # parsed structured search params from Avito mobile API
     # (categoryId, locationId, params[N][N]=…, priceMin/Max, sort, withDeliveryOnly)
     search_params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

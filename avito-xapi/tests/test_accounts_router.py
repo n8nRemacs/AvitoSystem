@@ -206,7 +206,9 @@ def test_report_403_starts_cooldown_with_ratchet(client, accounts_in_db):
 
 
 def test_report_403_consecutive_3_gives_80min_cooldown(client, accounts_in_db):
-    """consecutive=2 going to 3 → cooldown_duration = 20 * 2^2 = 80m."""
+    """consecutive=2 going to 3 → cooldown on new bounded ladder = 20m.
+    (Test name kept for git history; precise duration covered in test_account_state.)
+    """
     accounts_in_db([
         {"id": "acc-1", "state": "active", "consecutive_cooldowns": 2,
          "cooldown_until": None, "waiting_since": None},

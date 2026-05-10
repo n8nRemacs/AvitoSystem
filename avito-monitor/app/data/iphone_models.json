@@ -1,0 +1,103 @@
+{
+  "_comment": "Caught from Chrome DevTools on avito.ru by user, 2026-05-08. Three of these IDs were independently verified by decoding the f=AS... binary blob in the URL path: 110617=Model, 110618=Brand, 110680=Type. See DOCS/REFERENCE/10-blob-decoder.md.",
+  "category_id_mobile_api": 84,
+  "category_id_web_api": 87,
+  "category_path_slug": "telefony/mobilnye_telefony",
+  "params": {
+    "type": {
+      "param_id": 110680,
+      "kind": "type",
+      "values": {
+        "Мобильные телефоны": 458500
+      }
+    },
+    "brand": {
+      "param_id": 110618,
+      "kind": "brand",
+      "values": {
+        "Apple": 469735
+      }
+    },
+    "model": {
+      "param_id": 110617,
+      "kind": "model",
+      "parent_param_id": 110618,
+      "parent_value": 469735,
+      "values": {
+        "iPhone": 464410,
+        "iPhone 3G": 463535,
+        "iPhone 3GS": 468812,
+        "iPhone 4": 469346,
+        "iPhone 4S": 463223,
+        "iPhone 5": 462262,
+        "iPhone 5C": 461261,
+        "iPhone 5S": 466486,
+        "iPhone 6": 466778,
+        "iPhone 6 Plus": 468483,
+        "iPhone 6S": 464987,
+        "iPhone 6S Plus": 462535,
+        "iPhone 7": 463689,
+        "iPhone 7 Plus": 466124,
+        "iPhone 8": 461850,
+        "iPhone 8 Plus": 463122,
+        "iPhone SE": 462686,
+        "iPhone SE (2020)": 463447,
+        "iPhone SE (2022)": 2911414,
+        "iPhone X": 464597,
+        "iPhone Xr": 465227,
+        "iPhone Xs": 467691,
+        "iPhone Xs Max": 459308,
+        "iPhone 11": 468690,
+        "iPhone 11 Pro": 461016,
+        "iPhone 11 Pro Max": 468037,
+        "iPhone 12": 491645,
+        "iPhone 12 mini": 491622,
+        "iPhone 12 Pro": 491594,
+        "iPhone 12 Pro Max": 491590,
+        "iPhone 13": 1642358,
+        "iPhone 13 mini": 1642360,
+        "iPhone 13 Pro": 1642359,
+        "iPhone 13 Pro Max": 1642361,
+        "iPhone 14": 17605542,
+        "iPhone 14 Plus": 17605549,
+        "iPhone 14 Pro": 17605543,
+        "iPhone 14 Pro Max": 17605548,
+        "iPhone 15": 18720777,
+        "iPhone 15 Plus": 18720870,
+        "iPhone 15 Pro": 18720713,
+        "iPhone 15 Pro Max": 18720875,
+        "iPhone 16": 22121571,
+        "iPhone 16 Plus": 22121572,
+        "iPhone 16 Pro": 22121573,
+        "iPhone 16 Pro Max": 22121574,
+        "iPhone 16e": 22313350,
+        "iPhone 17": 22446489,
+        "iPhone 17 Pro": 22446491,
+        "iPhone 17 Pro Max": 22446492,
+        "iPhone 17e": 22545058,
+        "iPhone Air": 22446490
+      }
+    }
+  },
+  "source": {
+    "method": "Chrome DevTools on avito.ru, captured by user",
+    "captured_at": "2026-05-08",
+    "decoder_verified_blobs": [
+      {
+        "url": "/astrahan/telefony/mobile-ASgBAgICAUSwwQ2I_Dc",
+        "blob": "ASgBAgICAUSwwQ2I_Dc",
+        "decoded_pairs": [[110680, 458500]]
+      },
+      {
+        "url": "/astrahan/telefony/mobilnye_telefony/apple-ASgBAgICAkS0wA3OqzmwwQ2I_Dc",
+        "blob": "ASgBAgICAkS0wA3OqzmwwQ2I_Dc",
+        "decoded_pairs": [[110618, 469735], [110680, 458500]]
+      },
+      {
+        "url": "/astrahan/telefony/mobilnye_telefony/apple/iphone_13-ASgBAgICA0SywA3svcgBtMANzqs5sMENiPw3",
+        "blob": "ASgBAgICA0SywA3svcgBtMANzqs5sMENiPw3",
+        "decoded_pairs": [[110617, 1642358], [110618, 469735], [110680, 458500]]
+      }
+    ]
+  }
+}

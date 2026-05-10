@@ -13,8 +13,10 @@ profiles must use profile_criteria rows instead of custom_criteria text.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
+from random import uniform
 from typing import Any
 
 from sqlalchemy import select, text, update
@@ -278,6 +280,11 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
     # Fetch the full listing detail on first sight (same lazy strategy
     # as analyze_listing) so descriptions / parameters are available.
     if not (detail.description or "").strip():
+        # Humanization: pace detail fetches like a buyer who scans the
+        # search page, then opens an interesting card every few seconds.
+        # Combined with serial-ish task scheduling this keeps Avito from
+        # spotting the analysis fan-out as a burst of ~500 detail hits.
+        await asyncio.sleep(uniform(5.0, 15.0))
         try:
             async with AvitoMcpClient() as mcp:
                 fresh = await mcp.get_listing(int(listing.avito_id))
@@ -458,3 +465,102 @@ def _make_error_notification(
         payload={"code": code, "message": message[:500]},
         status=NotificationStatus.PENDING.value,
     )
+
+
+# ----------------------------------------------------------------------
+# refresh_listing_detail — no-LLM detail re-fetch (reservation tracking)
+# ----------------------------------------------------------------------
+
+@broker.task(task_name="app.tasks.analysis.refresh_listing_detail")
+async def refresh_listing_detail(listing_id: str) -> dict[str, Any]:
+    """Pull the latest detail payload for a listing and refresh DB fields.
+
+    Triggered by polling when ``reservation_status`` flips. Updates
+    ``description``, ``parameters`` and the reservation triplet
+    (``reservation_status``, ``reservation_changed_at``,
+    ``reserved_at_price``) when the detail-side status differs from what
+    polling already persisted. Does NOT call the LLM — reservation events
+    are cheap signals, not classifications.
+    """
+    from datetime import datetime, timezone
+
+    from app.db.models import ListingStatusEvent
+
+    sessionmaker = get_sessionmaker()
+    lid = uuid.UUID(listing_id)
+
+    async with sessionmaker() as session:
+        listing = await session.get(Listing, lid)
+        if listing is None:
+            log.warning("analysis.refresh_detail.row_missing listing=%s", listing_id)
+            return {"status": "skipped", "reason": "row missing"}
+        avito_id = int(listing.avito_id)
+        prev_reservation = listing.reservation_status
+
+    try:
+        async with AvitoMcpClient() as mcp:
+            fresh = await mcp.get_listing(avito_id)
+    except Exception:
+        log.exception(
+            "analysis.refresh_detail.fetch_failed listing=%s", listing_id
+        )
+        return {"status": "failed", "reason": "fetch_failed"}
+
+    detail_reservation = getattr(fresh, "reservation_status", None)
+    now = datetime.now(timezone.utc)
+
+    async with sessionmaker() as session:
+        updates: dict[str, Any] = {
+            "description": fresh.description,
+            "parameters": fresh.parameters or {},
+        }
+        reservation_updated = False
+        if (
+            detail_reservation is not None
+            and detail_reservation != prev_reservation
+        ):
+            updates["reservation_status"] = detail_reservation
+            updates["reservation_changed_at"] = now
+            session.add(
+                ListingStatusEvent(
+                    listing_id=lid,
+                    event_type="status_change",
+                    old_value=prev_reservation,
+                    new_value=detail_reservation,
+                    at=now,
+                )
+            )
+            if detail_reservation == "reserved":
+                # Detail is the more authoritative source for the snapshot
+                # (search card may lag by a refresh); prefer its price.
+                captured_price = fresh.price
+                updates["reserved_at_price"] = captured_price
+                session.add(
+                    ListingStatusEvent(
+                        listing_id=lid,
+                        event_type="reservation_capture",
+                        old_value=None,
+                        new_value=(
+                            str(captured_price)
+                            if captured_price is not None
+                            else None
+                        ),
+                        at=now,
+                    )
+                )
+            reservation_updated = True
+
+        await session.execute(
+            update(Listing).where(Listing.id == lid).values(**updates)
+        )
+        await session.commit()
+
+    log.info(
+        "analysis.refresh_detail.success listing=%s reservation_updated=%s",
+        listing_id, reservation_updated,
+    )
+    return {
+        "status": "success",
+        "reservation_updated": reservation_updated,
+        "reservation_status": detail_reservation,
+    }

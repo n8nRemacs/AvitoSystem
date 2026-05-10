@@ -179,6 +179,59 @@ def _city_from_seller_address(addr_info: dict | None) -> str | None:
     return None
 
 
+# Keys we probe for a reservation hint on both list-card values and detail
+# payloads. Avito hasn't been observed in prod yet under the reserved-flag
+# branch, so we cast a wide net and let the polling worker compare what we
+# extract against the prior DB state — anything that doesn't fit cleanly
+# stays None instead of polluting `reservation_status`.
+# TODO: confirm field name once pool is healthy
+_RESERVATION_KEYS = ("isReserved", "reservedUntil", "state", "status", "bookingState")
+_SOLD_TOKENS = {"sold", "продан", "продано"}
+_RESERVED_TOKENS = {"reserved", "забронирован", "забронировано", "зарезервирован",
+                    "зарезервировано", "booked"}
+_ACTIVE_TOKENS = {"active", "active_publication", "publication", "live", "open"}
+
+
+def _coerce_reservation_status(value: Any) -> str | None:
+    """Map a raw Avito field value to one of: 'active' | 'reserved' | 'sold' | None.
+
+    Boolean True on an ``isReserved``-flavoured field → 'reserved'.
+    Strings are tokenised against a small set of known markers; anything
+    unrecognised returns None so we never invent a status we can't trust.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "reserved" if value else "active"
+    if isinstance(value, (int, float)):
+        # Treat numeric truthiness like a flag (1 = reserved, 0 = active).
+        return "reserved" if value else "active"
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if not v:
+            return None
+        if v in _SOLD_TOKENS:
+            return "sold"
+        if v in _RESERVED_TOKENS:
+            return "reserved"
+        if v in _ACTIVE_TOKENS:
+            return "active"
+    return None
+
+
+def _extract_reservation_status(*sources: dict | None) -> str | None:
+    """Probe several dicts for any reservation-shaped key and return the first hit."""
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        for key in _RESERVATION_KEYS:
+            if key in src:
+                rs = _coerce_reservation_status(src.get(key))
+                if rs is not None:
+                    return rs
+    return None
+
+
 def _detail_params_to_dict(params: dict | None) -> dict[str, Any]:
     """Flatten ``parameters.flat`` list into a {title: description} mapping.
 
@@ -297,6 +350,10 @@ def _normalize_item_card(raw: dict) -> ItemCard:
         if isinstance(sid, int):
             seller_id = sid
 
+    # Reservation hint — probe the item value for any reservation-shaped key.
+    # TODO: confirm field name once pool is healthy
+    reservation_status = _extract_reservation_status(val)
+
     return ItemCard(
         id=item_id,
         title=title,
@@ -308,6 +365,7 @@ def _normalize_item_card(raw: dict) -> ItemCard:
         url=url,
         created_at=created_at,
         seller_id=seller_id,
+        reservation_status=reservation_status,
     )
 
 
@@ -408,6 +466,11 @@ def _normalize_item_detail(raw: dict, fallback_id: int = 0) -> ItemDetail:
     if isinstance(created_at, int):
         created_at = str(created_at)
 
+    # Reservation hint — detail payload may carry the marker at top level OR
+    # buried inside the flattened parameters dict (e.g. "Состояние" → ...).
+    # We probe both. TODO: confirm field name once pool is healthy
+    reservation_status = _extract_reservation_status(raw, params)
+
     return ItemDetail(
         id=raw.get("id") or fallback_id,
         title=raw.get("title") or "",
@@ -423,6 +486,7 @@ def _normalize_item_detail(raw: dict, fallback_id: int = 0) -> ItemDetail:
         seller_name=seller_name,
         params=params,
         created_at=created_at,
+        reservation_status=reservation_status,
     )
 
 

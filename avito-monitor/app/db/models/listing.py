@@ -56,4 +56,19 @@ class Listing(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(
         String(16), default=ListingStatus.ACTIVE.value
     )
+
+    # Reservation tracking (migration 0012). reservation_status follows the
+    # listing's "Зарезервировано / Продано" pill on Avito; the
+    # reserved_at_price snapshot is the listing's price the moment we first
+    # observed the flip to ``reserved`` — this is the closest signal we have
+    # to the actual deal price (buyers haggle, so it's typically lower than
+    # the visible price).
+    reservation_status: Mapped[str] = mapped_column(
+        String(16), default="active"
+    )
+    reservation_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    reserved_at_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+
     raw_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

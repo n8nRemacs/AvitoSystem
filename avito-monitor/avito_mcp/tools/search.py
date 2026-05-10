@@ -113,6 +113,7 @@ def _normalise_listing(raw: dict[str, Any]) -> ListingShort:
         seller_id=raw.get("seller_id"),
         seller_type=None,  # xapi ItemCard does not expose seller_type yet
         first_seen=raw.get("created_at"),
+        reservation_status=raw.get("reservation_status"),
     )
 
 

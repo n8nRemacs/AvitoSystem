@@ -36,6 +36,8 @@ class ListingShort(BaseModel):
     seller_id: int | str | None = None
     seller_type: str | None = None  # "private" | "company" | None
     first_seen: str | None = None  # ISO timestamp from avito (createdAt/time)
+    # "active" | "reserved" | "sold" | None when xapi can't infer from payload.
+    reservation_status: str | None = None
 
 
 class ListingDetail(ListingShort):

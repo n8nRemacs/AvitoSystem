@@ -72,6 +72,7 @@ def _normalise_detail(raw: dict[str, Any]) -> ListingDetail:
         category=raw.get("category"),
         parameters=params,
         raw_data=raw,
+        reservation_status=raw.get("reservation_status"),
     )
 
 
