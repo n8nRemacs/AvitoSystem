@@ -707,6 +707,96 @@ async def listing_action(
     return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
 
 
+@router.post("/listings/bulk-action", response_model=None)
+async def listings_bulk_action(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    """Apply reject / accept / undo to multiple listings in one POST.
+
+    Form payload:
+      bulk_action : "reject" | "accept" | "undo"
+      ids        : repeated values "<profile_id>|<listing_id>"
+      return_to  : full path+query to redirect back to (filters preserved)
+      from_tab   : fallback if return_to is missing/unsafe
+    """
+    from sqlalchemy import update, delete
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from app.db.models import ProfileListing, SearchProfile, UserListingBlacklist
+    from app.db.models.enums import UserAction
+
+    form = await request.form()
+    action_raw = (form.get("bulk_action") or "").strip().lower()
+    if action_raw == "accept":
+        new_action = UserAction.ACCEPTED.value
+    elif action_raw == "reject":
+        new_action = UserAction.REJECTED.value
+    elif action_raw == "undo":
+        new_action = None
+    else:
+        raise HTTPException(400, f"unknown bulk_action: {action_raw!r}")
+
+    raw_ids = form.getlist("ids")
+    pairs: list[tuple[uuid.UUID, uuid.UUID]] = []
+    for raw in raw_ids:
+        if "|" not in raw:
+            continue
+        pid_str, lid_str = raw.split("|", 1)
+        try:
+            pairs.append((uuid.UUID(pid_str), uuid.UUID(lid_str)))
+        except ValueError:
+            continue
+
+    # Authorization: only touch (profile_id, listing_id) pairs whose profile
+    # belongs to the current user. Filter pid_set against owned profiles in
+    # one query rather than per-pair.
+    if pairs:
+        from sqlalchemy import select
+        owned = await session.execute(
+            select(SearchProfile.id).where(SearchProfile.user_id == user.id)
+        )
+        owned_ids = {row[0] for row in owned.all()}
+        pairs = [(p, l) for (p, l) in pairs if p in owned_ids]
+
+    affected = 0
+    for pid, lid in pairs:
+        res = await session.execute(
+            update(ProfileListing)
+            .where(
+                ProfileListing.profile_id == pid,
+                ProfileListing.listing_id == lid,
+            )
+            .values(user_action=new_action)
+        )
+        if res.rowcount == 0:
+            continue
+        affected += 1
+        if action_raw == "reject":
+            await session.execute(
+                pg_insert(UserListingBlacklist)
+                .values(user_id=user.id, listing_id=lid, reason="rejected")
+                .on_conflict_do_nothing(index_elements=["user_id", "listing_id"])
+            )
+        elif action_raw == "undo":
+            await session.execute(
+                delete(UserListingBlacklist).where(
+                    UserListingBlacklist.user_id == user.id,
+                    UserListingBlacklist.listing_id == lid,
+                )
+            )
+    await session.commit()
+    log.info(
+        "listings.bulk_action user=%s action=%s requested=%d affected=%d",
+        user.id, action_raw, len(raw_ids), affected,
+    )
+
+    target_tab = (form.get("from_tab") or "new").strip() or "new"
+    return_to = (form.get("return_to") or "").strip()
+    target = return_to if return_to.startswith("/listings") else f"/listings?tab={target_tab}"
+    return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.get("/price-intelligence", response_class=HTMLResponse)
 async def prices_list(
     request: Request,

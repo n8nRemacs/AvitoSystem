@@ -7,6 +7,18 @@
    ?tab=… would be preserved. #}
 {% set return_to = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
 
+{# Bulk-action button labels per source tab. Mirrors the per-card
+   buttons below: from new/all you can reject or accept; from
+   in_progress and rejected you can only return to "Новые". #}
+{% set bulk_actions = {
+  'new':         [('reject', '✗ Отклонить выбранные', 'bg-avito-surface border border-avito-border text-avito-negative hover:bg-red-50'),
+                  ('accept', '✓ В работу выбранные', 'bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00]')],
+  'all':         [('reject', '✗ Отклонить выбранные', 'bg-avito-surface border border-avito-border text-avito-negative hover:bg-red-50'),
+                  ('accept', '✓ В работу выбранные', 'bg-avito-brand text-white border-avito-brand hover:bg-[#5e9a00]')],
+  'in_progress': [('undo',   '↶ Вернуть выбранные в новые', 'bg-avito-surface border border-avito-border text-avito-text-soft hover:bg-avito-elev')],
+  'rejected':    [('undo',   '↶ Вернуть выбранные в новые', 'bg-avito-surface border border-avito-border text-avito-text-soft hover:bg-avito-elev')],
+} %}
+
 {% macro money(v) -%}
   {% if v is none %}—{% else %}{{ '{:,}'.format(v|int).replace(',', '\xa0') }}&nbsp;₽{% endif %}
 {%- endmacro %}
@@ -120,11 +132,29 @@
       </p>
     </div>
   {% else %}
-    <div class="space-y-2">
+    {# Hidden form that owns the bulk action — checkboxes reference it via
+       form="bulk-form" so they can sit inside individual <details> cards
+       without HTML's no-nested-forms rule. The action button is in the
+       sticky bar at the bottom of the page. #}
+    <form id="bulk-form" method="post" action="/listings/bulk-action" class="hidden">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <input type="hidden" name="from_tab" value="{{ f.tab }}">
+    </form>
+
+    <div class="space-y-2 pb-24">
       {% for r in rows %}
         <details class="group bg-avito-surface rounded-lg border border-avito-border overflow-hidden hover:border-avito-brand-soft transition-all
                   {% if not r.in_alert_zone %}opacity-70 hover:opacity-100{% endif %}">
           <summary class="flex gap-3 p-3 cursor-pointer list-none select-none">
+            {# Bulk-select checkbox. data-bulk-checkbox lets the JS counter
+               track only the visible items. Wrapped in a div with onclick
+               stopPropagation so clicking it doesn't toggle the <details>. #}
+            <div class="flex-shrink-0 flex items-center" onclick="event.stopPropagation()">
+              <input type="checkbox" name="ids" value="{{ r.profile_id }}|{{ r.listing_id }}"
+                     form="bulk-form" data-bulk-checkbox
+                     class="w-4 h-4 accent-avito-brand cursor-pointer"
+                     aria-label="Выбрать лот">
+            </div>
             <div class="flex-shrink-0 w-20 h-20 bg-avito-elev rounded-md overflow-hidden">
               {% if r.image_url %}
                 <img src="{{ r.image_url }}" alt="" class="w-full h-full object-cover" loading="lazy">
@@ -267,8 +297,84 @@
         </a>
       </div>
     {% endif %}
+
+    {# Sticky bottom bar — appears once at least one checkbox is ticked.
+       Buttons are submit-buttons that target the hidden #bulk-form via
+       form="bulk-form"; each carries its own bulk_action value. #}
+    {% set actions_for_tab = bulk_actions.get(f.tab, []) %}
+    {% if actions_for_tab %}
+    <div id="bulk-bar"
+         class="fixed bottom-0 left-0 right-0 z-40 bg-avito-surface border-t border-avito-border shadow-lg
+                transform translate-y-full transition-transform duration-200 hidden">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+        <div class="text-sm text-avito-text">
+          <span class="font-medium">Выбрано: </span>
+          <span id="bulk-count" class="tabular-nums font-semibold text-avito-brand">0</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" id="bulk-clear"
+                  class="text-xs text-avito-text-soft hover:text-avito-text underline">
+            Снять выделение
+          </button>
+          {% for action_key, label, css in actions_for_tab %}
+          <button type="submit" form="bulk-form"
+                  name="bulk_action" value="{{ action_key }}"
+                  class="btn btn-sm {{ css }} px-4 py-1.5 rounded-md text-sm font-medium">
+            {{ label }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
   {% endif %}
 </div>
+
+<script>
+(function () {
+  // Bulk-select state — show/hide sticky bar, update counter, snap-clear.
+  const bar = document.getElementById('bulk-bar');
+  if (!bar) return;
+  const counter = document.getElementById('bulk-count');
+  const clearBtn = document.getElementById('bulk-clear');
+  const checkboxes = () => document.querySelectorAll('input[data-bulk-checkbox]');
+
+  function refresh() {
+    const checked = document.querySelectorAll('input[data-bulk-checkbox]:checked').length;
+    counter.textContent = checked;
+    if (checked > 0) {
+      bar.classList.remove('hidden');
+      requestAnimationFrame(() => bar.classList.remove('translate-y-full'));
+    } else {
+      bar.classList.add('translate-y-full');
+      setTimeout(() => { if (counter.textContent === '0') bar.classList.add('hidden'); }, 200);
+    }
+  }
+
+  document.addEventListener('change', (ev) => {
+    if (ev.target.matches('input[data-bulk-checkbox]')) refresh();
+  });
+  clearBtn.addEventListener('click', () => {
+    checkboxes().forEach(c => { c.checked = false; });
+    refresh();
+  });
+
+  // Submit guard — confirm if user is rejecting many at once (irreversible-ish).
+  const bulkForm = document.getElementById('bulk-form');
+  if (bulkForm) {
+    bulkForm.addEventListener('submit', (ev) => {
+      const checked = document.querySelectorAll('input[data-bulk-checkbox]:checked').length;
+      if (checked === 0) { ev.preventDefault(); return; }
+      const submitter = ev.submitter;
+      if (submitter && submitter.value === 'reject' && checked >= 10) {
+        if (!confirm(`Отклонить ${checked} лотов? Это действие записывается в твой персональный blacklist.`)) {
+          ev.preventDefault();
+        }
+      }
+    });
+  }
+})();
+</script>
 
 <div id="lightbox" class="fixed inset-0 z-50 bg-black/90 hidden flex-col items-center justify-center" role="dialog">
   <button id="lb-close" type="button" aria-label="Закрыть"
