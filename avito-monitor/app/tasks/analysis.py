@@ -57,6 +57,97 @@ log = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------
+# API killer rules — pure-Python verdicts straight from listing.parameters.
+# Avito-side structured fields ("Работа устройства" = "Не включается", etc.)
+# are ground truth — no need to spend an LLM call to confirm. When any rule
+# matches we skip the LLM entirely and write a red evaluation outright.
+# ----------------------------------------------------------------------
+
+# Sensors that are NOT a deal-breaker. Anything else listed under
+# "Не работают датчики" is treated as red:
+#   Wi-Fi / Bluetooth / Compass — motherboard-level, kills resale value
+#   Face ID / Touch ID         — affects everyday use, kills resale value
+# The proximity sensor ("Приближения к уху") is the lone exception per
+# user feedback 2026-05-10 — most buyers don't notice it.
+_API_SAFE_SENSORS = {
+    "приближения к уху",
+    "приближение к уху",
+}
+
+
+def _normalise_sensor_token(s: str) -> str:
+    return s.strip().lower()
+
+
+def check_api_killers(parameters: dict | None) -> list[tuple[str, str]]:
+    """Inspect Avito-side parameters for unambiguous deal-breakers.
+
+    Returns a list of ``(criterion_key, reasoning)`` tuples. An empty list
+    means no killer fired and the LLM should run as usual.
+
+    Rules (per user feedback 2026-05-10):
+      Работа устройства  ∋ "Не включается" or "Не работает сенсор"  → red
+      Аккумулятор        ∋ "Не заряжается"                          → red
+      Не работают функции ≠ ""                                       → red
+      Не работают датчики has any non-safe sensor                   → red
+        (safe = только "Приближения к уху")
+    """
+    if not parameters:
+        return []
+
+    matches: list[tuple[str, str]] = []
+
+    work_state = str(parameters.get("Работа устройства") or "")
+    if "не включается" in work_state.lower():
+        matches.append((
+            "api:device_not_starting",
+            f"Avito-параметр «Работа устройства» = «{work_state}» (не включается)",
+        ))
+    elif "не работает сенсор" in work_state.lower():
+        matches.append((
+            "api:motherboard_sensor_dead",
+            f"Avito-параметр «Работа устройства» = «{work_state}» (датчик платы)",
+        ))
+
+    battery_state = str(parameters.get("Аккумулятор") or "")
+    if "не заряжается" in battery_state.lower():
+        matches.append((
+            "api:battery_dead",
+            f"Avito-параметр «Аккумулятор» = «{battery_state}»",
+        ))
+
+    broken_functions = str(parameters.get("Не работают функции") or "").strip()
+    if broken_functions:
+        matches.append((
+            "api:functions_broken",
+            f"Avito-параметр «Не работают функции» = «{broken_functions}»",
+        ))
+
+    broken_sensors = str(parameters.get("Не работают датчики") or "").strip()
+    if broken_sensors:
+        # CSV-like: split on common separators and check each token.
+        tokens = [t for t in broken_sensors.replace(";", ",").split(",") if t.strip()]
+        unsafe = [t.strip() for t in tokens if _normalise_sensor_token(t) not in _API_SAFE_SENSORS]
+        if unsafe:
+            matches.append((
+                "api:critical_sensors_broken",
+                f"Avito-параметр «Не работают датчики» включает критичные: {', '.join(unsafe)}",
+            ))
+
+    # Камера: red ТОЛЬКО если явно "Не работает <что-то>". Визуальные
+    # дефекты (потёртости/пятна/трещины линзы) сами по себе НЕ киллер —
+    # их LLM посмотрит как часть общей картины.
+    camera_state = str(parameters.get("Камера") or "").strip()
+    if camera_state and "не работает" in camera_state.lower():
+        matches.append((
+            "api:camera_broken",
+            f"Avito-параметр «Камера» = «{camera_state}» (не работает)",
+        ))
+
+    return matches
+
+
+# ----------------------------------------------------------------------
 # Wiring
 # ----------------------------------------------------------------------
 
@@ -310,6 +401,80 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
         sessionmaker, pid
     )
     info_api_values = _resolve_info_api(detail.parameters, info_api_paths)
+
+    # ── API killer pre-check ─────────────────────────────────────────────
+    # Before paying the LLM round-trip, see if Avito's structured params
+    # already make this listing a clear red. If yes, skip the analyzer and
+    # write a synthetic evaluation right here. Saves cost + time, and the
+    # api criterion shows up in the UI with the rule that fired.
+    api_killers = check_api_killers(detail.parameters)
+    if api_killers:
+        log.info(
+            "analysis.evaluate.api_killer listing=%s killers=%s",
+            listing_id, [k[0] for k in api_killers],
+        )
+        criteria_dump = {
+            ckey: {"flag": "red", "confidence": 1.0, "reasoning": reasoning}
+            for ckey, reasoning in api_killers
+        }
+        red_keys = [ckey for ckey, _ in api_killers]
+
+        async with sessionmaker() as session:
+            evaluation = ProfileListingEvaluation(
+                profile_id=pid,
+                listing_id=lid,
+                bucket=EvaluationBucket.RED.value,
+                confidence_threshold=threshold,
+                criteria_flags=criteria_dump,
+                info_fields={},
+                red_criterion_keys=red_keys,
+                # Same hash as a normal LLM evaluation so a profile criteria
+                # change still triggers re-evaluation. The api: prefix on
+                # criteria_flags keys is the distinguisher — column is
+                # VARCHAR(64), no room for a custom suffix.
+                criteria_set_hash=profile.criteria_set_hash or "",
+            )
+            session.add(evaluation)
+            await session.flush()
+            await session.execute(
+                update(Listing)
+                .where(Listing.id == lid)
+                .values(condition_class=ConditionClass.BROKEN.value)
+            )
+            await session.execute(
+                update(ProfileListing)
+                .where(
+                    ProfileListing.profile_id == pid,
+                    ProfileListing.listing_id == lid,
+                )
+                .values(
+                    processing_status=ProcessingStatus.EVALUATED.value,
+                    bucket=EvaluationBucket.RED.value,
+                    latest_evaluation_id=evaluation.id,
+                )
+            )
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO user_listing_blacklist
+                        (user_id, listing_id, reason, created_at)
+                    VALUES (:user_id, :listing_id, :reason, NOW())
+                    ON CONFLICT (user_id, listing_id) DO NOTHING
+                    """
+                ),
+                {
+                    "user_id": profile.user_id,
+                    "listing_id": lid,
+                    "reason": f"auto_red:{red_keys[0]}",
+                },
+            )
+            await session.commit()
+        return {
+            "status": "success",
+            "skipped_llm": True,
+            "killers": red_keys,
+            "bucket": "red",
+        }
 
     analyzer = _build_analyzer()
     eval_result = await analyzer.evaluate_listing(
