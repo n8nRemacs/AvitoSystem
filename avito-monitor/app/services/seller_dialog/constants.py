@@ -17,3 +17,13 @@ STAGE_REJECTED = "rejected"
 CLOSED_REASON_SILENT = "silent"
 CLOSED_REASON_REFUSED = "refused"
 CLOSED_REASON_MANUAL = "manual"
+
+OPENING_LINE = (
+    "У меня есть несколько вопросов по Вашему аппарату, "
+    "ответьте пожалуйста, если Вас это не затруднит."
+)
+
+# Recap status enum values for seller_dialogs.recap_status
+RECAP_PENDING_ANSWER = "pending_answer"
+RECAP_CONFIRMED = "confirmed"
+RECAP_DISPUTED = "disputed"
