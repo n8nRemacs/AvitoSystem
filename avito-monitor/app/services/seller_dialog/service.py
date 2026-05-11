@@ -91,3 +91,29 @@ async def set_channel_id(
         .where(SellerDialog.id == dialog_id)
         .values(channel_id=channel_id)
     )
+
+
+async def close_dialog(
+    session: AsyncSession,
+    dialog_id: uuid.UUID,
+    *,
+    reason: str,
+) -> None:
+    """Mark a dialog closed.
+
+    Sets ``closed_at=now()``, ``closed_reason=reason``, and bumps
+    ``last_event_at=now()`` so the kanban's recency sort still works.
+    Idempotent — re-closing already-closed rows is a no-op write (caller
+    typically pre-checks via ``get_dialog_by_listing`` and skips if
+    ``closed_at`` is already set). Caller commits.
+    """
+    now = datetime.now(tz=timezone.utc)
+    await session.execute(
+        update(SellerDialog)
+        .where(SellerDialog.id == dialog_id)
+        .values(
+            closed_at=now,
+            closed_reason=reason,
+            last_event_at=now,
+        )
+    )

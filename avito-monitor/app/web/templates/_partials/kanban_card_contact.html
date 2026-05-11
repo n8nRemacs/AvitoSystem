@@ -1,43 +1,62 @@
 {# Kanban card — Контакт stage (waiting for first reply from seller).
    Compact card: photo thumbnail + title + price + last_event_at.
-   Phase A: no drawer / detail page yet — card links to the Avito lot
-   page in a new tab so operator can still see the listing. Phase C
-   will replace this with a side drawer. #}
-<a href="https://www.avito.ru/{{ card.avito_id }}"
-   target="_blank"
-   rel="noopener noreferrer"
-   class="block bg-white rounded-lg shadow-sm hover:shadow-md transition p-3 mb-2 border border-stone-200">
-  <div class="flex gap-3">
-    {% if card.image_url %}
-      <img src="{{ card.image_url }}"
-           alt=""
-           class="w-16 h-16 rounded object-cover flex-shrink-0"
-           loading="lazy">
-    {% else %}
-      <div class="w-16 h-16 rounded bg-stone-200 flex-shrink-0"></div>
-    {% endif %}
-    <div class="min-w-0 flex-1">
-      <div class="text-sm font-medium text-stone-800 truncate">{{ card.title }}</div>
-      <div class="text-xs text-stone-500 mt-0.5">{{ card.profile_name }}</div>
-      {% if card.price %}
-        <div class="text-sm font-semibold text-emerald-700 mt-1">
-          {{ "{:,}".format(card.price).replace(",", " ") }} ₽
-        </div>
+   Phase A: no drawer / detail page yet — the preview area links to the
+   Avito lot page in a new tab so operator can still see the listing.
+   Footer carries a small "Отклонить" form so operator can reject the
+   lot straight from the card. Phase C will replace the link with a
+   side drawer. #}
+<div class="bg-white rounded-lg shadow-sm hover:shadow-md transition p-3 mb-2 border border-stone-200">
+  <a href="https://www.avito.ru/{{ card.avito_id }}"
+     target="_blank"
+     rel="noopener noreferrer"
+     class="block">
+    <div class="flex gap-3">
+      {% if card.image_url %}
+        <img src="{{ card.image_url }}"
+             alt=""
+             class="w-16 h-16 rounded object-cover flex-shrink-0"
+             loading="lazy">
+      {% else %}
+        <div class="w-16 h-16 rounded bg-stone-200 flex-shrink-0"></div>
+      {% endif %}
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-medium text-stone-800 truncate">{{ card.title }}</div>
+        <div class="text-xs text-stone-500 mt-0.5">{{ card.profile_name }}</div>
+        {% if card.price %}
+          <div class="text-sm font-semibold text-emerald-700 mt-1">
+            {{ "{:,}".format(card.price).replace(",", " ") }} ₽
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </a>
+  <div class="mt-2 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs">
+    <div class="flex items-center gap-2 min-w-0">
+      {% if card.operator_mode %}
+        <span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded">ручной режим</span>
+      {% else %}
+        <span class="text-stone-500">ждём ответ продавца</span>
+      {% endif %}
+      {% if card.last_event_at %}
+        <span class="text-stone-400" title="последнее событие">
+          {{ card.last_event_at.strftime("%d.%m %H:%M") }}
+        </span>
+      {% else %}
+        <span class="text-stone-400">{{ card.opened_at.strftime("%d.%m %H:%M") }}</span>
       {% endif %}
     </div>
+    <form method="post"
+          action="/listings/{{ card.profile_id }}/{{ card.listing_id }}/action"
+          class="flex-shrink-0">
+      <input type="hidden" name="action" value="reject">
+      <input type="hidden" name="return_to" value="/listings?tab=in_progress">
+      <input type="hidden" name="from_tab" value="in_progress">
+      <button type="submit"
+              aria-label="Отклонить лот"
+              onclick="return confirm('Отклонить лот?')"
+              class="text-xs text-stone-500 hover:text-rose-700 transition px-1.5 py-0.5 rounded hover:bg-rose-50">
+        × Отклонить
+      </button>
+    </form>
   </div>
-  <div class="mt-2 pt-2 border-t border-stone-100 flex items-center justify-between text-xs">
-    {% if card.operator_mode %}
-      <span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded">ручной режим</span>
-    {% else %}
-      <span class="text-stone-500">ждём ответ продавца</span>
-    {% endif %}
-    {% if card.last_event_at %}
-      <span class="text-stone-400" title="последнее событие">
-        {{ card.last_event_at.strftime("%d.%m %H:%M") }}
-      </span>
-    {% else %}
-      <span class="text-stone-400">{{ card.opened_at.strftime("%d.%m %H:%M") }}</span>
-    {% endif %}
-  </div>
-</a>
+</div>

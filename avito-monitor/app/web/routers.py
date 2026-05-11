@@ -653,6 +653,29 @@ async def _maybe_enqueue_start_seller_dialog(
         await start_seller_dialog.kiq(str(profile_id), str(listing_id))
 
 
+async def _close_dialog_if_open(
+    session: AsyncSession,
+    *,
+    profile_id: uuid.UUID,
+    listing_id: uuid.UUID,
+    reason: str,
+) -> None:
+    """Close the active seller_dialog for (profile, listing), if any.
+
+    Used when the operator rejects a listing from kanban — the dialog
+    becomes irrelevant and must not show up in the kanban view anymore.
+    No-op if no dialog exists or it's already closed. Caller commits.
+    """
+    from app.services.seller_dialog import service as sd_service
+
+    dlg = await sd_service.get_dialog_by_listing(
+        session, profile_id=profile_id, listing_id=listing_id
+    )
+    if dlg is None or dlg.closed_at is not None:
+        return
+    await sd_service.close_dialog(session, dlg.id, reason=reason)
+
+
 @router.post("/listings/{profile_id}/{listing_id}/action", response_model=None)
 async def listing_action(
     profile_id: uuid.UUID,
@@ -721,6 +744,18 @@ async def listing_action(
     await session.commit()
     if res.rowcount == 0:
         raise HTTPException(404, "Listing link not found")
+
+    # Rejecting a listing must also retire any active seller_dialog for it —
+    # otherwise a rejected lot lingers on the kanban. Separate commit so the
+    # blacklist write above lands even if the dialog lookup misbehaves.
+    if action_raw == "reject":
+        await _close_dialog_if_open(
+            session,
+            profile_id=profile_id,
+            listing_id=listing_id,
+            reason="rejected_by_operator",
+        )
+        await session.commit()
 
     await _maybe_enqueue_start_seller_dialog(
         action_raw=action_raw,
@@ -798,6 +833,7 @@ async def listings_bulk_action(
 
     counts = {"accept": 0, "reject": 0, "undo": 0}
     accepted_pairs: list[tuple[uuid.UUID, uuid.UUID]] = []
+    rejected_pairs: list[tuple[uuid.UUID, uuid.UUID]] = []
     for pid, lid, action in decisions:
         new_action = _ACTION_MAP[action]
         res = await session.execute(
@@ -819,6 +855,7 @@ async def listings_bulk_action(
                 .values(user_id=user.id, listing_id=lid, reason="rejected")
                 .on_conflict_do_nothing(index_elements=["user_id", "listing_id"])
             )
+            rejected_pairs.append((pid, lid))
         elif action == "undo":
             await session.execute(
                 delete(UserListingBlacklist).where(
@@ -826,6 +863,16 @@ async def listings_bulk_action(
                     UserListingBlacklist.listing_id == lid,
                 )
             )
+
+    # Close any open seller_dialogs for rejected pairs in the same transaction
+    # so the kanban stops surfacing them. No-op for pairs without a dialog.
+    for pid, lid in rejected_pairs:
+        await _close_dialog_if_open(
+            session,
+            profile_id=pid,
+            listing_id=lid,
+            reason="rejected_by_operator",
+        )
     await session.commit()
 
     # Enqueue start_seller_dialog tasks ONLY after the transaction successfully

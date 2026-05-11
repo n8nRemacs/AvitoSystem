@@ -1,36 +1,55 @@
 {# Kanban card — Настройка опроса stage. Operator must pick topics and
    click "Запустить опрос" to advance the card. In Phase A there's no
    actual setup screen yet (Phase C); we just show a "настрой опрос"
-   badge to signal pending operator action. #}
-<a href="https://www.avito.ru/{{ card.avito_id }}"
-   target="_blank"
-   rel="noopener noreferrer"
-   class="block bg-white rounded-lg shadow-sm hover:shadow-md transition p-3 mb-2 border-2 border-amber-300">
-  <div class="flex gap-3">
-    {% if card.image_url %}
-      <img src="{{ card.image_url }}"
-           alt=""
-           class="w-16 h-16 rounded object-cover flex-shrink-0"
-           loading="lazy">
-    {% else %}
-      <div class="w-16 h-16 rounded bg-stone-200 flex-shrink-0"></div>
-    {% endif %}
-    <div class="min-w-0 flex-1">
-      <div class="text-sm font-medium text-stone-800 truncate">{{ card.title }}</div>
-      <div class="text-xs text-stone-500 mt-0.5">{{ card.profile_name }}</div>
-      {% if card.price %}
-        <div class="text-sm font-semibold text-emerald-700 mt-1">
-          {{ "{:,}".format(card.price).replace(",", " ") }} ₽
-        </div>
+   badge to signal pending operator action. The preview area links to
+   the Avito lot page in a new tab; the footer also exposes a small
+   "Отклонить" form to reject straight from the card. #}
+<div class="bg-white rounded-lg shadow-sm hover:shadow-md transition p-3 mb-2 border-2 border-amber-300">
+  <a href="https://www.avito.ru/{{ card.avito_id }}"
+     target="_blank"
+     rel="noopener noreferrer"
+     class="block">
+    <div class="flex gap-3">
+      {% if card.image_url %}
+        <img src="{{ card.image_url }}"
+             alt=""
+             class="w-16 h-16 rounded object-cover flex-shrink-0"
+             loading="lazy">
+      {% else %}
+        <div class="w-16 h-16 rounded bg-stone-200 flex-shrink-0"></div>
+      {% endif %}
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-medium text-stone-800 truncate">{{ card.title }}</div>
+        <div class="text-xs text-stone-500 mt-0.5">{{ card.profile_name }}</div>
+        {% if card.price %}
+          <div class="text-sm font-semibold text-emerald-700 mt-1">
+            {{ "{:,}".format(card.price).replace(",", " ") }} ₽
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </a>
+  <div class="mt-2 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="px-2 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">
+        ➜ настрой опрос
+      </span>
+      {% if card.last_event_at %}
+        <span class="text-stone-400">{{ card.last_event_at.strftime("%d.%m %H:%M") }}</span>
       {% endif %}
     </div>
+    <form method="post"
+          action="/listings/{{ card.profile_id }}/{{ card.listing_id }}/action"
+          class="flex-shrink-0">
+      <input type="hidden" name="action" value="reject">
+      <input type="hidden" name="return_to" value="/listings?tab=in_progress">
+      <input type="hidden" name="from_tab" value="in_progress">
+      <button type="submit"
+              aria-label="Отклонить лот"
+              onclick="return confirm('Отклонить лот?')"
+              class="text-xs text-stone-500 hover:text-rose-700 transition px-1.5 py-0.5 rounded hover:bg-rose-50">
+        × Отклонить
+      </button>
+    </form>
   </div>
-  <div class="mt-2 pt-2 border-t border-stone-100 flex items-center justify-between text-xs">
-    <span class="px-2 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">
-      ➜ настрой опрос
-    </span>
-    {% if card.last_event_at %}
-      <span class="text-stone-400">{{ card.last_event_at.strftime("%d.%m %H:%M") }}</span>
-    {% endif %}
-  </div>
-</a>
+</div>
