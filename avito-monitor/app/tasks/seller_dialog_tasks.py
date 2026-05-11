@@ -130,30 +130,44 @@ class _XapiMessengerAdapter:
     def __init__(self, client):
         self._client = client
 
+    @staticmethod
+    def _unwrap_result(call) -> dict[str, Any]:
+        """Pull the inner result dict out of the xapi envelope and raise on
+        Avito-side errors that xapi proxied as HTTP 200.
+
+        Wire shape: ``{"status":"ok","result":{...}}`` on success. On
+        Avito-side rejection xapi still answers HTTP 200 but with
+        ``result.error = {"code": ..., "message": ...}`` (seen e.g. for
+        unpublished lots: ``Forbidden because item do not support create
+        channel``). Treat such payloads as failures.
+        """
+        if not call.ok or not isinstance(call.body, dict):
+            raise RuntimeError(
+                f"xapi call failed status={call.status_code} body={call.body!r}"
+            )
+        result = call.body.get("result") or call.body.get("success") or call.body
+        if isinstance(result, dict) and isinstance(result.get("error"), dict):
+            err = result["error"]
+            raise RuntimeError(
+                f"avito rejected: code={err.get('code')} message={err.get('message')!r}"
+            )
+        if not isinstance(result, dict):
+            return {"id": result}
+        return result
+
     async def create_channel_by_item(self, item_id: str) -> dict[str, Any]:
         call = await self._client.post(
             "/api/v1/messenger/channels/by-item",
             json_body={"item_id": item_id},
         )
-        if not call.ok or not isinstance(call.body, dict):
-            raise RuntimeError(
-                f"xapi create_channel_by_item failed status={call.status_code} body={call.body!r}"
-            )
-        # xapi wraps in {"status":"ok","result":{...}}; some shapes nest "success" too.
-        result = call.body.get("result") or call.body.get("success") or call.body
-        return result if isinstance(result, dict) else {"id": result}
+        return self._unwrap_result(call)
 
     async def send_text(self, channel_id: str, text: str) -> dict[str, Any]:
         call = await self._client.post(
             f"/api/v1/messenger/channels/{channel_id}/messages",
             json_body={"text": text},
         )
-        if not call.ok or not isinstance(call.body, dict):
-            raise RuntimeError(
-                f"xapi send_text failed status={call.status_code} body={call.body!r}"
-            )
-        result = call.body.get("result") or call.body.get("success") or call.body
-        return result if isinstance(result, dict) else {"id": result}
+        return self._unwrap_result(call)
 
 
 @broker.task(task_name="app.tasks.seller_dialog_tasks.start_seller_dialog")
