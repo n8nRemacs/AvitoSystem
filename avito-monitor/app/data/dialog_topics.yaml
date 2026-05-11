@@ -1,0 +1,55 @@
+- key: battery_health
+  title: АКБ здоровье (%)
+  category: battery
+  expected_format: percent
+  default_phrasing: "Спроси точный процент здоровья АКБ из настроек"
+- key: face_id_works
+  title: Face ID работает
+  category: function
+  expected_format: yesno
+  default_phrasing: "Уточни, работает ли Face ID без сбоев"
+- key: icloud_unlinked
+  title: iCloud отвязан
+  category: function
+  expected_format: yesno
+  default_phrasing: "Спроси, отвязан ли iCloud с прошлого аккаунта"
+- key: replaced_display
+  title: Дисплей менялся
+  category: damage
+  expected_format: yesno
+  default_phrasing: "Уточни — менялся ли дисплей (оригинальный или замена)"
+- key: broken_glass
+  title: Разбито стекло дисплея
+  category: damage
+  expected_format: yesno
+  default_phrasing: "Спроси, целое ли стекло дисплея (трещины, сколы)"
+- key: display_stains_stripes
+  title: Пятна/полосы на дисплее
+  category: damage
+  expected_format: yesno
+  default_phrasing: "Уточни — есть ли пятна, полосы, битые пиксели на дисплее"
+- key: broken_back
+  title: Разбита задняя крышка
+  category: damage
+  expected_format: yesno
+  default_phrasing: "Спроси, целая ли задняя крышка телефона"
+- key: cameras_work
+  title: Все камеры работают
+  category: function
+  expected_format: text
+  default_phrasing: "Уточни — все ли камеры работают (основная, широкоугольная, теле, фронт); если есть дефекты — какая именно"
+- key: charging_stability
+  title: Зарядка и стабильность
+  category: function
+  expected_format: text
+  default_phrasing: "Спроси — стабильно ли заряжается, не перезагружается ли, не греется ли при использовании"
+- key: replaced_parts
+  title: Что ещё менялось
+  category: damage
+  expected_format: text
+  default_phrasing: "Уточни — менялись ли какие-то части помимо дисплея (АКБ, камеры, плата и т.п.)"
+- key: complectness
+  title: Комплект (коробка/кабель/зарядка)
+  category: complectness
+  expected_format: text
+  default_phrasing: "Спроси, что есть в комплекте: коробка, кабель, зарядка (адаптер)"
