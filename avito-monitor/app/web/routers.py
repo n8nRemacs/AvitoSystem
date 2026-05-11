@@ -541,9 +541,33 @@ async def listings_feed(
     # flat listings table below.
     if tab == "in_progress":
         from app.services.seller_dialog_view import KanbanFilters, query_kanban_cards
-        cards = await query_kanban_cards(session, user.id, KanbanFilters())
+
+        # Parse optional profile_id filter from query params
+        selected_pid_raw = qp.get("profile_id") or ""
+        kanban_filters = KanbanFilters()
+        if selected_pid_raw:
+            try:
+                kanban_filters = KanbanFilters(profile_ids=[uuid.UUID(selected_pid_raw)])
+            except ValueError:
+                selected_pid_raw = ""
+
+        cards = await query_kanban_cards(session, user.id, kanban_filters)
+
+        # Fetch all profiles belonging to this user for the filter dropdown
+        profiles_rows = (await session.execute(
+            select(SearchProfile.id, SearchProfile.name).where(
+                SearchProfile.user_id == user.id
+            ).order_by(SearchProfile.name)
+        )).all()
+        profiles = [{"id": str(r[0]), "name": r[1]} for r in profiles_rows]
+
         ctx = await _layout_context(user, session, active="listings")
-        ctx.update({"tab": tab, "cards": cards})
+        ctx.update({
+            "tab": tab,
+            "cards": cards,
+            "profiles": profiles,
+            "selected_profile_id": selected_pid_raw,
+        })
         return templates.TemplateResponse(request, "listings_kanban.html", ctx)
 
     try:
