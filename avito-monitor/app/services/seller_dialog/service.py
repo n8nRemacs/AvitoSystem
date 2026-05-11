@@ -117,3 +117,34 @@ async def close_dialog(
             last_event_at=now,
         )
     )
+
+
+async def get_dialog(session: AsyncSession, dialog_id: uuid.UUID) -> SellerDialog | None:
+    return await session.get(SellerDialog, dialog_id)
+
+
+async def set_recap(
+    session: AsyncSession, dialog_id: uuid.UUID, *,
+    text: str, msg_id: str | None, status: str,
+) -> None:
+    await session.execute(
+        update(SellerDialog)
+        .where(SellerDialog.id == dialog_id)
+        .values(
+            recap_text=text,
+            recap_msg_id=msg_id,
+            recap_status=status,
+            last_event_at=datetime.now(tz=timezone.utc),
+        )
+    )
+
+
+async def set_recap_status(
+    session: AsyncSession, dialog_id: uuid.UUID, status: str,
+) -> None:
+    await session.execute(
+        update(SellerDialog)
+        .where(SellerDialog.id == dialog_id)
+        .values(recap_status=status,
+                last_event_at=datetime.now(tz=timezone.utc))
+    )

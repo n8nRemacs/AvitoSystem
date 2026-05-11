@@ -227,3 +227,103 @@ async def start_seller_dialog(profile_id: str, listing_id: str) -> dict[str, Any
             except Exception:
                 log.exception("seller_dialog.start cleanup also failed")
             raise
+
+
+# ---------------------------- Phase B ---------------------------------------
+import asyncio
+from app.services.dialog_topics import state as topic_state
+from app.services.seller_dialog.constants import OPENING_LINE, RECAP_PENDING_ANSWER
+from app.services.llm_analyzer import formulate_question, formulate_recap
+
+
+async def has_started_questions(session, dialog_id) -> bool:
+    """True if at least one topic was already asked/answered/skipped."""
+    from sqlalchemy import select, func
+    from app.db.models import SellerDialogTopic
+    res = await session.execute(
+        select(func.count())
+        .select_from(SellerDialogTopic)
+        .where(
+            SellerDialogTopic.dialog_id == dialog_id,
+            SellerDialogTopic.status.in_(("asked", "answered", "skipped")),
+        )
+    )
+    return (res.scalar() or 0) > 0
+
+
+async def _dialog_tick_questions_impl(session, xapi, dialog_id):
+    """Pure-logic implementation, separated for testability."""
+    dialog = await sd_service.get_dialog(session, dialog_id)
+    if dialog is None or dialog.stage != "questions" or dialog.operator_mode:
+        return
+
+    # 1. If a topic is currently awaiting an answer — wait.
+    asked = await topic_state.get_asked_topic(session, dialog_id)
+    if asked is not None:
+        return
+
+    # 2. If first tick — send opening line first.
+    if not await has_started_questions(session, dialog_id):
+        await xapi.send_text(dialog.channel_id, OPENING_LINE)
+        # Optional persist into messenger_messages happens via send wrapper if used;
+        # else skip — opening is a courtesy, not part of state.
+        await asyncio.sleep(3)
+
+    # 3. Pick next pending topic.
+    next_topic = await topic_state.pick_next_pending(session, dialog_id)
+    if next_topic is not None:
+        # Load full topic metadata for the LLM
+        from sqlalchemy import select
+        from app.db.models import DialogTopic
+        topic_meta = (await session.execute(
+            select(DialogTopic).where(DialogTopic.key == next_topic.topic_key)
+        )).scalar_one()
+        history_tail = []  # could be filled from messenger_messages — keep MVP simple
+        question = await formulate_question(topic_meta, history_tail)
+        send_resp = await xapi.send_text(dialog.channel_id, question)
+        await topic_state.mark_asked(
+            session, next_topic.id,
+            question_text=question,
+            question_msg_id=send_resp.get("id") if isinstance(send_resp, dict) else None,
+        )
+        await session.commit()
+        return
+
+    # 4. All topics done — formulate recap if not yet sent.
+    if dialog.recap_status is None:
+        answered = await topic_state.answered_topics(session, dialog_id)
+        recap = await formulate_recap(answered)
+        send_resp = await xapi.send_text(dialog.channel_id, recap)
+        await sd_service.set_recap(
+            session, dialog_id,
+            text=recap,
+            msg_id=send_resp.get("id") if isinstance(send_resp, dict) else None,
+            status=RECAP_PENDING_ANSWER,
+        )
+        await session.commit()
+        return
+
+    # 5. recap is sent — waiting for seller's reply, nothing to do.
+
+
+@broker.task(task_name="app.tasks.seller_dialog_tasks.dialog_tick_questions")
+async def dialog_tick_questions(dialog_id: str) -> dict:
+    """TaskIQ entrypoint for the questions stage state machine tick."""
+    from app.db.base import get_sessionmaker
+    from app.services.messenger_bot.runner import make_xapi_client
+
+    sessionmaker = get_sessionmaker()
+    xapi_raw = make_xapi_client()
+    xapi = _XapiMessengerAdapter(xapi_raw)
+    async with sessionmaker() as session:
+        try:
+            await _dialog_tick_questions_impl(session, xapi, uuid.UUID(dialog_id))
+        except Exception:
+            log.exception("dialog_tick_questions failed dialog=%s — operator_mode", dialog_id)
+            try:
+                await sd_service.set_operator_mode(session, uuid.UUID(dialog_id), True)
+                await session.commit()
+            except Exception:
+                log.exception("operator_mode cleanup also failed")
+            raise
+    return {"dialog_id": dialog_id, "ok": True}
