@@ -36,6 +36,8 @@ from app.services.messenger_bot.whitelist import (
     fetch_own_user_id,
     is_my_listing,
 )
+from app.services.seller_dialog.handler import handle_seller_inbound
+from app.services.seller_dialog.service import get_dialog_by_channel
 
 log = structlog.get_logger(__name__)
 
@@ -407,6 +409,40 @@ async def handle_event(
             action="reply", target=channel_id, status="ok", details=verdict.to_dict()
         )
         return verdict
+
+    # ── Seller-dialog flow branch ───────────────────────────────────────
+    # If this channel belongs to a SellerDialog (= we initiated this chat
+    # via accept-action), route into the sales handler and return.
+    # The reliability flow's gates (kill-switch, dedup, etc.) don't apply.
+    sessionmaker = get_sessionmaker()
+    async with sessionmaker() as sd_session:
+        sales_dialog = await get_dialog_by_channel(sd_session, channel_id)
+        if sales_dialog is not None:
+            message_id = payload.get("message_id") or payload.get("id")
+            text = payload.get("text") or payload.get("body")
+            try:
+                await handle_seller_inbound(
+                    session=sd_session,
+                    channel_id=channel_id,
+                    message_id=str(message_id) if message_id else f"missing-{channel_id}",
+                    author_id=author_id,
+                    text=text if isinstance(text, str) else None,
+                )
+            except Exception:
+                log.exception(
+                    "messenger_bot.seller_dialog.inbound_failed",
+                    channel_id=channel_id,
+                )
+            verdict = HandlerVerdict(
+                action="sales_handled",
+                reason="routed to seller_dialog",
+                channel_id=channel_id,
+                details={"dialog_id": str(sales_dialog.id)},
+            )
+            await _persist_activity(
+                action="reply", target=channel_id, status="ok", details=verdict.to_dict()
+            )
+            return verdict
 
     # 3. Kill-switch first (cheapest, in-process).
     if not bot_enabled():

@@ -73,6 +73,23 @@ def stub_pipeline(monkeypatch):
     monkeypatch.setattr(handler_mod, "record_outgoing_message", aok)
     monkeypatch.setattr(handler_mod, "is_globally_rate_limited", aglobal_false)
 
+    # Seller-dialog branch: default to "this channel is NOT a sales dialog"
+    # so the reliability pipeline runs as usual. Individual tests override.
+    async def no_sales_dialog(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(handler_mod, "get_dialog_by_channel", no_sales_dialog)
+
+    # Also stub the sessionmaker the seller-dialog branch opens. Without this
+    # we'd try a real DB connection just to discover the channel isn't a sale.
+    from unittest.mock import AsyncMock, MagicMock
+
+    sm_cm = MagicMock()
+    sm_cm.__aenter__ = AsyncMock(return_value=AsyncMock())
+    sm_cm.__aexit__ = AsyncMock(return_value=None)
+    fake_sessionmaker = MagicMock(return_value=sm_cm)
+    monkeypatch.setattr(handler_mod, "get_sessionmaker", lambda: fake_sessionmaker)
+
     async def channel_false(*args, **kwargs):
         return False
 
