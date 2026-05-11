@@ -1,8 +1,8 @@
 """Read-side query service for the kanban UI.
 
-Returns dialogs grouped by stage. Phase A only renders the first two
-columns (contact + questions_setup); later phases add the rest by
-extending ``PHASE_A_STAGES`` to ``ALL_STAGES``.
+Returns dialogs grouped by stage. Phase B renders three columns
+(contact + questions_setup + questions); later phases add more by
+extending ``PHASE_B_STAGES``.
 """
 from __future__ import annotations
 
@@ -17,11 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Listing, SearchProfile, SellerDialog
 from app.services.seller_dialog.constants import (
     STAGE_CONTACT,
+    STAGE_QUESTIONS,
     STAGE_QUESTIONS_SETUP,
 )
 
 
-PHASE_A_STAGES = [STAGE_CONTACT, STAGE_QUESTIONS_SETUP]
+PHASE_B_STAGES = [STAGE_CONTACT, STAGE_QUESTIONS_SETUP, STAGE_QUESTIONS]
+# Backwards-compat alias (callers using the old name still work).
+PHASE_A_STAGES = PHASE_B_STAGES
 
 
 @dataclass
@@ -58,7 +61,7 @@ async def query_kanban_cards(
     user_id: uuid.UUID | str,
     filters: KanbanFilters | None = None,
 ) -> dict[str, list[KanbanCard]]:
-    """Return dict[stage_name -> list[KanbanCard]] for all stages in PHASE_A_STAGES.
+    """Return dict[stage_name -> list[KanbanCard]] for all stages in PHASE_B_STAGES.
 
     Empty list for stages with no cards (so the template can always iterate).
     """
@@ -75,7 +78,7 @@ async def query_kanban_cards(
         .join(SearchProfile, SearchProfile.id == SellerDialog.profile_id)
         .where(
             SearchProfile.user_id == user_id,
-            SellerDialog.stage.in_(PHASE_A_STAGES),
+            SellerDialog.stage.in_(PHASE_B_STAGES),
             SellerDialog.closed_at.is_(None),
         )
         .order_by(SellerDialog.opened_at.desc())
@@ -86,7 +89,7 @@ async def query_kanban_cards(
 
     rows = (await session.execute(stmt)).all()
 
-    out: dict[str, list[KanbanCard]] = {s: [] for s in PHASE_A_STAGES}
+    out: dict[str, list[KanbanCard]] = {s: [] for s in PHASE_B_STAGES}
     for sd, listing, profile_name in rows:
         card = KanbanCard(
             dialog_id=sd.id,
