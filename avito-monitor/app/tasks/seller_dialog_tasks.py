@@ -101,56 +101,83 @@ async def _start_seller_dialog_impl(
     }
 
 
+class _XapiMessengerAdapter:
+    """Duck-typed adapter wrapping the generic XapiClient to expose the two
+    methods _start_seller_dialog_impl expects.
+
+    Avito-monitor doesn't yet have a typed messenger client; the existing
+    XapiClient (in health_checker/xapi_client.py) is a generic GET/POST
+    wrapper. avito-xapi exposes:
+      - POST /api/v1/messenger/channels/by-item        body={item_id} → {result: {id, ...}}
+      - POST /api/v1/messenger/channels/{id}/messages  body={text}    → {result: {id, ...}}
+    """
+
+    def __init__(self, client):
+        self._client = client
+
+    async def create_channel_by_item(self, item_id: str) -> dict[str, Any]:
+        call = await self._client.post(
+            "/api/v1/messenger/channels/by-item",
+            json_body={"item_id": item_id},
+        )
+        if not call.ok or not isinstance(call.body, dict):
+            raise RuntimeError(
+                f"xapi create_channel_by_item failed status={call.status_code} body={call.body!r}"
+            )
+        # xapi wraps in {"status":"ok","result":{...}}; some shapes nest "success" too.
+        result = call.body.get("result") or call.body.get("success") or call.body
+        return result if isinstance(result, dict) else {"id": result}
+
+    async def send_text(self, channel_id: str, text: str) -> dict[str, Any]:
+        call = await self._client.post(
+            f"/api/v1/messenger/channels/{channel_id}/messages",
+            json_body={"text": text},
+        )
+        if not call.ok or not isinstance(call.body, dict):
+            raise RuntimeError(
+                f"xapi send_text failed status={call.status_code} body={call.body!r}"
+            )
+        result = call.body.get("result") or call.body.get("success") or call.body
+        return result if isinstance(result, dict) else {"id": result}
+
+
 @broker.task(task_name="app.tasks.seller_dialog_tasks.start_seller_dialog")
 async def start_seller_dialog(profile_id: str, listing_id: str) -> dict[str, Any]:
     """TaskIQ entrypoint — opens its own DB session + xapi client.
 
-    Lazy imports so the test can import ``_start_seller_dialog_impl`` without
-    requiring real session/xapi factories at collection time.
-
-    NOTE for follow-up: the codebase does not yet expose a single
-    ``build_xapi_client`` helper for messenger endpoints (the existing
-    ``AvitoMcpClient`` only covers search + listings; the messenger bot
-    uses its own :class:`app.services.health_checker.xapi_client.XapiClient`
-    via raw GET/POST). Until Task 8/9 introduces a shared xapi messenger
-    facade with ``create_channel_by_item`` / ``send_text`` methods, this
-    entrypoint is wired against a placeholder import that will raise at
-    worker boot. The unit test exercises ``_start_seller_dialog_impl``
-    directly and is not affected.
+    Wraps the generic XapiClient (used elsewhere in the messenger bot) with
+    a small adapter that exposes the typed messenger methods
+    ``_start_seller_dialog_impl`` expects.
     """
-    # TODO: adapt to actual xapi messenger client factory once Task 8/9 lands.
-    # Expected shape: async context manager yielding an object with
-    # ``create_channel_by_item(item_id) -> dict`` and
-    # ``send_text(channel_id, text) -> dict``.
-    from app.integrations.xapi import build_xapi_client  # type: ignore[import-not-found]  # noqa: F401
-
     from app.db.base import get_sessionmaker
+    from app.services.messenger_bot.runner import make_xapi_client
 
     sessionmaker = get_sessionmaker()
+    xapi_raw = make_xapi_client()
+    xapi = _XapiMessengerAdapter(xapi_raw)
     async with sessionmaker() as session:
-        async with build_xapi_client() as xapi:  # type: ignore[name-defined]
+        try:
+            return await _start_seller_dialog_impl(
+                session=session,
+                xapi_client=xapi,
+                profile_id=uuid.UUID(profile_id),
+                listing_id=uuid.UUID(listing_id),
+            )
+        except Exception:
+            log.exception(
+                "seller_dialog.start failed listing=%s — switching to operator_mode",
+                listing_id,
+            )
+            # Mark the (possibly created) dialog as operator_mode for human takeover.
             try:
-                return await _start_seller_dialog_impl(
-                    session=session,
-                    xapi_client=xapi,
+                dlg = await sd_service.get_dialog_by_listing(
+                    session,
                     profile_id=uuid.UUID(profile_id),
                     listing_id=uuid.UUID(listing_id),
                 )
+                if dlg:
+                    await sd_service.set_operator_mode(session, dlg.id, True)
+                    await session.commit()
             except Exception:
-                log.exception(
-                    "seller_dialog.start failed listing=%s — switching to operator_mode",
-                    listing_id,
-                )
-                # Mark the (possibly created) dialog as operator_mode for human takeover.
-                try:
-                    dlg = await sd_service.get_dialog_by_listing(
-                        session,
-                        profile_id=uuid.UUID(profile_id),
-                        listing_id=uuid.UUID(listing_id),
-                    )
-                    if dlg:
-                        await sd_service.set_operator_mode(session, dlg.id, True)
-                        await session.commit()
-                except Exception:
-                    log.exception("seller_dialog.start cleanup also failed")
-                raise
+                log.exception("seller_dialog.start cleanup also failed")
+            raise
