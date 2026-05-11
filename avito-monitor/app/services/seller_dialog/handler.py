@@ -26,6 +26,7 @@ from app.services.notifications import enqueue_tg_ping
 from app.services.seller_dialog import service as sd_service
 from app.services.seller_dialog.constants import (
     STAGE_QUESTIONS,
+    STAGE_QUESTIONS_SETUP,
     RECAP_PENDING_ANSWER,
     RECAP_CONFIRMED,
 )
@@ -156,3 +157,7 @@ async def handle_seller_inbound(
         )
 
     await session.commit()
+
+    if new_stage == STAGE_QUESTIONS_SETUP:
+        await enqueue_tg_ping(session, "seller_dialog_ready_to_setup", dialog.id)
+        await session.commit()

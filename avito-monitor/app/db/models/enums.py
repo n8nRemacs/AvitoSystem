@@ -103,6 +103,9 @@ class NotificationType(StrEnum):
     CONDITION_MIX_CHANGE = "condition_mix_change"
     ERROR = "error"
     PRICE_REPORT = "price_report"
+    # Seller-dialog transition pings (Phase B)
+    SELLER_DIALOG_READY_TO_SETUP = "seller_dialog_ready_to_setup"
+    SELLER_DIALOG_READY_TO_NEGOTIATE = "seller_dialog_ready_to_negotiate"
 
 
 class NotificationStatus(StrEnum):

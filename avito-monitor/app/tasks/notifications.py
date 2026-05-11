@@ -47,6 +47,14 @@ _LISTING_TYPES: frozenset[str] = frozenset({
     NotificationType.HISTORICAL_LOW.value,
 })
 
+# Seller-dialog transition pings always ship (operator-facing, not listing noise).
+# Rendered via Jinja2 templates in app/prompts/messenger/<type>.md — same generic
+# path as every other type. Listed here for documentation / grep-ability.
+_DIALOG_PING_TYPES: frozenset[str] = frozenset({
+    NotificationType.SELLER_DIALOG_READY_TO_SETUP.value,
+    NotificationType.SELLER_DIALOG_READY_TO_NEGOTIATE.value,
+})
+
 log = logging.getLogger(__name__)
 
 
