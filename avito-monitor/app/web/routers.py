@@ -1609,8 +1609,9 @@ async def render_setup_modal(
     )).scalar_one()
     topics = await topics_for_profile(session, dialog.profile_id)
     return templates.TemplateResponse(
+        request,
         "_partials/setup_modal.html",
-        {"request": request, "dialog": dialog, "listing": listing, "topics": topics},
+        {"dialog": dialog, "listing": listing, "topics": topics},
     )
 
 
@@ -1666,8 +1667,9 @@ async def quick_add_topic_endpoint(
     await quick_add_topic(session, profile_id=pid, question_text=question_text)
     topics = await topics_for_profile(session, pid)
     return templates.TemplateResponse(
+        request,
         "_partials/setup_modal.html",
-        {"request": request, "topics": topics, "_topics_only": True,
+        {"topics": topics, "_topics_only": True,
          "dialog": None, "listing": None},
     )
 
@@ -1687,8 +1689,9 @@ async def topic_library_page(
         select(SearchProfile.id).where(SearchProfile.user_id == user.id).limit(1)
     )).scalar_one_or_none()
     return templates.TemplateResponse(
+        request,
         "dialog_topics.html",
-        {"request": request, "topics": topics, "profile_id_first": pid_row},
+        {"topics": topics, "profile_id_first": pid_row},
     )
 
 
