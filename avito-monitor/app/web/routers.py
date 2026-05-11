@@ -535,6 +535,17 @@ async def listings_feed(
     tab = qp.get("tab") or "new"
     if tab not in ("new", "in_progress", "rejected", "all"):
         tab = "new"
+
+    # Phase A — the "В работе" tab is rendered as a kanban of SellerDialog
+    # rows grouped by stage (contact / questions_setup). Other tabs keep the
+    # flat listings table below.
+    if tab == "in_progress":
+        from app.services.seller_dialog_view import KanbanFilters, query_kanban_cards
+        cards = await query_kanban_cards(session, user.id, KanbanFilters())
+        ctx = await _layout_context(user, session, active="listings")
+        ctx.update({"tab": tab, "cards": cards})
+        return templates.TemplateResponse(request, "listings_kanban.html", ctx)
+
     try:
         offset = max(0, int(qp.get("offset") or 0))
     except ValueError:
