@@ -771,6 +771,76 @@ def _compute_bucket(
     return "grey", []
 
 
+# ----------------------------------------------------------------------
+# Lightweight standalone classifiers (Seller Dialog Phase A).
+#
+# These don't fit the full LLMAnalyzer cache/spec machinery — they're
+# tiny "single-question" classifiers used by the messenger pipeline
+# (e.g. "did the seller say yes?"). They share the OpenRouter client
+# but skip caching: each invocation is bound to a specific dialog
+# message, and re-classifying is cheap + acceptable.
+# ----------------------------------------------------------------------
+
+async def _llm_call_json(prompt: str, max_tokens: int = 256) -> dict[str, Any]:
+    """Run a one-shot classifier prompt against OpenRouter, return parsed JSON.
+
+    Thin module-level helper for standalone classifiers (Phase A seller
+    dialog and friends). NOT cached — callers using this should
+    short-circuit at a higher layer if they need cache semantics.
+    Raises if OpenRouter errors or the response isn't valid JSON.
+    """
+    # Imported lazily so tests can patch this function without dragging
+    # in the OpenRouter SDK / settings on import.
+    from app.config import get_settings
+    from app.integrations.openrouter.client import OpenRouterClient
+
+    settings = get_settings()
+    if not settings.openrouter_api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is empty — cannot call LLM")
+    client = OpenRouterClient(
+        api_key=settings.openrouter_api_key,
+        app_base_url=settings.app_base_url,
+        app_title="Avito Monitor",
+    )
+    resp = await client.complete_json(
+        model=settings.openrouter_default_text_model,
+        system_prompt=prompt,
+        user_content="",
+        temperature=0.0,
+        max_tokens=max_tokens,
+    )
+    parsed = _safe_json_loads(resp.content)
+    if parsed is None:
+        raise ValueError("LLM returned non-JSON content")
+    return parsed
+
+
+async def detect_yes_selling(seller_message: str) -> bool:
+    """Decide if seller's first reply confirms item is still for sale.
+
+    Returns True only on high-confidence (>=0.7) affirmative. Anything
+    else (including LLM error / parse failure) returns False so the
+    caller does NOT auto-transition the stage — operator stays in
+    control of edge cases.
+    """
+    prompt_template = (
+        DEFAULT_PROMPTS_DIR / "dialog_detect_yes_selling.md"
+    ).read_text(encoding="utf-8")
+    prompt = prompt_template.replace("{{seller_message}}", seller_message)
+
+    try:
+        result = await _llm_call_json(prompt, max_tokens=128)
+    except Exception:
+        return False
+    if not isinstance(result, dict):
+        return False
+    is_selling = result.get("is_selling")
+    confidence = result.get("confidence", 0.0)
+    if not isinstance(is_selling, bool) or not isinstance(confidence, (int, float)):
+        return False
+    return is_selling and confidence >= 0.7
+
+
 @lru_cache(maxsize=256)
 def _render_fragment_cached(template_text: str, params_json: str) -> str:
     if not template_text:
