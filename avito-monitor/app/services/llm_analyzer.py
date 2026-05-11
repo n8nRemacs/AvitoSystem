@@ -841,6 +841,125 @@ async def detect_yes_selling(seller_message: str) -> bool:
     return is_selling and confidence >= 0.7
 
 
+async def formulate_question(topic, history_tail: list[dict] | None = None) -> str:
+    """Generate natural-sounding question text for one topic.
+    Uses topic.default_phrasing as hint. Live & polite tone (Phase A greeting style).
+    Returns the question string. Falls back to default_phrasing on LLM failure.
+    """
+    prompt_template = (
+        DEFAULT_PROMPTS_DIR / "dialog_formulate_question.md"
+    ).read_text(encoding="utf-8")
+    history_text = "\n".join(
+        f"{m.get('direction', '?')}: {m.get('text', '')}"
+        for m in (history_tail or [])[-10:]
+    ) or "(пусто)"
+    prompt = (
+        prompt_template
+        .replace("{{topic_title}}", topic.title or "")
+        .replace("{{topic_hint}}", topic.default_phrasing or "")
+        .replace("{{topic_format}}", topic.expected_format or "text")
+        .replace("{{history_tail}}", history_text)
+    )
+    try:
+        result = await _llm_call_json(prompt, max_tokens=200)
+    except Exception:
+        return topic.default_phrasing or topic.title or "Подскажите, пожалуйста?"
+    if isinstance(result, dict) and isinstance(result.get("question"), str):
+        return result["question"].strip()
+    return topic.default_phrasing or topic.title or "Подскажите, пожалуйста?"
+
+
+async def parse_topic_answer(topic, seller_text: str, open_topics: list[dict] | None = None) -> dict:
+    """Parse seller's reply to a specific topic question.
+    Returns {"status": "answered"|"unclear"|"off_topic", "extracted": str|None, "side_topics": list}.
+    On LLM failure returns unclear so caller may re-ask.
+    """
+    prompt_template = (
+        DEFAULT_PROMPTS_DIR / "dialog_parse_topic_answer.md"
+    ).read_text(encoding="utf-8")
+    open_text = "\n".join(
+        f"- {ot.get('key')}: {ot.get('title')}" for ot in (open_topics or [])
+    ) or "(нет)"
+    prompt = (
+        prompt_template
+        .replace("{{topic_title}}", topic.title or "")
+        .replace("{{topic_hint}}", topic.default_phrasing or "")
+        .replace("{{topic_format}}", topic.expected_format or "text")
+        .replace("{{open_topics}}", open_text)
+        .replace("{{seller_text}}", seller_text or "")
+    )
+    safe_default = {"status": "unclear", "extracted": None, "side_topics": []}
+    try:
+        result = await _llm_call_json(prompt, max_tokens=400)
+    except Exception:
+        return safe_default
+    if not isinstance(result, dict):
+        return safe_default
+    status = result.get("status")
+    if status not in {"answered", "unclear", "off_topic"}:
+        return safe_default
+    extracted = result.get("extracted")
+    side = result.get("side_topics") if isinstance(result.get("side_topics"), list) else []
+    side_clean = [
+        {"topic_key": s["topic_key"], "extracted": s.get("extracted")}
+        for s in side
+        if isinstance(s, dict) and isinstance(s.get("topic_key"), str)
+    ]
+    return {"status": status, "extracted": extracted if isinstance(extracted, str) else None,
+            "side_topics": side_clean}
+
+
+async def formulate_recap(answered: list[tuple]) -> str:
+    """Compose a recap message for the seller summarising what they answered.
+    Falls back to deterministic template on LLM failure.
+    """
+    table_text = "\n".join(
+        f"- {topic.title}: {answer}" for topic, answer in answered
+    )
+    prompt_template = (
+        DEFAULT_PROMPTS_DIR / "dialog_formulate_recap.md"
+    ).read_text(encoding="utf-8")
+    prompt = prompt_template.replace("{{topics_table}}", table_text)
+
+    fallback = (
+        "Итак: "
+        + ", ".join(f"{topic.title} — {answer}" for topic, answer in answered)
+        + ". Всё правильно понял? Проверьте, пожалуйста, и подтвердите или поправьте меня."
+    )
+    try:
+        result = await _llm_call_json(prompt, max_tokens=400)
+    except Exception:
+        return fallback
+    if isinstance(result, dict) and isinstance(result.get("recap"), str):
+        return result["recap"].strip()
+    return fallback
+
+
+async def parse_seller_agreement(text: str) -> dict:
+    """Classify seller's reply to the recap message.
+    Returns {"agreement": "yes"|"no"|"unclear", "corrections": str|None}.
+    """
+    prompt_template = (
+        DEFAULT_PROMPTS_DIR / "dialog_parse_seller_agreement.md"
+    ).read_text(encoding="utf-8")
+    prompt = prompt_template.replace("{{seller_text}}", text or "")
+    safe = {"agreement": "unclear", "corrections": None}
+    try:
+        result = await _llm_call_json(prompt, max_tokens=200)
+    except Exception:
+        return safe
+    if not isinstance(result, dict):
+        return safe
+    agreement = result.get("agreement")
+    if agreement not in {"yes", "no", "unclear"}:
+        return safe
+    corrections = result.get("corrections")
+    return {
+        "agreement": agreement,
+        "corrections": corrections if isinstance(corrections, str) else None,
+    }
+
+
 @lru_cache(maxsize=256)
 def _render_fragment_cached(template_text: str, params_json: str) -> str:
     if not template_text:
