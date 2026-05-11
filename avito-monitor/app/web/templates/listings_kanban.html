@@ -23,8 +23,22 @@
     {% endfor %}
   </div>
 
-  {# Phase A — 2 columns. Later phases will extend to 9 columns + horizontal scroll. #}
-  <div class="grid grid-cols-2 gap-4">
+  <form method="get" class="mb-4 flex items-center gap-2">
+    <input type="hidden" name="tab" value="in_progress">
+    <label class="text-sm text-stone-600">Профиль:</label>
+    <select name="profile_id" onchange="this.form.submit()"
+            class="border border-stone-300 rounded px-2 py-1 text-sm">
+      <option value="">Все профили</option>
+      {% for p in profiles %}
+      <option value="{{ p.id }}" {% if selected_profile_id == p.id|string %}selected{% endif %}>
+        {{ p.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {# Phase B — 3 columns. Later phases will extend to 9 columns + horizontal scroll. #}
+  <div class="grid grid-cols-3 gap-4">
 
     <div class="bg-stone-50 rounded-lg p-3 min-h-[300px]">
       <div class="flex items-center justify-between mb-3 px-1">
@@ -50,6 +64,36 @@
       {% endfor %}
     </div>
 
+
+    <div class="bg-stone-50 rounded-lg p-3 min-h-[300px]">
+      <div class="flex items-center justify-between mb-3 px-1">
+        <h2 class="text-sm font-semibold text-stone-700 uppercase tracking-wide">Опрос</h2>
+        <span class="text-xs text-stone-500">{{ cards.questions|length }}</span>
+      </div>
+      {% for card in cards.questions %}
+        {% include "_partials/kanban_card_questions.html" %}
+      {% else %}
+        <div class="text-xs text-stone-400 text-center py-8">пусто</div>
+      {% endfor %}
+    </div>
+
   </div>
+
+  <dialog id="setup-dialog" class="rounded-lg shadow-xl backdrop:bg-black/40 backdrop:backdrop-blur-sm">
+  </dialog>
+  <script>
+  document.body.addEventListener('click', async (e) => {
+    const t = e.target.closest('.setup-modal-trigger');
+    if (!t) return;
+    e.preventDefault();
+    const id = t.dataset.dialogId;
+    const r = await fetch(`/dialogs/${id}/setup`);
+    if (!r.ok) { alert('Ошибка загрузки настройки'); return; }
+    const html = await r.text();
+    const dlg = document.getElementById('setup-dialog');
+    dlg.innerHTML = html;
+    dlg.showModal();
+  });
+  </script>
 </div>
 {% endblock %}

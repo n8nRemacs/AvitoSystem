@@ -1,0 +1,79 @@
+{% if _topics_only %}
+<ul id="topic-list" class="space-y-1">
+{% for t in topics %}
+  <li>
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input type="checkbox" name="topics" value="{{ t.key }}" class="mt-1">
+      <span class="text-sm">
+        <span class="text-stone-800">{{ t.title }}</span>
+        {% if t.category %}<span class="text-xs text-stone-400 ml-1">[{{ t.category }}]</span>{% endif %}
+      </span>
+    </label>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<div class="bg-white rounded-lg p-6 max-w-lg w-full">
+  <h2 class="text-lg font-semibold mb-3">
+    Настройка опроса — {{ listing.title }}
+  </h2>
+  <form method="post" action="/dialogs/{{ dialog.id }}/start-questions" class="space-y-4">
+    <div>
+      <p class="text-sm text-stone-600 mb-2">Выберите темы для опроса:</p>
+      <ul id="topic-list" class="space-y-1 max-h-72 overflow-y-auto">
+        {% for t in topics %}
+        <li>
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" name="topics" value="{{ t.key }}" class="mt-1">
+            <span class="text-sm">
+              <span class="text-stone-800">{{ t.title }}</span>
+              {% if t.category %}<span class="text-xs text-stone-400 ml-1">[{{ t.category }}]</span>{% endif %}
+            </span>
+          </label>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="border-t border-stone-200 pt-3">
+      <label class="block text-sm text-stone-600 mb-1">Добавить свой вопрос:</label>
+      <div class="flex gap-2">
+        <input type="text" id="adhoc-text" placeholder="Например: сколько раз падал?"
+               class="flex-1 border border-stone-300 rounded px-2 py-1 text-sm">
+        <button type="button" id="adhoc-btn"
+                data-profile="{{ dialog.profile_id }}"
+                class="px-3 py-1 text-sm bg-stone-100 hover:bg-stone-200 rounded">+ добавить</button>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 border-t border-stone-200 pt-3">
+      <button type="button" id="cancel-btn"
+              class="px-3 py-1 text-sm text-stone-600 hover:text-stone-900">Отмена</button>
+      <button type="submit"
+              class="px-4 py-1 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded">
+        Запустить опрос
+      </button>
+    </div>
+  </form>
+</div>
+<script>
+(function(){
+  const adhocBtn = document.getElementById('adhoc-btn');
+  const adhocTxt = document.getElementById('adhoc-text');
+  const cancelBtn = document.getElementById('cancel-btn');
+  const dialogEl = document.querySelector('dialog#setup-dialog');
+  adhocBtn.addEventListener('click', async () => {
+    const text = adhocTxt.value.trim();
+    if (!text) return;
+    const fd = new FormData();
+    fd.append('question_text', text);
+    fd.append('profile_id', adhocBtn.dataset.profile);
+    const resp = await fetch('/dialog-topics/quick-add', {method:'POST', body: fd});
+    if (resp.ok) {
+      const html = await resp.text();
+      document.getElementById('topic-list').outerHTML = html;
+      adhocTxt.value = '';
+    }
+  });
+  cancelBtn.addEventListener('click', () => dialogEl.close());
+})();
+</script>
+{% endif %}

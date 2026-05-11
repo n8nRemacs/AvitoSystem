@@ -1,0 +1,36 @@
+{% extends "_layout.html" %}
+{% block content %}
+<div class="max-w-3xl mx-auto py-6">
+  <h1 class="text-xl font-semibold mb-4">Библиотека тем для опроса</h1>
+  <table class="w-full text-sm">
+    <thead class="text-left text-xs text-stone-500 border-b">
+      <tr>
+        <th class="pb-2">Ключ</th>
+        <th class="pb-2">Название</th>
+        <th class="pb-2">Категория</th>
+        <th class="pb-2">Формат</th>
+        <th class="pb-2">Источник</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in topics %}
+      <tr class="border-b border-stone-100">
+        <td class="py-1.5 font-mono text-xs">{{ t.key }}</td>
+        <td class="py-1.5">{{ t.title }}</td>
+        <td class="py-1.5">{{ t.category }}</td>
+        <td class="py-1.5">{{ t.expected_format }}</td>
+        <td class="py-1.5 text-xs text-stone-400">{{ t.created_by }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/dialog-topics/add" class="mt-6 flex gap-2">
+    <input type="text" name="question_text" placeholder="Новая тема (формулировка вопроса)"
+           class="flex-1 border border-stone-300 rounded px-2 py-1 text-sm" required>
+    <input type="hidden" name="profile_id" value="{{ profile_id_first }}">
+    <button type="submit" class="px-4 py-1 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded">
+      Добавить
+    </button>
+  </form>
+</div>
+{% endblock %}
