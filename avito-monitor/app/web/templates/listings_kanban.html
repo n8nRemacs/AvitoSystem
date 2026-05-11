@@ -82,6 +82,7 @@
   <dialog id="setup-dialog" class="rounded-lg shadow-xl backdrop:bg-black/40 backdrop:backdrop-blur-sm">
   </dialog>
   <script>
+  // Open setup modal on trigger click.
   document.body.addEventListener('click', async (e) => {
     const t = e.target.closest('.setup-modal-trigger');
     if (!t) return;
@@ -93,6 +94,25 @@
     const dlg = document.getElementById('setup-dialog');
     dlg.innerHTML = html;
     dlg.showModal();
+  });
+
+  // Ad-hoc topic add — delegated handler (script tags inside innerHTML don't execute).
+  document.body.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action="adhoc-add"]');
+    if (!btn) return;
+    e.preventDefault();
+    const txt = document.getElementById('adhoc-text');
+    const text = (txt?.value || '').trim();
+    if (!text) return;
+    const fd = new FormData();
+    fd.append('question_text', text);
+    fd.append('profile_id', btn.dataset.profile);
+    const resp = await fetch('/dialog-topics/quick-add', { method: 'POST', body: fd });
+    if (!resp.ok) { alert('Не удалось добавить вопрос'); return; }
+    const html = await resp.text();
+    const list = document.getElementById('topic-list');
+    if (list) list.outerHTML = html;
+    txt.value = '';
   });
   </script>
 </div>

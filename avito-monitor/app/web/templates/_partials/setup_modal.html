@@ -39,14 +39,16 @@
       <div class="flex gap-2">
         <input type="text" id="adhoc-text" placeholder="Например: сколько раз падал?"
                class="flex-1 border border-stone-300 rounded px-2 py-1 text-sm">
-        <button type="button" id="adhoc-btn"
+        <button type="button"
+                data-action="adhoc-add"
                 data-profile="{{ dialog.profile_id }}"
-                class="px-3 py-1 text-sm bg-stone-100 hover:bg-stone-200 rounded">+ добавить</button>
+                class="px-3 py-1 text-sm bg-stone-100 hover:bg-stone-200 rounded border border-stone-300">+ добавить</button>
       </div>
     </div>
     <div class="flex justify-end gap-2 border-t border-stone-200 pt-3">
-      <button type="button" id="cancel-btn"
-              class="px-3 py-1 text-sm text-stone-600 hover:text-stone-900">Отмена</button>
+      <button type="button"
+              onclick="this.closest('dialog').close()"
+              class="px-3 py-1 text-sm text-stone-700 bg-white border border-stone-300 rounded hover:bg-stone-100">Отмена</button>
       <button type="submit"
               class="px-4 py-1 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded">
         Запустить опрос
@@ -54,26 +56,4 @@
     </div>
   </form>
 </div>
-<script>
-(function(){
-  const adhocBtn = document.getElementById('adhoc-btn');
-  const adhocTxt = document.getElementById('adhoc-text');
-  const cancelBtn = document.getElementById('cancel-btn');
-  const dialogEl = document.querySelector('dialog#setup-dialog');
-  adhocBtn.addEventListener('click', async () => {
-    const text = adhocTxt.value.trim();
-    if (!text) return;
-    const fd = new FormData();
-    fd.append('question_text', text);
-    fd.append('profile_id', adhocBtn.dataset.profile);
-    const resp = await fetch('/dialog-topics/quick-add', {method:'POST', body: fd});
-    if (resp.ok) {
-      const html = await resp.text();
-      document.getElementById('topic-list').outerHTML = html;
-      adhocTxt.value = '';
-    }
-  });
-  cancelBtn.addEventListener('click', () => dialogEl.close());
-})();
-</script>
 {% endif %}
