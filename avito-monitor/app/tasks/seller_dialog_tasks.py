@@ -172,7 +172,12 @@ class _XapiMessengerAdapter:
             f"/api/v1/messenger/channels/{channel_id}/messages",
             json_body={"text": text},
         )
-        return self._unwrap_result(call)
+        result = self._unwrap_result(call)
+        # xapi shape: result = {"message": {"id": "...", "channelId": "...", ...}}.
+        # Peel so callers can do msg_resp["id"].
+        if isinstance(result, dict) and isinstance(result.get("message"), dict):
+            return result["message"]
+        return result
 
 
 @broker.task(task_name="app.tasks.seller_dialog_tasks.start_seller_dialog")
