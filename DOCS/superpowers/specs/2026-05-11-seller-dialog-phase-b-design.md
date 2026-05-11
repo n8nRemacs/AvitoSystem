@@ -26,19 +26,21 @@
 - Stages 4-9 (price negotiation → deal closure) — Phase D.
 - Per-stage Avito-side проверки (items/{id} price watch, shipment markers) — Phase D/E.
 - TG-пинги SLA timeout — Phase E (только 2 transition-пинга в Phase B).
+- **Тема `delivery_method`** — обсуждение доставки требует подхода (не всем продавцам можно/нужно отправить, "в лоб" через LLM много отказов). Объединяется с этапом 4 (Согласование цены) — обсуждение скидки + способа передачи как единый торг-блок. Сейчас delivery — операторская часть, не LLM-вопрос.
 
 ## 3. Принятые решения (brainstorm 2026-05-11)
 
 | # | Решение | Обоснование |
 |---|---|---|
 | Q1 | **Bundle stages 2+3** (не разбиваем по mini-фазам) + **фильтр по профилю** в kanban | Связанные стадии: B-only оставит operator писать руками 17 текущих карточек. Фильтр нужен уже для подготовки к нескольким профилям. |
-| Q2 | **7 baseline тем для iPhone 12 Pro Max**: battery_health, face_id_works, icloud_unlinked, imei_clean, box_present, complectness, delivery_method. Без defects. `category` — гибкий VARCHAR, не enum. | Минимальный subset для текущего профиля. Defects пока не регламентированы. |
+| Q2 | **11 baseline тем для iPhone 12 Pro Max**: battery_health, face_id_works, icloud_unlinked, replaced_display, broken_glass, display_stains_stripes, broken_back, cameras_work, charging_stability, replaced_parts, complectness. **С defects** (хотя изначально планировали отложить — оператор явно их затребовал в baseline). `category` — гибкий VARCHAR, не enum. `imei_clean` исключён (в России нет blacklist'ов). `delivery_method` исключён (обсуждение доставки требует подхода / эмоциональной части — отложено в Phase D как часть Согласования цены / торга, не LLM-вопрос). | Минимальный subset под текущий профиль. |
 | Q3 | **Default-unchecked**: оператор сам тикает темы. Smart auto-pretick — позже (Phase 2 backlog). | Дисциплина: оператор думает что нужно конкретно для этого лота, до накопления статистики. |
 | Q4 | **One-question-at-a-time pacing** | Натурально как реальный диалог. LLM-парсер простой. Защита от перегрузки Avito выборкой. LLM-extractor умеет попутно закрывать другие topics ("side_topics" в response). |
 | Q5 | **Short recap, human tone**: «Итак: АКБ 87%, Face ID работает, iCloud отвязан, IMEI чистый, в комплекте коробка + шнур. Всё правильно понял? Проверьте, пожалуйста, и подтвердите или поправьте меня.» Тон распространяется на все LLM-prompts. | Натурально, продавец сразу видит ошибки extracted_data, может поправить. |
 | Q6 | **Ad-hoc вопросы разрешены, сохраняются в `dialog_topics`** + auto-link в `profile_dialog_topics`. Permanent extension библиотеки. | Гибкость для разовых вопросов + automatic enrichment baseline-списка для будущих лотов. |
 | Q7 | **TG-пинги #1 и #2 включены в Phase B**, business тон | Operator должен знать когда нужно действие без постоянной проверки UI. |
 | Q8 | **Modal на kanban для настройки опроса** (а не drawer/page/inline) | Минимум переходов, не уходим со страницы. Drawer = Phase C. |
+| Q9 | **Opening line отдельным сообщением** перед первым вопросом: «У меня есть несколько вопросов по Вашему аппарату, ответьте пожалуйста, если Вас это не затруднит.» Отправляется один раз при первом тике в stage='questions' (когда ни одна тема ещё не asked). Через ~3 сек после opening — первый topic-question. | Натуральная переписка (2 коротких сообщения подряд как у реального человека). Risk Avito rate-limit minimal (1.0 rps + burst 3 хватает). |
 
 ## 4. Архитектура
 
@@ -146,7 +148,7 @@ ALTER TABLE seller_dialogs
   title: АКБ здоровье (%)
   category: battery
   expected_format: percent
-  default_phrasing: "Спроси про % здоровья АКБ из настроек, попроси точную цифру если возможно"
+  default_phrasing: "Спроси точный процент здоровья АКБ из настроек"
 
 - key: face_id_works
   title: Face ID работает
@@ -160,29 +162,53 @@ ALTER TABLE seller_dialogs
   expected_format: yesno
   default_phrasing: "Спроси, отвязан ли iCloud с прошлого аккаунта"
 
-- key: imei_clean
-  title: IMEI чистый (не в blacklist)
-  category: function
+- key: replaced_display
+  title: Дисплей менялся
+  category: damage
   expected_format: yesno
-  default_phrasing: "Уточни статус IMEI — не в чёрном списке ли"
+  default_phrasing: "Уточни — менялся ли дисплей (оригинальный или замена)"
 
-- key: box_present
-  title: Коробка есть
-  category: complectness
+- key: broken_glass
+  title: Разбито стекло дисплея
+  category: damage
   expected_format: yesno
-  default_phrasing: "Спроси, есть ли коробка (оригинальная или нет — отдельно)"
+  default_phrasing: "Спроси, целое ли стекло дисплея (трещины, сколы)"
+
+- key: display_stains_stripes
+  title: Пятна/полосы на дисплее
+  category: damage
+  expected_format: yesno
+  default_phrasing: "Уточни — есть ли пятна, полосы, битые пиксели на дисплее"
+
+- key: broken_back
+  title: Разбита задняя крышка
+  category: damage
+  expected_format: yesno
+  default_phrasing: "Спроси, целая ли задняя крышка телефона"
+
+- key: cameras_work
+  title: Все камеры работают
+  category: function
+  expected_format: text
+  default_phrasing: "Уточни — все ли камеры работают (основная, широкоугольная, теле, фронт); если есть дефекты — какая именно"
+
+- key: charging_stability
+  title: Зарядка и стабильность
+  category: function
+  expected_format: text
+  default_phrasing: "Спроси — стабильно ли заряжается, не перезагружается ли, не греется ли при использовании"
+
+- key: replaced_parts
+  title: Что ещё менялось
+  category: damage
+  expected_format: text
+  default_phrasing: "Уточни — менялись ли какие-то части помимо дисплея (АКБ, камеры, плата и т.п.)"
 
 - key: complectness
-  title: Комплект (шнур, наушники, чек)
+  title: Комплект (коробка/кабель/зарядка)
   category: complectness
   expected_format: text
-  default_phrasing: "Уточни состав комплекта: шнур, наушники, документы, чек, переходники"
-
-- key: delivery_method
-  title: Способ передачи
-  category: shipping
-  expected_format: text
-  default_phrasing: "Спроси, как удобнее передать: Avito-доставка, курьер, самовывоз; если самовывоз — где"
+  default_phrasing: "Спроси, что есть в комплекте: коробка, кабель, зарядка (адаптер)"
 ```
 
 ### 4.4 LLM dispatchers (новые в `app/services/llm_analyzer.py`)
@@ -238,13 +264,21 @@ async def dialog_tick_questions(dialog_id: str) -> dict:
       1. Load dialog + topics. If stage != 'questions' or operator_mode → return.
       2. If any topic.status='asked' AND .answer_text IS NULL → wait (return).
          (We're waiting for seller's reply to current question.)
-      3. If any topic.status='pending' → pick highest-priority, formulate, send, mark 'asked'.
-      4. Else if all topics answered/skipped AND seller_dialogs.recap_status IS NULL →
-           formulate_recap, send, set recap_status='pending_answer'.
-      5. Else if recap_status='pending_answer' → wait (return).
-      6. Else if recap_status='confirmed' → SUGGEST: enqueue TG-ping #2 + update last_event_at.
+      3. If NO topic.status IN ('asked','answered','skipped') → first tick:
+           a. Send OPENING_LINE («У меня есть несколько вопросов по Вашему аппарату,
+              ответьте пожалуйста, если Вас это не затруднит.») via xapi.
+           b. await asyncio.sleep(3) — humanlike gap.
+           c. Continue to step 4 (pick first pending topic).
+      4. If any topic.status='pending' → pick highest-priority,
+           formulate_question(topic, history_tail), send_text, mark 'asked'.
+      5. Else if all topics answered/skipped AND seller_dialogs.recap_status IS NULL →
+           formulate_recap(answered_topics), send_text, set recap_status='pending_answer'.
+      6. Else if recap_status='pending_answer' → wait (return).
+      7. Else if recap_status='confirmed' → SUGGEST: enqueue TG-ping #2 + update last_event_at.
     """
 ```
+
+`OPENING_LINE` — constant в `app/services/seller_dialog/constants.py` рядом с `GREETING_TEMPLATE`.
 
 Failure modes:
 - LLM call failure → log + не транзишн (тик можно повторить вручную через kiq)
