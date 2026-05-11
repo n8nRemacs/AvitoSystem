@@ -22,7 +22,9 @@ async def test_start_seller_dialog_creates_channel_and_sends_greeting():
     with patch("app.tasks.seller_dialog_tasks._get_avito_item_id",
                new=AsyncMock(return_value=avito_item_id)), \
          patch("app.tasks.seller_dialog_tasks.sd_service.get_dialog_by_listing",
-               new=AsyncMock(return_value=None)):
+               new=AsyncMock(return_value=None)), \
+         patch("app.tasks.seller_dialog_tasks.ensure_chat_row",
+               new=AsyncMock()) as m_ensure:
         result = await _start_seller_dialog_impl(
             session=session,
             xapi_client=xapi_client,
@@ -32,6 +34,9 @@ async def test_start_seller_dialog_creates_channel_and_sends_greeting():
 
     xapi_client.create_channel_by_item.assert_awaited_once_with(avito_item_id)
     xapi_client.send_text.assert_awaited_once_with("ch_abc", GREETING_TEMPLATE)
+    # messenger_chats parent row must be ensured before the outgoing
+    # MessengerMessage insert — otherwise FK violation on commit.
+    m_ensure.assert_awaited_once_with("ch_abc", item_id=int(avito_item_id))
     assert result["channel_id"] == "ch_abc"
     assert result["greeting_message_id"] == "msg_xyz"
 

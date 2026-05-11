@@ -18,7 +18,9 @@ async def test_handle_seller_inbound_persists_message():
     with patch("app.services.seller_dialog.handler.get_dialog_by_channel",
                new=AsyncMock(return_value=dialog)), \
          patch("app.services.seller_dialog.handler.detect_yes_selling",
-               new=AsyncMock(return_value=True)) as m_detect:
+               new=AsyncMock(return_value=True)) as m_detect, \
+         patch("app.services.seller_dialog.handler.ensure_chat_row",
+               new=AsyncMock()) as m_ensure:
         await handle_seller_inbound(
             session=session,
             channel_id="ch_abc",
@@ -30,6 +32,8 @@ async def test_handle_seller_inbound_persists_message():
     # Either we persisted the message AND attempted transition
     assert session.add.called
     m_detect.assert_awaited_once_with("Да, продаётся")
+    # messenger_chats parent must be ensured before child INSERT.
+    m_ensure.assert_awaited_once_with("ch_abc")
 
 
 @pytest.mark.asyncio
@@ -46,7 +50,9 @@ async def test_handle_seller_inbound_skips_when_operator_mode():
     with patch("app.services.seller_dialog.handler.get_dialog_by_channel",
                new=AsyncMock(return_value=dialog)), \
          patch("app.services.seller_dialog.handler.detect_yes_selling",
-               new=AsyncMock(return_value=True)) as m_detect:
+               new=AsyncMock(return_value=True)) as m_detect, \
+         patch("app.services.seller_dialog.handler.ensure_chat_row",
+               new=AsyncMock()):
         await handle_seller_inbound(
             session=session,
             channel_id="ch_abc",

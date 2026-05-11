@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import MessengerMessage
 from app.services.llm_analyzer import detect_yes_selling
+from app.services.messenger_bot.dedup import ensure_chat_row
 from app.services.seller_dialog.service import (
     get_dialog_by_channel,
     set_stage,
@@ -46,6 +47,11 @@ async def handle_seller_inbound(
     if dialog is None:
         log.warning("seller_dialog.handler called for unknown channel %s", channel_id)
         return
+
+    # Ensure messenger_chats parent row exists — required by FK on
+    # messenger_messages.channel_id. item_id unknown here (SSE payload
+    # doesn't carry it); ensure_chat_row leaves it NULL on first insert.
+    await ensure_chat_row(channel_id)
 
     # Step 1: persist the inbound (idempotent on PK)
     msg = MessengerMessage(

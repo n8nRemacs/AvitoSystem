@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Listing, MessengerMessage
+from app.services.messenger_bot.dedup import ensure_chat_row
 from app.services.seller_dialog import service as sd_service
 from app.services.seller_dialog.constants import GREETING_TEMPLATE
 from app.tasks.broker import broker
@@ -84,6 +85,12 @@ async def _start_seller_dialog_impl(
     channel_resp = await xapi_client.create_channel_by_item(avito_item_id)
     channel_id = channel_resp["id"]
     await sd_service.set_channel_id(session, dialog.id, channel_id)
+
+    # Ensure messenger_chats parent row exists before we INSERT a child
+    # messenger_messages row (FK channel_id → messenger_chats.id).
+    # ensure_chat_row opens its own session and commits — idempotent via
+    # ON CONFLICT DO NOTHING.
+    await ensure_chat_row(channel_id, item_id=int(avito_item_id))
 
     # Step 4: send greeting
     msg_resp = await xapi_client.send_text(channel_id, GREETING_TEMPLATE)
