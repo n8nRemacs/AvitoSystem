@@ -95,10 +95,14 @@ class AvitoHttpClient(BaseAvitoClient):
 
     async def create_channel_by_item(self, item_id: str) -> dict[str, Any]:
         await self.rate_limiter.wait_and_acquire()
+        # Avito mobile API requires itemId as an INTEGER. Empirically verified
+        # 2026-05-11: passing as string returns 400 "no return value specified
+        # for DTO"; int returns 200 with channel data. Callers may pass either
+        # type; we coerce here.
         resp = self.http.post(
             f"{self.BASE_URL}/1/messenger/createItemChannel",
             headers=self._headers(),
-            json={"itemId": item_id},
+            json={"itemId": int(item_id)},
         )
         resp.raise_for_status()
         return resp.json()
@@ -213,8 +217,11 @@ class AvitoHttpClient(BaseAvitoClient):
             params["categoryId"] = category_id
         if sort:
             params["sort"] = sort
+        # Bool → URL-параметр: curl_cffi сериализует Python True → "True"
+        # (capitalized), но Avito-app шлёт lowercase "true"/"false".
+        # QRATOR детектит "True" как бот-формат → 403. Эмпир. 2026-05-07.
         if with_delivery is not None:
-            params["withDelivery"] = with_delivery
+            params["withDelivery"] = "true" if with_delivery else "false"
         if owner:
             params["owner"] = owner
         if search_area:
@@ -222,7 +229,7 @@ class AvitoHttpClient(BaseAvitoClient):
         if radius is not None:
             params["radius"] = radius
         if force_location is not None:
-            params["forceLocation"] = force_location
+            params["forceLocation"] = "true" if force_location else "false"
         if params_extra:
             params.update(params_extra)
 
