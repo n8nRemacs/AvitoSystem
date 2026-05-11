@@ -19,9 +19,10 @@ async def test_start_seller_dialog_creates_channel_and_sends_greeting():
     xapi_client.create_channel_by_item.return_value = {"id": "ch_abc"}
     xapi_client.send_text.return_value = {"id": "msg_xyz"}
 
-    # Mock listing lookup
     with patch("app.tasks.seller_dialog_tasks._get_avito_item_id",
-               new=AsyncMock(return_value=avito_item_id)):
+               new=AsyncMock(return_value=avito_item_id)), \
+         patch("app.tasks.seller_dialog_tasks.sd_service.get_dialog_by_listing",
+               new=AsyncMock(return_value=None)):
         result = await _start_seller_dialog_impl(
             session=session,
             xapi_client=xapi_client,
@@ -33,3 +34,32 @@ async def test_start_seller_dialog_creates_channel_and_sends_greeting():
     xapi_client.send_text.assert_awaited_once_with("ch_abc", GREETING_TEMPLATE)
     assert result["channel_id"] == "ch_abc"
     assert result["greeting_message_id"] == "msg_xyz"
+
+
+@pytest.mark.asyncio
+async def test_start_seller_dialog_idempotent_when_dialog_exists():
+    from app.tasks.seller_dialog_tasks import _start_seller_dialog_impl
+
+    profile_id = uuid.uuid4()
+    listing_id = uuid.uuid4()
+    session = AsyncMock()
+    xapi_client = AsyncMock()
+
+    existing = MagicMock()
+    existing.id = uuid.uuid4()
+    existing.channel_id = "ch_already"
+    existing.stage = "contact"
+
+    with patch("app.tasks.seller_dialog_tasks.sd_service.get_dialog_by_listing",
+               new=AsyncMock(return_value=existing)):
+        result = await _start_seller_dialog_impl(
+            session=session,
+            xapi_client=xapi_client,
+            profile_id=profile_id,
+            listing_id=listing_id,
+        )
+
+    xapi_client.create_channel_by_item.assert_not_called()
+    xapi_client.send_text.assert_not_called()
+    assert result["skipped"] is True
+    assert result["channel_id"] == "ch_already"

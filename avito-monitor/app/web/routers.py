@@ -21,6 +21,7 @@ from app.schemas.search_profile import (
 )
 from app.services import search_profiles as svc
 from app.services.auth import authenticate
+from app.tasks.seller_dialog_tasks import start_seller_dialog
 
 log = structlog.get_logger(__name__)
 
@@ -624,6 +625,23 @@ async def listings_feed(
     return templates.TemplateResponse(request, "listings.html", ctx)
 
 
+async def _maybe_enqueue_start_seller_dialog(
+    *,
+    action_raw: str,
+    profile_id: uuid.UUID,
+    listing_id: uuid.UUID,
+) -> None:
+    """Enqueue dialog-start task only on the 'accept' action, never on reject/undo.
+
+    Idempotency note: the worker itself bails if a SellerDialog already
+    exists for this (profile, listing), so double-clicks or accept→undo→
+    accept don't send a second greeting. (Phase A leaves the dialog row
+    behind after undo — that's acceptable.)
+    """
+    if action_raw == "accept":
+        await start_seller_dialog.kiq(str(profile_id), str(listing_id))
+
+
 @router.post("/listings/{profile_id}/{listing_id}/action", response_model=None)
 async def listing_action(
     profile_id: uuid.UUID,
@@ -692,6 +710,12 @@ async def listing_action(
     await session.commit()
     if res.rowcount == 0:
         raise HTTPException(404, "Listing link not found")
+
+    await _maybe_enqueue_start_seller_dialog(
+        action_raw=action_raw,
+        profile_id=profile_id,
+        listing_id=listing_id,
+    )
 
     # After the action send the user back to the exact same listings view
     # (preserves bucket, profile filter, free-text q, pagination offset, …).
@@ -762,6 +786,7 @@ async def listings_bulk_action(
         decisions = [d for d in decisions if d[0] in owned_ids]
 
     counts = {"accept": 0, "reject": 0, "undo": 0}
+    accepted_pairs: list[tuple[uuid.UUID, uuid.UUID]] = []
     for pid, lid, action in decisions:
         new_action = _ACTION_MAP[action]
         res = await session.execute(
@@ -775,6 +800,8 @@ async def listings_bulk_action(
         if res.rowcount == 0:
             continue
         counts[action] += 1
+        if action == "accept":
+            accepted_pairs.append((pid, lid))
         if action == "reject":
             await session.execute(
                 pg_insert(UserListingBlacklist)
@@ -789,6 +816,16 @@ async def listings_bulk_action(
                 )
             )
     await session.commit()
+
+    # Enqueue start_seller_dialog tasks ONLY after the transaction successfully
+    # committed — otherwise we'd start dialogs for accepts that never landed.
+    for pid, lid in accepted_pairs:
+        await _maybe_enqueue_start_seller_dialog(
+            action_raw="accept",
+            profile_id=pid,
+            listing_id=lid,
+        )
+
     log.info(
         "listings.bulk_action user=%s submitted=%d accept=%d reject=%d undo=%d",
         user.id, len(decisions), counts["accept"], counts["reject"], counts["undo"],

@@ -53,6 +53,21 @@ async def _start_seller_dialog_impl(
     ``send_text(channel_id, text) -> {"id": ...}`` works. The real broker
     entrypoint below wires in a concrete client; tests pass an AsyncMock.
     """
+    # Idempotency guard — re-clicks / replays should not re-greet the seller.
+    existing = await sd_service.get_dialog_by_listing(
+        session, profile_id=profile_id, listing_id=listing_id,
+    )
+    if existing is not None:
+        log.info(
+            "seller_dialog.start skip — dialog already exists listing=%s stage=%s",
+            listing_id, existing.stage,
+        )
+        return {
+            "dialog_id": str(existing.id),
+            "channel_id": existing.channel_id,
+            "skipped": True,
+        }
+
     # Step 1: create dialog
     dialog = await sd_service.create_dialog(
         session,
