@@ -73,3 +73,8 @@ class SellerDialog(Base):
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_reason: Mapped[str | None] = mapped_column(String(32))
+    recap_text: Mapped[str | None] = mapped_column(Text)
+    recap_msg_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("messenger_messages.id"),
+    )
+    recap_status: Mapped[str | None] = mapped_column(String(16))
