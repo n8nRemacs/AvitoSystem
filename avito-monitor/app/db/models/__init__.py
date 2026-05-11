@@ -18,6 +18,7 @@ from app.db.models.profile_listing_evaluation import ProfileListingEvaluation
 from app.db.models.profile_market_stats import ProfileMarketStats
 from app.db.models.profile_run import ProfileRun
 from app.db.models.search_profile import SearchProfile
+from app.db.models.seller_dialog import SellerDialog
 from app.db.models.system_setting import SystemSetting
 from app.db.models.user import User
 from app.db.models.user_listing_blacklist import UserListingBlacklist
@@ -43,6 +44,7 @@ __all__ = [
     "ProfileMarketStats",
     "ProfileRun",
     "SearchProfile",
+    "SellerDialog",
     "SystemSetting",
     "User",
     "UserListingBlacklist",
