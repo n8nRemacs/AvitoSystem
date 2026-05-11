@@ -1,7 +1,11 @@
 {# Kanban card — Контакт stage (waiting for first reply from seller).
    Compact card: photo thumbnail + title + price + last_event_at.
-   Phase A: no drawer yet — full card link points to /listings/{id}. #}
-<a href="/listings/{{ card.listing_id }}"
+   Phase A: no drawer / detail page yet — card links to the Avito lot
+   page in a new tab so operator can still see the listing. Phase C
+   will replace this with a side drawer. #}
+<a href="https://www.avito.ru/{{ card.avito_id }}"
+   target="_blank"
+   rel="noopener noreferrer"
    class="block bg-white rounded-lg shadow-sm hover:shadow-md transition p-3 mb-2 border border-stone-200">
   <div class="flex gap-3">
     {% if card.image_url %}

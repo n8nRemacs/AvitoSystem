@@ -58,6 +58,7 @@ def _register_tasks() -> None:
         notifications,
         polling,
         scheduler as _sched,
+        seller_dialog_tasks,
     )
 
 

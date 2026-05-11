@@ -2,7 +2,9 @@
    click "Запустить опрос" to advance the card. In Phase A there's no
    actual setup screen yet (Phase C); we just show a "настрой опрос"
    badge to signal pending operator action. #}
-<a href="/listings/{{ card.listing_id }}"
+<a href="https://www.avito.ru/{{ card.avito_id }}"
+   target="_blank"
+   rel="noopener noreferrer"
    class="block bg-white rounded-lg shadow-sm hover:shadow-md transition p-3 mb-2 border-2 border-amber-300">
   <div class="flex gap-3">
     {% if card.image_url %}
