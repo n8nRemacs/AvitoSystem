@@ -160,7 +160,12 @@ class _XapiMessengerAdapter:
             "/api/v1/messenger/channels/by-item",
             json_body={"item_id": item_id},
         )
-        return self._unwrap_result(call)
+        result = self._unwrap_result(call)
+        # xapi shape: result = {"channel": {"id": "u2i-...", "authorId": ..., ...}}.
+        # Peel the inner channel so callers can do channel_resp["id"].
+        if isinstance(result, dict) and isinstance(result.get("channel"), dict):
+            return result["channel"]
+        return result
 
     async def send_text(self, channel_id: str, text: str) -> dict[str, Any]:
         call = await self._client.post(
