@@ -1557,3 +1557,130 @@ def _parse_template_params(form: dict[str, Any], key: str) -> dict[str, Any]:
             if allowed:
                 out["allowed"] = allowed
     return out
+
+
+# ---------------------------------------------------------------------------
+# Seller dialog — setup modal + topic library (Phase B, T12)
+# ---------------------------------------------------------------------------
+
+@router.get("/dialogs/{dialog_id}/setup", response_class=HTMLResponse)
+async def render_setup_modal(
+    dialog_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+):
+    """HTML fragment for the setup modal (loaded by HTMX/JS into <dialog>)."""
+    from app.db.models import SellerDialog, Listing
+    from app.services.dialog_topics.service import topics_for_profile
+    from sqlalchemy import select
+
+    dialog = (await session.execute(
+        select(SellerDialog).where(SellerDialog.id == dialog_id)
+    )).scalar_one_or_none()
+    if dialog is None:
+        raise HTTPException(404, "Dialog not found")
+    listing = (await session.execute(
+        select(Listing).where(Listing.id == dialog.listing_id)
+    )).scalar_one()
+    topics = await topics_for_profile(session, dialog.profile_id)
+    return templates.TemplateResponse(
+        "_partials/setup_modal.html",
+        {"request": request, "dialog": dialog, "listing": listing, "topics": topics},
+    )
+
+
+@router.post("/dialogs/{dialog_id}/start-questions", response_model=None)
+async def start_questions(
+    dialog_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    """Operator clicked Запустить опрос: persist checked topics + transition."""
+    from app.db.models import SellerDialog
+    from app.services.dialog_topics.state import init_dialog_topics
+    from app.services.seller_dialog.service import set_stage
+    from app.services.seller_dialog.constants import STAGE_QUESTIONS
+    from app.tasks.seller_dialog_tasks import dialog_tick_questions
+    from sqlalchemy import select
+
+    form = await request.form()
+    topic_keys = form.getlist("topics")
+    if not topic_keys:
+        raise HTTPException(400, "select at least one topic")
+
+    dialog = (await session.execute(
+        select(SellerDialog).where(SellerDialog.id == dialog_id)
+    )).scalar_one_or_none()
+    if dialog is None:
+        raise HTTPException(404, "Dialog not found")
+
+    await init_dialog_topics(session, dialog_id=dialog_id, topic_keys=topic_keys)
+    await set_stage(session, dialog_id, STAGE_QUESTIONS)
+    await session.commit()
+    await dialog_tick_questions.kiq(str(dialog_id))
+
+    return RedirectResponse("/listings?tab=in_progress",
+                            status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/dialog-topics/quick-add", response_class=HTMLResponse)
+async def quick_add_topic_endpoint(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+):
+    """Ad-hoc topic creation from the setup modal. Returns updated topic list fragment."""
+    from app.services.dialog_topics.service import quick_add_topic, topics_for_profile
+    form = await request.form()
+    question_text = (form.get("question_text") or "").strip()
+    profile_id_str = form.get("profile_id")
+    if not question_text or not profile_id_str:
+        raise HTTPException(400, "question_text + profile_id required")
+    pid = uuid.UUID(profile_id_str)
+    await quick_add_topic(session, profile_id=pid, question_text=question_text)
+    topics = await topics_for_profile(session, pid)
+    return templates.TemplateResponse(
+        "_partials/setup_modal.html",
+        {"request": request, "topics": topics, "_topics_only": True,
+         "dialog": None, "listing": None},
+    )
+
+
+@router.get("/dialog-topics", response_class=HTMLResponse)
+async def topic_library_page(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+):
+    from app.db.models import SearchProfile
+    from sqlalchemy import select
+    from app.services.dialog_topics.service import list_topics
+
+    topics = await list_topics(session)
+    pid_row = (await session.execute(
+        select(SearchProfile.id).where(SearchProfile.user_id == user.id).limit(1)
+    )).scalar_one_or_none()
+    return templates.TemplateResponse(
+        "dialog_topics.html",
+        {"request": request, "topics": topics, "profile_id_first": pid_row},
+    )
+
+
+@router.post("/dialog-topics/add", response_model=None)
+async def topic_library_add(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> RedirectResponse:
+    from app.services.dialog_topics.service import quick_add_topic
+    form = await request.form()
+    question_text = (form.get("question_text") or "").strip()
+    profile_id_str = form.get("profile_id")
+    if not question_text or not profile_id_str:
+        raise HTTPException(400, "question_text + profile_id required")
+    await quick_add_topic(
+        session, profile_id=uuid.UUID(profile_id_str), question_text=question_text,
+    )
+    return RedirectResponse("/dialog-topics", status_code=status.HTTP_303_SEE_OTHER)
