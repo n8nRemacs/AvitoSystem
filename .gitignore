@@ -24,6 +24,9 @@ avito-farm-agent/apk_work/
 AvitoAll/dex_extract/
 AvitoAll/lib_extract/
 
+# APK reverse-engineering workspace (binaries + decompiled — never commit)
+Reverse Avito/
+
 # Syncthing tmp/conflict files
 *~syncthing~*
 *.sync-conflict-*

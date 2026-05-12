@@ -28,8 +28,8 @@ Defect Checklist Phase 1 **зашиплен в prod 2026-05-12**:
 | **Public URL** | `https://avitosystem.duckdns.org` |
 | **БД** | Cloud Supabase Frankfurt project `drwgozasaypgphkxyizt`. Pooler 6543 + `prepared_statement_cache_size=0`. |
 | **Outbound к Avito** | ru-vpn `155.212.217.226` через SOCKS5 SSH-туннель `socks5h://172.18.0.1:1081` |
-| **Профиль** | `iPhone 12 Pro max 10500-13500` (единственный пока). **Правил пока 0** → bucket всегда green по `no_active_rules`-fast-path. |
-| **HEAD на main** | `79f8aef fix(migration): drop/recreate FKs around topic-key rename` (merge `7489190 Phase 1` + hotfix). |
+| **Профили** | `iPhone 12 Pro max 10500-13500` (active, 21 правило выставлено, 120 лотов: 23 accepted / 97 rejected, всё в grey бакете т.к. features ещё не парсились) + `iPhone 13` (**is_active=False**, 0 правил, лоты+evaluations почищены 2026-05-12 после первого test-полла который слил 871 grey-лот). iPhone 13 ждёт unified-criteria редизайна. |
+| **HEAD на main** | будет обновлён следующим коммитом (cleanup junk files + iPhone 13 DB cleanup). До этого `79f8aef fix(migration): drop/recreate FKs around topic-key rename`. |
 | **Alembic head** | `0015_defect_checklist` (chain: 0013→0014→0015) |
 | **Phone** | OnePlus 8T `110139ce`, USB к Windows ПК |
 | **V2 reliability autoreply** | **OFF** через `MESSENGER_BOT_ENABLED=false` (соак-таймаут). SSE listener сам жив, seller_dialog ветка работает |
@@ -124,29 +124,42 @@ profile_listings.rejected_reason  (новый column, формат 'auto:<featur
 
 ---
 
-## §4. Что делать в новой сессии — soak phase
+## §4. Что делать в новой сессии — unified-criteria редизайн (Phase 2 brainstorm в работе)
 
-### §4.1 Первоочередное (пока operator не сделал — нет реального трафика на pipeline)
+### §4.0 Текущий статус — pivot к unified criteria
 
-1. **Operator открывает `/profiles/{профиль}/feature-rules`** (видно через «🛠 Настройки модели» в sidebar) и расставляет правила. Минимальный sane set для iPhone 12 PM:
-   - `locks.icloud_linked` → 🔴 (auto-reject)
-   - `locks.passcode_forgotten` → 🔴 или 🟢 (если может снять)
-   - `operability.boot_loop` / `no_boot` / `apple_loop` → 🔴
-   - `display.glass_broken` / `touchscreen_glitch` / `stains_stripes` / `replaced` → 🟢
-   - `case.back_broken` / `midframe_bent` / `midframe_cracked` → 🟢
-   - `sensors.face_id` / `wifi` / `sim` → 🟢 (operator ремонтирует Face ID для этой линейки)
-   - `sensors.truetone` / `bluetooth` / `other` → ⊘ (не критично)
-   - `charging.*` → 🟢 (все три состояния разрешимы при ремонте)
+Phase 1 defect-checklist зашиплен 2026-05-12 + правила на iPhone 12 PM выставлены (21 шт). Юзер создал второй профиль **iPhone 13**, и выявились архитектурные проблемы:
 
-2. **Запустить backfill** на iPhone 12 PM профиль:
-   ```bash
-   ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-monitor python -m scripts.backfill_features'
-   ```
-   Это пробежит LLM по всем active лотам (~hundreds). ~$0.0006 × N лотов. На время backfill TaskIQ-poller продолжает работать, но defect-парсинг идёт sequential в скрипте.
+1. **Sidebar nav «🛠 Настройки модели» захардкожена на первый профиль** — для iPhone 13 нет UI к feature-rules.
+2. **Каша двух LLM-систем:** V2 criteria (`criteria_templates.yaml`, 15 entries, через форму профиля) и Defect features (`dialog_topics.yaml`, 22 entries, через отдельную страницу) **пересекаются по 5+ key'ам** (icloud_locked ↔ locks.icloud_linked, screen_broken ↔ display.glass_broken, etc.). V2 LLM bucket вычисляется, но **не используется** (`profile_listings.bucket` пишется из defect-pipeline).
+3. **iPhone 13 при первом polling-проходе слил 871 лот в grey** (нет правил → нет фильтрации). DB почищено 2026-05-12.
 
-3. **Открыть kanban + Новые** — раскрыть карточки, проверить что блок «Признаки» содержит ✓/⊘/⚪ иконки и фичи разложены по секциям.
+**Brainstorm в работе:** ветка `superpowers:brainstorming` начата для unified-criteria дизайна. План на 2 фазы:
+- **Phase 2.0 (stop-gap, ~3h):** вынести feature-rules-страницу из глобального sidebar в форму профиля. iPhone 13 получит свой UI. V2 criteria остаются работать «в холостую».
+- **Phase 2.1 (unification, отдельный спек):** единая модель — defect / attribute filter / lock / info, миграция V2 → unified, удаление дублей. Юзер выбрал именно этот двухфазный путь.
 
-### §4.2 Соак-наблюдения (3-4 дня после backfill)
+Brainstorm пауза на этом моменте — после restart сессии можно возобновить с этого state.
+
+### §4.1 Если хочешь продолжить unified-criteria дизайн
+
+Спека пока не написана. Нужно:
+1. Пройти clarifying-questions цикл по data model (один тип vs тип-aware), placement UI (форма профиля section vs sub-page vs drawer), deprecation V2 criteria (kill / mapping / coexist).
+2. Дизайн в `DOCS/superpowers/specs/2026-05-XX-unified-criteria-design.md`.
+3. После approve → writing-plans → 2 фазы.
+
+### §4.2 Если хочешь быстрый stop-gap (Phase 2.0 в одиночку)
+
+Минимальная задача — переместить sidebar nav пункт «🛠 Настройки модели» из глобального layout'a в форму профиля (`/search-profiles/{id}/edit`) как отдельную секцию или вкладку. Эстимейт 2-3h. Тогда iPhone 13 сразу настраивается. V2 criteria остаются в той же форме как сейчас (дубль, но не блокер).
+
+### §4.3 Если хочешь soak Phase 1 на iPhone 12 PM пока
+
+Backfill ещё не запущен — `listing_features` пуст. Чтобы получить реальные данные парсера:
+```bash
+ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-monitor python -m scripts.backfill_features'
+```
+~$0.0006 × 120 ≈ $0.07. После пробежки увидишь в expanded card body блок «Признаки» с ✓/⊘/⚪. Соак-наблюдения см. §4.4.
+
+### §4.4 Соак-наблюдения (3-4 дня после backfill)
 
 Метрики ручной оценки:
 - **Recall парсера** — на ~50 свежих лотах оценить вручную: насколько LLM правильно ловит defect-сигналы? Если recall < 95% по критичным фичам (icloud, broken_glass) — нужен Phase 1.5 keyword fallback.
@@ -172,12 +185,12 @@ asyncio.run(m())"'
 ssh root@81.200.119.132 "cd /opt/avito-system && docker compose logs --since=24h worker 2>&1 | grep -iE 'parse_section|llm.cost' | tail -20"
 ```
 
-### §4.3 Backlog Phase 1 follow-ups (не блокеры)
+### §4.5 Backlog Phase 1 follow-ups (не блокеры)
 
 - **T9-followup: API-killers bypass feature pipeline** — частично исправлено (hotfix `5a1854c` вызывает feature pipeline и в API-killer ветке тоже, отдельной сессией). Если в логах увидим race conditions / двойные upsert'ы — переработать.
 - Все остальные code-review findings уже зашиты в commits (`64bde03` repository hardening, `8cac265` taxonomy validators, `9c10f8b` N+1 + double-click fix, `5a1854c` API-killer + stale params).
 
-### §4.4 Что в Phase 2 (после soak, отдельный план)
+### §4.6 Что в Phase 2 seller-dialog (категорийный опрос, после soak)
 
 Описано в spec `2026-05-12-defect-checklist-design.md` §10:
 
