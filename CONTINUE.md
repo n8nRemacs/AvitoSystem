@@ -1,24 +1,26 @@
 # CONTINUE — следующая сессия
 
-> **Если ты Claude в новой сессии:** прочитай этот файл целиком + `DOCS/REFERENCE/README.md` (общая карта state'а) + `DOCS/superpowers/specs/2026-05-10-seller-dialog-design.md` (rev 4, дизайн всех 9 stages) + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory в `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md`. **Главная задача сейчас — доработка UI seller-dialog** (после shipped Phase A + B 2026-05-11).
+> **Если ты Claude в новой сессии:** прочитай этот файл целиком + `DOCS/REFERENCE/README.md` (общая карта state'а) + `DOCS/superpowers/specs/2026-05-12-defect-checklist-design.md` (rev 1, дизайн всей feature×rules системы — Phase 1 shipped + Phase 2 описана) + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory в `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md`. **Главная задача сейчас — soak Phase 1 defect-checklist** (после shipped 2026-05-12). Пока юзер не настроит правила и не запустит backfill — реального трафика на feature pipeline нет.
 
 ---
 
 ## §1. TL;DR
 
-Phase A (`contact → questions_setup`) и Phase B (Опрос autopilot — `questions_setup → questions → SUGGEST price_negotiation`) **зашиплены в prod 2026-05-11**, end-to-end валидированы:
+Defect Checklist Phase 1 **зашиплен в prod 2026-05-12**:
 
-- accept лота → auto-greeting улетает продавцу → SSE handler детектит ответ через LLM → переход в `questions_setup`
-- operator кликает «➜ настрой опрос» на карточке → modal с 11 baseline-темами + ad-hoc-поле → «Запустить опрос» → бот шлёт opening line + первый вопрос
-- продавец отвечает → LLM парсит ответ + side_topics → закрывает темы по одной → recap → ждёт «всё верно» → SUGGEST + TG-пинг
+- 2 новые таблицы (`listing_features` UPSERT по `(listing_id, feature_key)`, `profile_feature_rules` UPSERT по `(profile_id, feature_key)`) + миграция `0015_defect_checklist` применена.
+- 22 defect-фичи × 6 секций (display/case/locks/sensors/charging/operability) в `app/data/dialog_topics.yaml`, старые 11 ключей переименованы в dotted-формат + 4 удалены.
+- LLM-парсер по разделам: `match_avito_parameters` short-circuit для структурированных Avito-полей (iCloud, passcode) → `parse_section_defects` 6 conservative-промптов параллельно через `asyncio.gather`. Cost ≈ $0.0006/лот (Gemini Flash Lite).
+- Pure `compute_bucket(features, rules) → (green|grey|red, reason)` — детерминированно по truth-table из spec §8.
+- Integration в `analyze_listing`: после `classify_condition` → parser → bucket из rules. Auto-reject pending/viewed лотов с new_bucket=red (с `rejected_reason='auto:<feature_key>'`).
+- UI: блок «Признаки» на каждой карточке (kanban + listings), collapsible sidebar (hamburger + localStorage), страница `/profiles/{id}/feature-rules` с 3-state переключателями (🟢/🔴/⊘) + sync bucket recompute с toast counters.
+- Backfill: `python -m scripts.backfill_features [--profile <id>]`.
 
-13 commits на main за 2026-05-11. 17 unit-тестов Phase B + 21 Phase A проходят.
-
-**Сейчас следующий этап — UI доработка** (на твоё указание).
+18 commits на main за 2026-05-12 (15 task commits + 2 fixes + 1 hotfix миграции). 37 unit/integration тестов проходят. **Главное что осталось — operator должен (1) выставить правила на профиле iPhone 12 PM через UI, (2) запустить backfill, (3) понаблюдать качество парсера 3-4 дня соака.**
 
 ---
 
-## §2. Production state — 2026-05-12
+## §2. Production state — 2026-05-12 (вечер)
 
 | Что | Где |
 |---|---|
@@ -26,21 +28,21 @@ Phase A (`contact → questions_setup`) и Phase B (Опрос autopilot — `qu
 | **Public URL** | `https://avitosystem.duckdns.org` |
 | **БД** | Cloud Supabase Frankfurt project `drwgozasaypgphkxyizt`. Pooler 6543 + `prepared_statement_cache_size=0`. |
 | **Outbound к Avito** | ru-vpn `155.212.217.226` через SOCKS5 SSH-туннель `socks5h://172.18.0.1:1081` |
-| **Профиль** | `iPhone 12 Pro max 10500-13500` (единственный пока) |
-| **HEAD на main** | `bfda244 fix(ui): modal cancel + ad-hoc buttons via delegated handlers` |
-| **Alembic head** | `0014_phase_b_topics` (chain: 0012 reservation → 0013 seller_dialogs → 0014 phase_b_topics) |
+| **Профиль** | `iPhone 12 Pro max 10500-13500` (единственный пока). **Правил пока 0** → bucket всегда green по `no_active_rules`-fast-path. |
+| **HEAD на main** | `79f8aef fix(migration): drop/recreate FKs around topic-key rename` (merge `7489190 Phase 1` + hotfix). |
+| **Alembic head** | `0015_defect_checklist` (chain: 0013→0014→0015) |
 | **Phone** | OnePlus 8T `110139ce`, USB к Windows ПК |
 | **V2 reliability autoreply** | **OFF** через `MESSENGER_BOT_ENABLED=false` (соак-таймаут). SSE listener сам жив, seller_dialog ветка работает |
 
-### §2.1 Контейнеры
+### §2.1 Контейнеры (без изменений с прошлой сессии)
 
 | Сервис | Назначение |
 |---|---|
 | `caddy` | HTTPS reverse-proxy, ACME |
 | `avito-xapi` | FastAPI шлюз к мобильному Avito API (curl_cffi + SOCKS5) |
-| `avito-monitor` | Web UI + поиск/мониторинг (FastAPI + Jinja + Tailwind) |
+| `avito-monitor` | Web UI + поиск/мониторинг + defect-feature pipeline |
 | `avito-mcp` | FastMCP SSE сервер |
-| `worker` | TaskIQ-воркер (polling + LLM analysis + seller_dialog tasks) |
+| `worker` | TaskIQ-воркер (polling + LLM analysis + seller_dialog tasks + новый feature pipeline) |
 | `scheduler` | TaskIQ-планировщик (cron'ы) |
 | `messenger-bot` | SSE listener `/api/v1/messenger/realtime/events` → handler → seller_dialog ветка. V2 reliability ветка отключена через env |
 | `telegram-bot` | aiogram long-poll бот для уведомлений |
@@ -49,180 +51,210 @@ Phase A (`contact → questions_setup`) и Phase B (Опрос autopilot — `qu
 
 ---
 
-## §3. Seller-dialog pipeline — что есть сейчас
+## §3. Defect-checklist pipeline — что есть сейчас
 
-### §3.1 State machine
-
-Реализованы и работают в проде stages **1-3**:
+### §3.1 Поток данных
 
 ```
-[1. Контакт]                          AUTO
-   ↓ продавец ответил «да продаётся» (LLM detect_yes_selling)
-[2. Настройка опроса]                 OPERATOR
-   ↓ operator → modal → выбирает темы → «Запустить опрос»
-[3. Опрос]                            AUTO bot
-   ↓ темы закрыты + recap confirmed
-   → SUGGEST → TG-пинг #2 operator'у
-   → operator click «Подключиться к торгу» (TODO кнопка)
-[4. Согласование цены]                Phase D, stub
-   ↓ ... ↓
-[9. Сделка закрыта]                   Phase D, заглушка
+Polling → listings (existing)
+    ↓
+analyze_listing → classify_condition (existing, condition_class остаётся для market-stats)
+    ↓
+analyze_listing_features (NEW):
+  1) load profile_feature_rules → active_keys (rule != ignore)
+  2) parse_defect_features:
+     ├─ match_avito_parameters (Avito iCloud/passcode short-circuit)
+     └─ asyncio.gather над parse_section_defects для 6 секций
+  3) upsert listing_features rows
+  4) compute_bucket(features, rules) → (green|grey|red, reason)
+    ↓
+write pl.bucket = bucket
+auto-reject если bucket=red AND user_action ∈ (None, pending, viewed):
+  pl.user_action = 'rejected'
+  pl.rejected_reason = f'auto:{reason}'
 ```
 
-### §3.2 Phase A — `contact` stage
+### §3.2 Таблицы
 
-- Acceptance в табе "Новые" → TaskIQ `start_seller_dialog` → xapi `create_channel_by_item` + `send_text(GREETING_TEMPLATE)` → dialog row создан, stage='contact'.
-- GREETING_TEMPLATE: «Здравствуйте! Меня заинтересовал ваш аппарат. Ещё продаётся?»
-- SSE inbound через messenger-bot → seller_dialog branch (line ~417 в `messenger_bot/handler.py`) → `handle_seller_inbound` → LLM `detect_yes_selling` (threshold 0.7) → если True → транзишн на `questions_setup` + TG-пинг #1 operator'у.
+```
+listing_features
+  id PK, listing_id FK→listings CASCADE, feature_key, state (ok|defect|unknown),
+  confidence float NULL, source (avito_parameters|llm|description_kw|seller_dialog),
+  evidence text NULL, parsed_at timestamptz.
+  UNIQUE(listing_id, feature_key).
 
-**Schema** (`alembic 0013_seller_dialogs`): `seller_dialogs(id, profile_id, listing_id, channel_id, stage, operator_mode, opened_at, last_event_at, closed_at, closed_reason)` + `messenger_messages.dialog_id` FK nullable.
+profile_feature_rules
+  id PK, profile_id FK→search_profiles CASCADE, feature_key, rule (green|red|ignore),
+  updated_at timestamptz.
+  UNIQUE(profile_id, feature_key).
 
-### §3.3 Phase B — `questions_setup` + `questions` stages
+profile_listings.rejected_reason  (новый column, формат 'auto:<feature>' или 'manual:operator')
+```
 
-- `questions_setup` карточка показывает badge «➜ настрой опрос» — кликабельная. Открывает modal на нативном `<dialog>` элементе:
-  - default-unchecked checkbox'ы для 11 baseline-тем профиля
-  - textarea «Добавить свой вопрос» + кнопка «+» — ad-hoc вопрос upsert'ится в `dialog_topics` + auto-link в `profile_dialog_topics` → permanent extension библиотеки
-  - кнопка «Запустить опрос» (submit) / «Отмена» (закрывает modal)
-- Submit → endpoint `/dialogs/{id}/start-questions` → `init_dialog_topics` (INSERT'ит выбранные темы в `seller_dialog_topics` со status='pending') → transition в stage='questions' → enqueue `dialog_tick_questions.kiq(dialog_id)`
-- **Worker** `dialog_tick_questions`: первый tick шлёт OPENING_LINE «У меня есть несколько вопросов по Вашему аппарату, ответьте пожалуйста, если Вас это не затруднит.» + `sleep(3)` + первый вопрос. Дальше один-за-другим по `priority`. После закрытия всех тем — `formulate_recap` → status='pending_answer'.
-- **SSE handler** stage=questions ветка: при inbound — `parse_topic_answer` → mark_answered + side_topics (LLM ловит когда продавец сам приоткрыл другие открытые темы). При recap reply — `parse_seller_agreement` → если yes → status='confirmed' + TG-пинг #2.
+### §3.3 Таксономия (22 фичи в `app/data/dialog_topics.yaml`)
 
-**Schema** (`alembic 0014_phase_b_topics`):
-- `dialog_topics` — global library: `key`, `title`, `category`, `default_phrasing`, `expected_format`, `created_by`, `is_active`. Seeded из `app/data/dialog_topics.yaml`.
-- `profile_dialog_topics(profile_id, topic_key, priority)` — какие темы в baseline профиля.
-- `seller_dialog_topics(id, dialog_id, topic_key, priority, status, question_text, question_msg_id, answer_text, answer_msg_id, asked_at, answered_at, retry_count)` — per-dialog state machine.
-- `seller_dialogs +recap_text/recap_msg_id/recap_status` — recap state.
+| section | keys |
+|---|---|
+| display | replaced, glass_broken, touchscreen_glitch, stains_stripes |
+| case | back_broken, midframe_bent, midframe_cracked |
+| locks | icloud_linked, passcode_forgotten |
+| sensors | face_id, truetone, wifi, sim, bluetooth, other |
+| charging | not_charging, wireless_only, unstable |
+| operability | boot_loop, reboots, no_boot, apple_loop |
 
-**11 baseline тем** (iPhone 12 Pro Max, см. `app/data/dialog_topics.yaml`):
-1. `battery_health` (АКБ %) — percent
-2. `face_id_works` — yesno
-3. `icloud_unlinked` — yesno
-4. `replaced_display` — yesno
-5. `broken_glass` — yesno
-6. `display_stains_stripes` — yesno
-7. `broken_back` — yesno
-8. `cameras_work` — text
-9. `charging_stability` — text
-10. `replaced_parts` — text
-11. `complectness` (коробка/кабель/зарядка) — text
+Каждая фича имеет `severity_hint` (red|green|info — дефолт-намёк для оператора в UI) и `opener_phrasing` (для Phase 2 personalised opener).
 
-`delivery_method` отложен в Phase D (часть торга).
+### §3.4 LLM-вызовы (в `app/services/defect_features/llm_parser.py`)
 
-### §3.4 LLM dispatchers (4 шт, в `app/services/llm_analyzer.py`)
-
-| Функция | Что делает | Prompt |
+| Функция | Что делает | Промпт |
 |---|---|---|
-| `formulate_question(topic, history_tail)` | Сформулировать вопрос по теме, тон natural & polite | `app/prompts/dialog_formulate_question.md` |
-| `parse_topic_answer(topic, seller_text, open_topics)` | Парс ответ продавца → answered/unclear/off_topic + extracted + side_topics | `app/prompts/dialog_parse_topic_answer.md` |
-| `formulate_recap(answered)` | Собрать recap-сообщение (с deterministic fallback) | `app/prompts/dialog_formulate_recap.md` |
-| `parse_seller_agreement(text)` | Классификация ответа на recap: yes/no/unclear | `app/prompts/dialog_parse_seller_agreement.md` |
+| `match_avito_parameters` | Dict-driven: iCloud/passcode → state по substring-match. Short-circuit без LLM. | — (pure Python) |
+| `parse_section_defects(section, features, …)` | Один LLM-запрос на категорию, conservative — unknown по умолчанию. Возвращает state/confidence/evidence per requested feature. | `app/prompts/parse_section_<section>.md` |
+| `parse_defect_features(title, description, parameters, active_keys)` | Orchestrator: match_avito → asyncio.gather над 6 секциями для pending фич → merge. | — (orchestration) |
+| `compute_bucket(features, rules)` | Pure: truth-table из spec §8. | — (pure Python, 8 unit-тестов) |
 
-Все 4 через OpenRouter `google/gemini-2.5-flash-lite`, safe fallback на ошибке (не блокировать pipeline).
+Все через OpenRouter `google/gemini-2.5-flash-lite`, safe fallback (state='unknown' для всех) на ошибке.
 
-### §3.5 TG-пинги
+### §3.5 UI surface
 
-2 типа в `notifications` таблице, диспатчатся через `app/tasks/notifications.py` + Jinja templates в `app/prompts/messenger/`:
-- `seller_dialog_ready_to_setup` — при `contact → questions_setup`
-- `seller_dialog_ready_to_negotiate` — при `questions → SUGGEST price_negotiation`
-
-Текст: `🟢 Лот {avito_id} ({title}, {price}₽)\n{action_prompt}\n→ {kanban_url}`.
-
-### §3.6 UI surface
-
-- **Kanban** `?tab=in_progress` — 3 колонки: Контакт / Настройка опроса / **Опрос**. Сверху dropdown фильтра профиля.
-- **Reject** — кнопка «× Отклонить» в каждой карточке (любого stage). POST на `/listings/{pid}/{lid}/action?action=reject` → blacklist + close_dialog(reason='rejected_by_operator').
-- **Setup modal** — нативный `<dialog>` + vanilla JS. Trigger через delegated listener в parent template (`<script>` injected via innerHTML НЕ исполняются — это известная DOM rule, поэтому ad-hoc handler тоже delegated).
-- **Topic library** `/dialog-topics` — page для view всех тем + add form.
+- **Карточки kanban + listings** — блок «Признаки» в expanded body: 2-column grid по секциям, ✓ зелёная / ⊘ красный круг / ⚪ серый кружок. Hover = evidence tooltip. Фичи с rule=ignore не показываются.
+- **Sidebar collapse** — hamburger в topbar, w-60 ↔ w-14, state в localStorage.kpis_sidebar_collapsed.
+- **«🛠 Настройки модели»** новый sidebar nav-пункт, активен когда у юзера есть хоть один профиль (резолвится из earliest-created). Открывает `/profiles/{id}/feature-rules`.
+- **`/profiles/{id}/feature-rules`** — таблица 22 фич × 3-state переключатель (🟢 green-flag / 🔴 red-flag / ⊘ ignore). Click → PATCH endpoint upsert'ит rule + sync `recompute_buckets_for_profile` (batched 1 SELECT, не N+1) + toast «Бакеты: N зелёных / N серых / N отклонено». Double-click защищён disabled-guard в JS.
 
 ---
 
-## §4. Главная цель next session — доработка UI
+## §4. Что делать в новой сессии — soak phase
 
-Юзер хочет улучшить UX seller-dialog flow. Конкретики пока не задано — нужно обсудить в начале новой сессии что именно править. Возможные направления (см. spec rev 4 §4.7 и Phase C scope в CONTINUE.md backlog):
+### §4.1 Первоочередное (пока operator не сделал — нет реального трафика на pipeline)
 
-### §4.1 Логичные кандидаты на доработку
+1. **Operator открывает `/profiles/{профиль}/feature-rules`** (видно через «🛠 Настройки модели» в sidebar) и расставляет правила. Минимальный sane set для iPhone 12 PM:
+   - `locks.icloud_linked` → 🔴 (auto-reject)
+   - `locks.passcode_forgotten` → 🔴 или 🟢 (если может снять)
+   - `operability.boot_loop` / `no_boot` / `apple_loop` → 🔴
+   - `display.glass_broken` / `touchscreen_glitch` / `stains_stripes` / `replaced` → 🟢
+   - `case.back_broken` / `midframe_bent` / `midframe_cracked` → 🟢
+   - `sensors.face_id` / `wifi` / `sim` → 🟢 (operator ремонтирует Face ID для этой линейки)
+   - `sensors.truetone` / `bluetooth` / `other` → ⊘ (не критично)
+   - `charging.*` → 🟢 (все три состояния разрешимы при ремонте)
 
-1. **Drawer вместо modal** — `dialog_drawer.html` slide-out справа с lazy-load (`hx-get /dialogs/{id}/drawer`). Внутри: фотогалерея, chat history с timestamps + read-markers, extracted_data sidebar (закрытые/не закрытые темы с ответами), кнопки stage-specific actions. Это Phase C по плану.
-2. **Карточка `questions_setup`** сейчас компактная — нет превью первого ответа продавца. Можно добавить snippet inbound message внутри карточки.
-3. **Карточка `questions`** показывает badge «идёт опрос», но без счётчика «3/7 закрыто». Можно добавить.
-4. **`confirmed` recap → кнопка «Подключиться к торгу»** на карточке — сейчас её нет, только TG-пинг. Operator должен зайти в БД ручкой UPDATE stage. Это блокер для real progress в Phase D.
-5. **`/dialog-topics` библиотека** — пока минимум (view + add). Edit/delete — через SQL. Можно расширить inline-edit.
-6. **Profile filter** работает, но без визуальной обратной связи когда выбран профиль (например, ничего в выдаче — пустое kanban без сообщения «нет лотов для этого профиля»).
-7. **Stage-specific cards** — сейчас все три карточки структурно одинаковы (только badge меняется). По spec rev 4 каждый stage должен иметь свой KPI-strip.
+2. **Запустить backfill** на iPhone 12 PM профиль:
+   ```bash
+   ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-monitor python -m scripts.backfill_features'
+   ```
+   Это пробежит LLM по всем active лотам (~hundreds). ~$0.0006 × N лотов. На время backfill TaskIQ-poller продолжает работать, но defect-парсинг идёт sequential в скрипте.
 
-### §4.2 Что вне доработки UI
+3. **Открыть kanban + Новые** — раскрыть карточки, проверить что блок «Признаки» содержит ✓/⊘/⚪ иконки и фичи разложены по секциям.
 
-- **Stages 4-9** (Phase D) — отдельная фаза, не UI.
-- **Silence-timeout worker** (Phase E) — backend.
-- **Severity-per-topic + auto-pretick** (V1.5) — нужна статистика.
-- **Whitelist bug в V2 reliability** — отдельный baклог, V2 пока выключен.
+### §4.2 Соак-наблюдения (3-4 дня после backfill)
 
----
+Метрики ручной оценки:
+- **Recall парсера** — на ~50 свежих лотах оценить вручную: насколько LLM правильно ловит defect-сигналы? Если recall < 95% по критичным фичам (icloud, broken_glass) — нужен Phase 1.5 keyword fallback.
+- **False-positive auto-reject** — сколько iCloud-locked-detected было ложными? Recovery через «↶ Вернуть в новые» в Rejected.
+- **LLM cost/день** — на сколько вырос. Если выше $0.05/день — оптимизация.
 
-## §5. Backlog
-
-### §5.1 Известные мелочи (V1.5)
-
-- **AVITO_OWN_USER_ID env** не сконфигурирован → если Avito будет echo'ить наши outgoing'и через SSE, direction в `messenger_messages` будет грязный («in» вместо «out»). Установить когда уверены какой user_id в pool принадлежит нам.
-- **SSE durability / catch-up** — текущий listener теряет события при reconnect (нет resume-token). Решение: periodic pull `/channels/{id}/messages` для active dialog'ов + dedup по PK.
-- **«Евгений: » prefix в SSE text payload** — SSE handler получает text с префиксом имени отправителя, в REST-API без префикса. Нормализовать.
-- **accept→reject race** — если operator reject'ит лот ДО того как async `start_seller_dialog` job создал dialog row, worker всё ещё создаст dialog (с уже-blacklisted listing). Фикс: проверять `profile_listings.user_action` в worker.
-- **accept→reject→accept resurrection** — второй accept не реанимирует закрытый dialog (idempotency на existing). Если нужно — clear closed_at в start или явная resurrect-логика.
-- **`RELIABILITY_DISABLED_SCENARIOS=G`** — раньше scenario G в health-checker'е скипалась потому что messenger-bot не был задеплоен. Теперь сервис есть — пора включить probe.
-- **docker-compose.yml не в git** — `/opt/avito-system/docker-compose.yml` редактируется напрямую на VPS, расходится с любой локальной копией. Решить: положить в `ops/docker-compose.production.yml` или принять как ops-only артефакт.
-- **V2 reliability whitelist bug** — `whitelist_own_listings_only=True` не отсёк чужой канал (когда seller_dialog row временно отсутствовал из-за worker-разрыва, бот успел ответить продавцу «Минуту, оператор»). Разобраться когда вернёмся к V2.
-
-### §5.2 Будущие фазы seller-dialog
-
-- **Phase C**: drawer + полный screen «Настройка опроса» + operator overrides (+ Уточнить / Передать вручную / drag-drop reorder тем). См. spec rev 4 §4.7.
-- **Phase D**: stages 4-9 (`price_negotiation` → `price_changed` → `purchased` → `shipped` → `received` → `closed`). Включает «Согласование цены» (operator-driven), polling `items/{id}.price` watch, shipment markers, Avito-delivery tracking (V1.5).
-- **Phase E**: SLA worker `dialog_silence_tick` (silent auto-reject на 1/3, notified-with-prolongate на 5/7) + 4 оставшихся TG-пинга + sortings/filters в kanban + Phase 2 smart auto-tick.
-
----
-
-## §6. Команды для проверки состояния (любая сессия)
-
-### §6.1 БД — seller_dialogs + topics
-
+Команды для дампа state:
 ```powershell
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm --no-deps -w /app -e PYTHONPATH=/app avito-monitor python -c "
+# Сколько лотов в каждом бакете после backfill
+ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 python -c "
 import asyncio, asyncpg, os
 async def m():
     url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\", \"postgresql://\")
     c = await asyncpg.connect(url, statement_cache_size=0)
-    rows = await c.fetch(\"\"\"
-        SELECT sd.stage, sd.operator_mode, count(*),
-               sum((sd.channel_id IS NOT NULL)::int) AS with_channel
-        FROM seller_dialogs sd
-        WHERE sd.closed_at IS NULL
-        GROUP BY sd.stage, sd.operator_mode
-        ORDER BY 3 DESC
-    \"\"\")
+    rows = await c.fetch(\"SELECT bucket, count(*) FROM profile_listings GROUP BY bucket\")
     for r in rows: print(dict(r))
+    auto_rej = await c.fetchval(\"SELECT count(*) FROM profile_listings WHERE rejected_reason LIKE \x27auto:%\x27\")
+    print(\"auto-rejected:\", auto_rej)
+    await c.close()
+asyncio.run(m())"'
+
+# LLM расход за 24ч
+ssh root@81.200.119.132 "cd /opt/avito-system && docker compose logs --since=24h worker 2>&1 | grep -iE 'parse_section|llm.cost' | tail -20"
+```
+
+### §4.3 Backlog Phase 1 follow-ups (не блокеры)
+
+- **T9-followup: API-killers bypass feature pipeline** — частично исправлено (hotfix `5a1854c` вызывает feature pipeline и в API-killer ветке тоже, отдельной сессией). Если в логах увидим race conditions / двойные upsert'ы — переработать.
+- Все остальные code-review findings уже зашиты в commits (`64bde03` repository hardening, `8cac265` taxonomy validators, `9c10f8b` N+1 + double-click fix, `5a1854c` API-killer + stale params).
+
+### §4.4 Что в Phase 2 (после soak, отдельный план)
+
+Описано в spec `2026-05-12-defect-checklist-design.md` §10:
+
+1. **Setup-modal → checklist-drawer**: текущий setup-modal Phase B заменяется на slide-out drawer с тоглами на unknown-фичах. Operator может включить тоглы только на тех, что хочет уточнить.
+2. **Category-batched survey**: вместо 22 микро-вопросов один человеческий вопрос на категорию. «Вижу что у вас разбито стекло. По остальным моментам уточните: дисплей менялся? полосы/пятна? тачскрин работает?» — ≤ 6 циклов вопрос-ответ. Новые LLM dispatcher'ы `formulate_category_question` + `parse_category_answer`.
+3. **Personalised opener**: «Я внимательно прочитал ваше объявление. Понял, что у вас: <список confirmed defects>. Всё верно?» Если confirmed defects = 0 → opener пропускается.
+4. **Двойной LLM на каждый inbound**: existing `parse_topic_answer` (targeted) + новый `scan_message_for_features` (broad sweep по всем active features профиля). Продавец проговорился про iCloud в ответе на вопрос про АКБ → recompute_bucket → если стало red → close dialog + TG notify.
+
+Phase 2 ≈ 8h dev + 1-2d soak. Дispatch'нем когда recall парсера Phase 1 ≥ 95%.
+
+---
+
+## §5. Backlog (за пределами defect-checklist)
+
+### §5.1 Seller-dialog (Phase B уже shipped, остальные фазы):
+
+- **Phase C** (drawer вместо modal для setup) — частично перекрывается Phase 2 defect-checklist (там и будет drawer).
+- **Phase D**: stages 4-9 (`price_negotiation` → ... → `closed`). Включает «Согласование цены» (operator-driven), polling `items/{id}.price` watch, Avito-delivery tracking.
+- **Phase E**: SLA worker `dialog_silence_tick` + 4 оставшихся TG-пинга + sortings/filters в kanban + Phase 2 smart auto-tick.
+
+### §5.2 Известные мелочи (V1.5)
+
+- **AVITO_OWN_USER_ID env** не сконфигурирован → SSE direction грязный.
+- **SSE durability / catch-up** — теряет события при reconnect (нет resume-token). Pull-based fallback по active dialog'ам.
+- **«Евгений: » prefix в SSE text** — нормализовать.
+- **accept→reject race** — worker создаёт dialog даже если operator уже reject'нул.
+- **accept→reject→accept resurrection** — второй accept не реанимирует closed dialog (idempotency).
+- **`RELIABILITY_DISABLED_SCENARIOS=G`** — scenario G в health-checker раньше скипалась, теперь messenger-bot задеплоен — пора включить probe.
+- **docker-compose.yml не в git** — `/opt/avito-system/docker-compose.yml` редактируется напрямую на VPS.
+- **V2 reliability whitelist bug** — `whitelist_own_listings_only=True` не отсёк чужой канал в ship-blocker инциденте Phase A. Разобрать при возврате к V2.
+
+---
+
+## §6. Команды для проверки состояния
+
+### §6.1 БД — feature rows + rules + бакеты
+
+```powershell
+ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 python -c "
+import asyncio, asyncpg, os
+async def m():
+    url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\", \"postgresql://\")
+    c = await asyncpg.connect(url, statement_cache_size=0)
+    print(\"alembic:\", await c.fetchval(\"SELECT version_num FROM alembic_version\"))
+    print(\"listing_features:\", await c.fetchval(\"SELECT count(*) FROM listing_features\"))
+    print(\"profile_feature_rules:\", await c.fetchval(\"SELECT count(*) FROM profile_feature_rules\"))
+    by_bucket = await c.fetch(\"SELECT bucket, count(*) FROM profile_listings GROUP BY bucket\")
+    print(\"buckets:\", [dict(r) for r in by_bucket])
+    auto_rej = await c.fetchval(\"SELECT count(*) FROM profile_listings WHERE rejected_reason LIKE \x27auto:%\x27\")
+    print(\"auto-rejected:\", auto_rej)
+    by_rule = await c.fetch(\"SELECT rule, count(*) FROM profile_feature_rules GROUP BY rule\")
+    print(\"rules:\", [dict(r) for r in by_rule])
     await c.close()
 asyncio.run(m())"'
 ```
 
-### §6.2 Worker логи на seller_dialog
+### §6.2 Worker логи на feature-pipeline
 
 ```powershell
-ssh root@81.200.119.132 "cd /opt/avito-system && docker compose logs --tail=200 worker 2>&1 | grep -iE 'seller_dialog|dialog_tick|start_seller|formulate_question|parse_topic|recap|ERROR'"
+ssh root@81.200.119.132 "cd /opt/avito-system && docker compose logs --tail=200 worker 2>&1 | grep -iE 'parse_section|analyze_listing_features|compute_bucket|defect|ERROR' | tail -30"
 ```
 
-### §6.3 Health check
+### §6.3 Health check + smoke
 
 ```powershell
 curl.exe -sS -o NUL -w "kanban -> %{http_code}`n" "https://avitosystem.duckdns.org/listings?tab=in_progress"
+curl.exe -sS -o NUL -w "new    -> %{http_code}`n" "https://avitosystem.duckdns.org/listings?tab=new"
 ssh root@81.200.119.132 "cd /opt/avito-system && docker compose ps --format 'table {{.Service}}\t{{.Status}}'"
 ```
 
-### §6.4 Дамп активных диалогов
+### §6.4 Backfill вручную (одного профиля)
 
-В корне репо есть готовые diag-скрипты (untracked): `diag_stages.py`, `diag_recent.py`, `diag_seller_dialogs.py`. Запускаются через mounted volume:
-
-```bash
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm --no-deps -v /opt/avito-system/repo/diag_stages.py:/app/d.py -w /app -e PYTHONPATH=/app avito-monitor python /app/d.py'
+```powershell
+ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-monitor python -m scripts.backfill_features --profile <profile_uuid>'
 ```
+
+`--dry-run` чтоб только посчитать сколько лотов будут обработаны.
 
 ---
 
@@ -231,20 +263,19 @@ ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm --no-de
 ```
 Проект: c:/Projects/Sync/AvitoSystem/
 
-Прочитай CONTINUE.md (§1-§4), DOCS/REFERENCE/README.md, и
-DOCS/superpowers/specs/2026-05-10-seller-dialog-design.md.
+Прочитай CONTINUE.md, DOCS/REFERENCE/README.md (особенно top entry про
+2026-05-12 defect-checklist), и DOCS/superpowers/specs/2026-05-12-defect-
+checklist-design.md.
 
-Seller-dialog Phase A + B зашиплены 2026-05-11. End-to-end
-работает: accept → contact → questions_setup → questions →
-recap → SUGGEST. Текущая задача — доработка UI (§4.1 даёт
-кандидатов — drawer вместо modal, кнопка «Подключиться к
-торгу» на карточке confirmed, и т.п.).
-
-Уточни у меня что именно править сейчас, потом invoke
-superpowers:brainstorming для дизайна.
+Phase 1 defect-checklist зашиплен в prod 2026-05-12. Pipeline работает,
+но profile_feature_rules пуст — пока operator не выставит правила через
+UI и не запустит backfill, реальных feature-данных нет. Текущая задача —
+soak: проверить точность LLM-парсера на свежих лотах, мониторить
+auto-reject rate, ловить regressions. Phase 2 (category-batched survey +
+opener + двойной LLM-per-inbound) — после соак.
 
 Production: VPS 81.200.119.132 + Cloud Supabase Frankfurt.
-UI https://avitosystem.duckdns.org. HEAD = bfda244.
+UI https://avitosystem.duckdns.org. HEAD = 79f8aef.
 V2 reliability bot выключен (MESSENGER_BOT_ENABLED=false).
 ```
 
@@ -252,15 +283,19 @@ V2 reliability bot выключен (MESSENGER_BOT_ENABLED=false).
 
 ## §8. Что НЕ работает / избежать повторений
 
-- ❌ **Никогда не пересобирай только один service** через `docker compose build avito-monitor` — shared image `./repo/avito-monitor` собирается per-service. Worker/scheduler/messenger-bot останутся со старым кодом. **Использовать**: `docker compose build` (без аргументов) + `docker compose up -d --force-recreate <все потребители>`.
-- ❌ **`<script>` теги в HTML, инжектируемом через `innerHTML`, НЕ выполняются**. Это DOM security rule. Solution: delegated handlers в parent template, либо вручную создавать новые `<script>` элементы через `document.createElement`, либо inline `onclick` атрибуты.
-- ❌ **`templates.TemplateResponse` новая сигнатура**: `(request, name, context)` позиционно, а не `(name, ctx_with_request)`. Старая работала, новая Starlette требует позиционный request. Чекни Phase A endpoints как образец.
-- ❌ **JWT-сессии могут стать server-side-зомби**: TTL валиден, но Avito ревокнул раньше → 401. Recovery: запустить Avito-app на телефоне на 60 сек, APK push'ит свежий JWT.
-- ❌ **Avito createItemChannel хочет itemId как int**, не string. SendMessage разворачивает response в `result.message.{id, ...}`, createChannel — в `result.channel.{id, ...}`.
-- ❌ **Не забывать регистрировать новые TaskIQ-task'и** в `app/tasks/broker.py::_register_tasks()` через import — иначе worker не подхватит. (Фаза B `dialog_tick_questions` зарегистрирован автоматически через существующий import `seller_dialog_tasks`.)
-- ❌ **Card partials НЕ должны линковать на `/listings/{id}`** — этот route не существует. Использовать Avito URL или drawer (Phase C).
-- ❌ **Не deploy'ить через rsync с Windows** — нет в системе. Использовать `tar + scp + ssh tar -xzf` (видно в недавних коммитах bulk-syncov).
+- ❌ **Postgres НЕ каскадирует FK при UPDATE по умолчанию.** Если мигрируешь rename ключа в parent table — сначала drop FK, потом UPDATE child + parent, потом recreate FK. Hotfix `79f8aef` в миграции 0015 это исправил.
+- ❌ **Docker container НЕ видит изменений в host filesystem** (avito-monitor не монтирует repo как volume) — для миграций нужен `docker compose build avito-monitor` после правки migration file. Затем `docker compose run --rm avito-monitor alembic upgrade head`.
+- ❌ **Никогда не пересобирай только один service** через `docker compose build avito-monitor` — shared image. Когда меняешь общий код (`app/services/*`), используй `docker compose build` (без аргументов) + `docker compose up -d --force-recreate <все потребители>`.
+- ❌ **`<script>` теги в HTML, инжектируемом через `innerHTML`, НЕ выполняются**. Delegated handlers в parent template.
+- ❌ **`templates.TemplateResponse` новая сигнатура**: `(request, name, context)` позиционно.
+- ❌ **JWT-сессии могут стать server-side-зомби**: TTL валиден, но Avito ревокнул раньше → 401. Recovery: запустить Avito-app на телефоне на 60 сек.
+- ❌ **Avito createItemChannel хочет itemId как int**, не string.
+- ❌ **TaskIQ-task'и регистрировать в `app/tasks/broker.py::_register_tasks()`** через import — иначе worker не подхватит.
+- ❌ **Card partials НЕ должны линковать на `/listings/{id}`** — этот route не существует.
+- ❌ **Не deploy'ить через rsync с Windows** — нет в системе. Использовать `tar + scp + ssh tar -xf`.
 - ❌ **PowerShell не имеет grep** — либо grep внутри ssh, либо PowerShell `Select-String`.
+- ❌ **SQLite не поддерживает JSONB + `pg_insert.on_conflict_do_update`** — для тестов с in-memory SQLite в `tests/defect_features/conftest.py` используется hand-written CREATE TABLE + dialect-aware UPSERT (`_is_postgres(session)` check в `repository.py`).
+- ❌ **Pythonside UUID default + server_default** — на моделях `ListingFeature` и `ProfileFeatureRule` стоит и `default=uuid.uuid4`, и `server_default=text("gen_random_uuid()")`. Это для SQLite test compatibility (SQLite не знает `gen_random_uuid()`). В Postgres prod SQLAlchemy использует Python-side default — функционально эквивалентно.
 
 ---
 
