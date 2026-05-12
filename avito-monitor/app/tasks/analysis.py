@@ -43,6 +43,7 @@ from app.db.models.enums import (
 )
 from app.integrations.avito_mcp_client.client import AvitoMcpClient
 from app.integrations.openrouter import OpenRouterClient
+from app.services.defect_features.pipeline import analyze_listing_features
 from app.services.llm_analyzer import (
     CriterionSpec,
     InfoFieldSpec,
@@ -528,38 +529,75 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
         session.add(evaluation)
         await session.flush()
 
+        # ── Defect-feature pipeline (replaces V2 confidence-based bucket) ──
+        # The old bucket from eval_result.bucket was derived from LLM criteria
+        # flags. We now run the feature-based pipeline (parser → upsert →
+        # compute_bucket) which returns a deterministic bucket from per-profile
+        # feature rules. This overrides the LLM bucket for all downstream writes.
+        feat_bucket, feat_reason = await analyze_listing_features(
+            session=session,
+            listing_id=lid,
+            profile_id=pid,
+            title=listing.title or "",
+            description=listing.description or "",
+            parameters=listing.parameters or {},
+        )
+        # feat_bucket is "green"/"grey"/"red"; use it as the final bucket.
+        final_bucket = feat_bucket
+        log.info(
+            "analysis.evaluate.feat_bucket listing=%s llm_bucket=%s feat_bucket=%s reason=%s",
+            listing_id, eval_result.bucket, final_bucket, feat_reason,
+        )
+
         await session.execute(
             update(Listing)
             .where(Listing.id == lid)
             .values(condition_class=derived_condition)
         )
 
+        # Auto-reject on red from feature pipeline (only if user hasn't acted yet).
+        pl_action_result = await session.execute(
+            select(ProfileListing.user_action)
+            .where(
+                ProfileListing.profile_id == pid,
+                ProfileListing.listing_id == lid,
+            )
+        )
+        current_user_action = pl_action_result.scalar_one_or_none()
+        auto_reject = (
+            final_bucket == "red"
+            and current_user_action in (None, "pending", "viewed")
+        )
+
         new_status = (
             ProcessingStatus.NOTIFIED.value
-            if eval_result.bucket == "green" and in_alert
+            if final_bucket == "green" and in_alert
             else ProcessingStatus.EVALUATED.value
         )
+        pl_updates: dict = dict(
+            processing_status=new_status,
+            bucket=final_bucket,
+            latest_evaluation_id=evaluation.id,
+        )
+        if auto_reject:
+            pl_updates["user_action"] = "rejected"
+            pl_updates["rejected_reason"] = f"auto:{feat_reason}"
+
         await session.execute(
             update(ProfileListing)
             .where(
                 ProfileListing.profile_id == pid,
                 ProfileListing.listing_id == lid,
             )
-            .values(
-                processing_status=new_status,
-                bucket=eval_result.bucket,
-                latest_evaluation_id=evaluation.id,
-            )
+            .values(**pl_updates)
         )
 
         notif_count = 0
-        if eval_result.bucket == EvaluationBucket.RED.value and eval_result.red_criterion_keys:
-            # Red is a ranking signal, not a hide signal — leave the lot
-            # visible in the UI with a red badge. The user must confirm by
-            # clicking ✗ Отклонить (which writes reason='rejected'). See
-            # memory: project_filter_change_reeval.
+        if final_bucket == EvaluationBucket.RED.value:
+            # Red is a ranking signal (plus auto-reject above if rules matched).
+            # No TG notification for red. See memory: project_filter_change_reeval.
             pass
-        elif eval_result.bucket == EvaluationBucket.GREEN.value and in_alert:
+        elif final_bucket == EvaluationBucket.GREEN.value and in_alert:
             channels = profile.notification_channels or ["telegram"]
             raw_imgs = listing.images or []
             images: list[str] = []
@@ -579,7 +617,7 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
                 "title": listing.title,
                 "price": float(listing.price) if listing.price is not None else None,
                 "url": listing.url,
-                "bucket": eval_result.bucket,
+                "bucket": final_bucket,
                 "criteria_flags": criteria_dump,
                 "info_fields": info_dump,
                 "condition_class": derived_condition,
@@ -603,12 +641,12 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
 
     log.info(
         "analysis.evaluate.success listing=%s bucket=%s strategy=%s reds=%s notifs=%d",
-        listing_id, eval_result.bucket, strategy,
+        listing_id, final_bucket, strategy,
         eval_result.red_criterion_keys, notif_count,
     )
     return {
         "status": "success",
-        "bucket": eval_result.bucket,
+        "bucket": final_bucket,
         "red_criterion_keys": list(eval_result.red_criterion_keys),
         "in_alert_zone": in_alert,
         "notifications_created": notif_count,
