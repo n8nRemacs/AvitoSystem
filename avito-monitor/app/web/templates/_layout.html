@@ -4,6 +4,10 @@
 <div class="min-h-screen flex flex-col">
   <!-- Topbar -->
   <header class="h-14 bg-avito-surface border-b border-avito-border flex items-center px-6 sticky top-0 z-10">
+    <button id="sidebar-toggle" type="button" aria-label="Свернуть меню"
+            class="mr-3 w-9 h-9 rounded-md hover:bg-avito-elev text-avito-text-soft hover:text-avito-text flex items-center justify-center text-lg">
+      ☰
+    </button>
     <div class="flex items-center gap-3 flex-1">
       <a href="/" class="flex items-center gap-2 group">
         <span class="w-7 h-7 rounded-md bg-avito-brand flex items-center justify-center text-white font-bold text-sm">AM</span>
@@ -25,7 +29,9 @@
 
   <div class="flex flex-1">
     <!-- Sidebar -->
-    <aside class="w-60 bg-avito-bg border-r border-avito-border flex-shrink-0">
+    <aside id="sidebar" data-collapsed="false"
+           class="bg-avito-bg border-r border-avito-border flex-shrink-0
+                  w-60 data-[collapsed=true]:w-14 transition-[width] duration-200 overflow-hidden">
       <nav class="p-3 space-y-1">
         {% set _items = [
             ('dashboard',   '/',                  '📊', 'Дашборд',           None),
@@ -34,6 +40,7 @@
             ('prices',      '/price-intelligence','💰', 'Ценовая разведка',  None),
             ('reliability', '/reliability',       '🩺', 'Reliability',       None),
             ('logs',        '/logs',              '📜', 'Логи',              None),
+            ('model-settings', '/profiles/' ~ (sidebar_active_profile_id or '') ~ '/feature-rules', '🛠', 'Настройки модели', None),
             ('settings',    '/settings',          '⚙️',  'Настройки',         None),
         ] %}
         {% for key, href, icon, label, badge in _items %}
@@ -45,15 +52,15 @@
                text-avito-text hover:bg-avito-elev
              {% endif %}">
           <span class="text-base leading-none">{{ icon }}</span>
-          <span class="flex-1">{{ label }}</span>
+          <span class="flex-1" data-sidebar-label>{{ label }}</span>
           {% if badge is not none and badge > 0 %}
-          <span class="text-xs bg-avito-brand text-white px-2 py-0.5 rounded-full tabular-nums">{{ badge }}</span>
+          <span class="text-xs bg-avito-brand text-white px-2 py-0.5 rounded-full tabular-nums" data-sidebar-label>{{ badge }}</span>
           {% endif %}
         </a>
         {% endfor %}
       </nav>
 
-      <div class="px-5 pt-4 pb-6 mt-2 text-[11px] text-avito-text-soft border-t border-avito-border-soft space-y-1">
+      <div class="px-5 pt-4 pb-6 mt-2 text-[11px] text-avito-text-soft border-t border-avito-border-soft space-y-1" data-sidebar-label>
         <div>LLM расход / 24ч: <span class="font-medium tabular-nums text-avito-text">$0.00</span></div>
         <div>Профилей активно: <span class="font-medium tabular-nums text-avito-text">{{ sidebar_active_profiles or 0 }}</span></div>
       </div>
@@ -65,4 +72,25 @@
     </main>
   </div>
 </div>
+<script>
+(function () {
+  const KEY = 'kpis_sidebar_collapsed';
+  const sb = document.getElementById('sidebar');
+  const btn = document.getElementById('sidebar-toggle');
+  if (!sb || !btn) return;
+  const apply = (collapsed) => {
+    sb.dataset.collapsed = collapsed ? 'true' : 'false';
+    sb.querySelectorAll('[data-sidebar-label]').forEach(el => {
+      el.classList.toggle('hidden', collapsed);
+    });
+    btn.setAttribute('aria-label', collapsed ? 'Развернуть меню' : 'Свернуть меню');
+  };
+  apply(localStorage.getItem(KEY) === '1');
+  btn.addEventListener('click', () => {
+    const next = sb.dataset.collapsed !== 'true';
+    apply(next);
+    localStorage.setItem(KEY, next ? '1' : '0');
+  });
+})();
+</script>
 {% endblock %}

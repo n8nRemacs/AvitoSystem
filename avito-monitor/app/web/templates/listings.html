@@ -253,6 +253,10 @@
 
           {# ───── expanded body ───── #}
           <div class="border-t border-avito-border-soft p-4 bg-avito-elev/30">
+            {% with features=r.features, features_evidence=None %}
+              {% include "_partials/_features_block.html" %}
+            {% endwith %}
+
             {# Avito-side parameters straight from /items/{id}.parameters.flat —
                Состояние, Цвет, Встроенная память, АКБ, Комплектация, итд.
                Render as a compact 2-column grid on top of the description. #}

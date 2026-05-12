@@ -50,3 +50,10 @@ async def test_query_kanban_cards_filters_closed_dialogs():
     sql = str(stmt.compile(compile_kwargs={"literal_binds": False}))
     # The render of `column.is_(None)` is `column IS NULL`.
     assert "seller_dialogs.closed_at IS NULL" in sql
+
+
+def test_kanban_card_has_features_field():
+    """Phase 1: card carries pre-loaded {feature_key: state} dict for the
+    Признаки block rendered in the expanded body."""
+    fields = set(KanbanCard.__annotations__.keys())
+    assert "features" in fields, fields

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -21,12 +21,16 @@ from app.schemas.search_profile import (
 )
 from app.services import search_profiles as svc
 from app.services.auth import authenticate
+from app.services.defect_features import repository as feat_repo
+from app.services.defect_features.bucket import compute_bucket
+from app.services.defect_features.taxonomy import load_taxonomy
 from app.tasks.seller_dialog_tasks import start_seller_dialog
 
 log = structlog.get_logger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+templates.env.globals["defect_taxonomy"] = list(load_taxonomy())
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
@@ -47,12 +51,17 @@ async def _layout_context(
     active_count_stmt = profiles_count_stmt.where(SearchProfile.is_active.is_(True))
     total = (await session.execute(profiles_count_stmt)).scalar_one()
     active_total = (await session.execute(active_count_stmt)).scalar_one()
+    sidebar_active_profile_id = (await session.execute(
+        select(SearchProfile.id).where(SearchProfile.user_id == user.id)
+        .order_by(SearchProfile.created_at).limit(1)
+    )).scalar_one_or_none()
     return {
         "current_user": user,
         "active": active,
         "sidebar_profiles_count": total,
         "sidebar_active_profiles": active_total,
         "sidebar_listings_count": 0,  # filled by Block 4
+        "sidebar_active_profile_id": str(sidebar_active_profile_id) if sidebar_active_profile_id else "",
     }
 
 
@@ -473,6 +482,91 @@ async def profile_delete_web(
         f"/search-profiles?msg={quote_plus(f'Профиль «{name}» удалён')}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+# ---------------------------------------------------------------------------
+# Feature-rules editor — per-profile bucket rules (Task 13)
+# ---------------------------------------------------------------------------
+
+@router.get("/profiles/{profile_id}/feature-rules", response_class=HTMLResponse)
+async def feature_rules_page(
+    profile_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    profile = await session.get(SearchProfile, profile_id)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(404)
+    rules = await feat_repo.load_profile_rules(session, profile_id)
+    ctx = await _layout_context(user, session, active="model-settings")
+    ctx["profile"] = profile
+    ctx["rules"] = rules
+    return templates.TemplateResponse(request, "profiles/feature_rules.html", ctx)
+
+
+@router.patch("/profiles/{profile_id}/feature-rules/{feature_key}")
+async def set_feature_rule(
+    profile_id: uuid.UUID,
+    feature_key: str,
+    body: Annotated[dict, Body(...)],
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> dict:
+    profile = await session.get(SearchProfile, profile_id)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(404)
+    rule = body.get("rule")
+    if rule not in ("green", "red", "ignore"):
+        raise HTTPException(422, "rule must be green|red|ignore")
+    await feat_repo.upsert_profile_rule(
+        session, profile_id=profile_id, feature_key=feature_key, rule=rule,
+    )
+    await session.commit()
+    summary = await recompute_buckets_for_profile(session, profile_id)
+    await session.commit()
+    return {"ok": True, "recompute": summary}
+
+
+async def recompute_buckets_for_profile(
+    session: AsyncSession, profile_id: uuid.UUID
+) -> dict[str, int]:
+    """Recompute bucket for every profile_listings row of this profile.
+
+    Pure-Python re-read of listing_features — no LLM. Auto-rejects newly-red
+    pending/viewed listings. Accepted ones keep user_action='accepted'.
+    """
+    from app.db.models import ListingFeature, ProfileListing  # local imports to avoid circular
+
+    rules = await feat_repo.load_profile_rules(session, profile_id)
+    pls = (await session.execute(
+        select(ProfileListing).where(ProfileListing.profile_id == profile_id)
+    )).scalars().all()
+
+    if not pls:
+        return {"green": 0, "grey": 0, "red": 0}
+
+    # Batch-load all features for all listings in ONE query
+    listing_ids = [pl.listing_id for pl in pls]
+    feature_rows = (await session.execute(
+        select(ListingFeature.listing_id, ListingFeature.feature_key,
+               ListingFeature.state)
+        .where(ListingFeature.listing_id.in_(listing_ids))
+    )).all()
+    states_by_listing: dict[uuid.UUID, dict[str, str]] = {}
+    for lid, fkey, state in feature_rows:
+        states_by_listing.setdefault(lid, {})[fkey] = state
+
+    counters: dict[str, int] = {"green": 0, "grey": 0, "red": 0}
+    for pl in pls:
+        states = states_by_listing.get(pl.listing_id, {})
+        new_bucket, reason = compute_bucket(states, rules)
+        pl.bucket = new_bucket
+        counters[new_bucket] += 1
+        if new_bucket == "red" and pl.user_action in (None, "pending", "viewed"):
+            pl.user_action = "rejected"
+            pl.rejected_reason = f"auto:{reason}"
+    return counters
 
 
 # ---------------------------------------------------------------------------

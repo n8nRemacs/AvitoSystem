@@ -53,3 +53,6 @@ class ProfileListing(Base):
         UUID(as_uuid=True),
         ForeignKey("profile_listing_evaluations.id", ondelete="SET NULL"),
     )
+
+    # Defect-feature pipeline — reason for auto-reject (e.g. "auto:locks.icloud_linked")
+    rejected_reason: Mapped[str | None] = mapped_column(String, nullable=True)

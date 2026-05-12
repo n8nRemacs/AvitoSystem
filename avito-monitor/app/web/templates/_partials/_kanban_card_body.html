@@ -5,6 +5,10 @@
    it feeds the questions stage. #}
 <div class="border-t border-stone-100 px-3 pt-3 pb-3 bg-stone-50/40 space-y-3">
 
+  {% with features=card.features, features_evidence=None %}
+    {% include "_partials/_features_block.html" %}
+  {% endwith %}
+
   {% if card.description %}
     <div class="text-sm text-stone-800 whitespace-pre-line leading-relaxed">{{ card.description }}</div>
   {% else %}
