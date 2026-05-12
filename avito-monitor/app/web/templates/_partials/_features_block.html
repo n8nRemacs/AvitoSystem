@@ -1,0 +1,46 @@
+{# Признаки — defect-feature checklist for one listing.
+   Required context vars:
+     features: {feature_key: state} where state ∈ ok | defect | unknown
+     features_evidence: optional {feature_key: evidence text} (None ⇒ no tooltip)
+   defect_taxonomy is a global injected from Python (list[FeatureSpec]). #}
+
+{% if features %}
+{% set _STATE_ICON = {'ok': '✓', 'defect': '⊘', 'unknown': '⚪'} %}
+{% set _STATE_CLS = {
+    'ok':      'text-emerald-600',
+    'defect':  'text-rose-600',
+    'unknown': 'text-stone-400',
+} %}
+{% set _SECTION_LABELS = {
+    'display':     'Дисплей',
+    'case':        'Корпус',
+    'locks':       'Блокировки',
+    'sensors':     'Датчики',
+    'charging':    'Зарядка',
+    'operability': 'Работоспособность',
+} %}
+
+<div class="bg-white rounded-md border border-stone-200 p-3 mb-3">
+  <div class="text-[11px] uppercase text-stone-500 mb-2">Признаки</div>
+  <div class="grid grid-cols-1 gap-y-2 text-xs">
+    {% for section in ('display','case','locks','sensors','charging','operability') %}
+      {% set section_features = defect_taxonomy | selectattr('section','equalto',section) | list %}
+      {% set visible = section_features | selectattr('key','in',features) | list %}
+      {% if visible %}
+        <div class="flex gap-2">
+          <div class="w-20 text-stone-500 flex-shrink-0">{{ _SECTION_LABELS[section] }}</div>
+          <div class="flex-1 space-y-0.5">
+            {% for f in visible %}
+              {% set st = features[f.key] %}
+              <div class="flex items-center gap-1.5" title="{{ (features_evidence or {}).get(f.key, '') }}">
+                <span class="{{ _STATE_CLS[st] }} text-base leading-none w-3">{{ _STATE_ICON[st] }}</span>
+                <span class="text-stone-800">{{ f.title }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

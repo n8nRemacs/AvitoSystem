@@ -21,12 +21,14 @@ from app.schemas.search_profile import (
 )
 from app.services import search_profiles as svc
 from app.services.auth import authenticate
+from app.services.defect_features.taxonomy import load_taxonomy
 from app.tasks.seller_dialog_tasks import start_seller_dialog
 
 log = structlog.get_logger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+templates.env.globals["defect_taxonomy"] = list(load_taxonomy())
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
