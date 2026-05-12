@@ -13,7 +13,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Listing, SearchProfile, SellerDialog
+from app.db.models import Listing, ListingFeature, SearchProfile, SellerDialog
 from app.services.listings_view import ListingImage, _first_image_url, _images_list
 from app.services.seller_dialog.constants import (
     STAGE_CONTACT,
@@ -46,6 +46,7 @@ class KanbanCard:
     operator_mode: bool
     opened_at: datetime
     last_event_at: datetime | None
+    features: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -86,6 +87,19 @@ async def query_kanban_cards(
 
     rows = (await session.execute(stmt)).all()
 
+    # Batch-load features for all listings in one query (no N+1).
+    listing_ids = [listing.id for _, listing, _ in rows]
+    features_rows = []
+    if listing_ids:
+        features_rows = (await session.execute(
+            select(ListingFeature.listing_id, ListingFeature.feature_key,
+                   ListingFeature.state)
+            .where(ListingFeature.listing_id.in_(listing_ids))
+        )).all()
+    features_by_listing: dict[uuid.UUID, dict[str, str]] = {}
+    for lid, fkey, state in features_rows:
+        features_by_listing.setdefault(lid, {})[fkey] = state
+
     out: dict[str, list[KanbanCard]] = {s: [] for s in PHASE_B_STAGES}
     for sd, listing, profile_name in rows:
         listing_url = getattr(listing, "url", None)
@@ -111,6 +125,7 @@ async def query_kanban_cards(
             operator_mode=sd.operator_mode,
             opened_at=sd.opened_at,
             last_event_at=sd.last_event_at,
+            features=features_by_listing.get(listing.id, {}),
         )
         out[sd.stage].append(card)
     return out

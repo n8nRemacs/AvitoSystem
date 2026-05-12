@@ -9,14 +9,14 @@ SQL injection through the query string.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Listing, ProfileListing, SearchProfile
+from app.db.models import Listing, ListingFeature, ProfileListing, SearchProfile
 
 
 PERIOD_TO_HOURS = {
@@ -73,6 +73,7 @@ class ListingRow:
     image_url: str | None
     images: list[ListingImage]
     url: str | None
+    features: dict[str, str] = field(default_factory=dict)
 
     @property
     def price_delta_pct(self) -> float | None:
@@ -213,6 +214,19 @@ async def query_listings(
     stmt = stmt.limit(f.limit).offset(f.offset)
     rows = (await session.execute(stmt)).all()
 
+    # Batch-load features for all listings in one query (no N+1).
+    listing_ids = [listing.id for listing, _, _, _ in rows]
+    features_rows = []
+    if listing_ids:
+        features_rows = (await session.execute(
+            select(ListingFeature.listing_id, ListingFeature.feature_key,
+                   ListingFeature.state)
+            .where(ListingFeature.listing_id.in_(listing_ids))
+        )).all()
+    features_by_listing: dict[uuid.UUID, dict[str, str]] = {}
+    for lid, fkey, state in features_rows:
+        features_by_listing.setdefault(lid, {})[fkey] = state
+
     out: list[ListingRow] = []
     for listing, link, p_id, p_name in rows:
         out.append(ListingRow(
@@ -241,6 +255,7 @@ async def query_listings(
             image_url=_first_image_url(listing.images),
             images=_images_list(listing.images),
             url=listing.url,
+            features=features_by_listing.get(listing.id, {}),
         ))
     return out, total
 
