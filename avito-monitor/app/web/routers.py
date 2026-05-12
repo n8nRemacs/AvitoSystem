@@ -536,17 +536,30 @@ async def recompute_buckets_for_profile(
     Pure-Python re-read of listing_features — no LLM. Auto-rejects newly-red
     pending/viewed listings. Accepted ones keep user_action='accepted'.
     """
-    from app.db.models import ProfileListing
+    from app.db.models import ListingFeature, ProfileListing  # local imports to avoid circular
 
     rules = await feat_repo.load_profile_rules(session, profile_id)
     pls = (await session.execute(
         select(ProfileListing).where(ProfileListing.profile_id == profile_id)
     )).scalars().all()
 
+    if not pls:
+        return {"green": 0, "grey": 0, "red": 0}
+
+    # Batch-load all features for all listings in ONE query
+    listing_ids = [pl.listing_id for pl in pls]
+    feature_rows = (await session.execute(
+        select(ListingFeature.listing_id, ListingFeature.feature_key,
+               ListingFeature.state)
+        .where(ListingFeature.listing_id.in_(listing_ids))
+    )).all()
+    states_by_listing: dict[uuid.UUID, dict[str, str]] = {}
+    for lid, fkey, state in feature_rows:
+        states_by_listing.setdefault(lid, {})[fkey] = state
+
     counters: dict[str, int] = {"green": 0, "grey": 0, "red": 0}
     for pl in pls:
-        features = await feat_repo.load_listing_features(session, pl.listing_id)
-        states = {k: v["state"] for k, v in features.items()}
+        states = states_by_listing.get(pl.listing_id, {})
         new_bucket, reason = compute_bucket(states, rules)
         pl.bucket = new_bucket
         counters[new_bucket] += 1

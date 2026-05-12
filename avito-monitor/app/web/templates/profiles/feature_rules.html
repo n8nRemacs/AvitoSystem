@@ -60,26 +60,33 @@
 
   form.addEventListener('click', async (e) => {
     const btn = e.target.closest('.rule-seg');
-    if (!btn) return;
-    const key = btn.dataset.ruleKey;
-    const value = btn.dataset.ruleValue;
-    const resp = await fetch(`/profiles/${pid}/feature-rules/${encodeURIComponent(key)}`, {
-      method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({rule: value}),
-    });
-    if (!resp.ok) { showToast('Не удалось сохранить'); return; }
-    btn.parentElement.querySelectorAll('.rule-seg').forEach(b => {
-      const active = b === btn;
-      b.setAttribute('aria-pressed', active ? 'true' : 'false');
-      b.classList.toggle('bg-avito-brand-soft', active);
-      b.classList.toggle('font-medium', active);
-    });
-    const data = await resp.json();
-    if (data.recompute) {
-      showToast(`Бакеты: ${data.recompute.green} зелёных / ${data.recompute.grey} серых / ${data.recompute.red} отклонено`);
-    } else {
-      showToast('Сохранено');
+    if (!btn || btn.disabled) return;
+    const segGroup = btn.parentElement;
+    // Disable all 3 segments in this row during the request
+    segGroup.querySelectorAll('.rule-seg').forEach(b => { b.disabled = true; });
+    try {
+      const key = btn.dataset.ruleKey;
+      const value = btn.dataset.ruleValue;
+      const resp = await fetch(`/profiles/${pid}/feature-rules/${encodeURIComponent(key)}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({rule: value}),
+      });
+      if (!resp.ok) { showToast('Не удалось сохранить'); return; }
+      segGroup.querySelectorAll('.rule-seg').forEach(b => {
+        const active = b === btn;
+        b.setAttribute('aria-pressed', active ? 'true' : 'false');
+        b.classList.toggle('bg-avito-brand-soft', active);
+        b.classList.toggle('font-medium', active);
+      });
+      const data = await resp.json();
+      if (data.recompute) {
+        showToast(`Бакеты: ${data.recompute.green} зелёных / ${data.recompute.grey} серых / ${data.recompute.red} отклонено`);
+      } else {
+        showToast('Сохранено');
+      }
+    } finally {
+      segGroup.querySelectorAll('.rule-seg').forEach(b => { b.disabled = false; });
     }
   });
 })();
