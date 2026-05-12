@@ -34,6 +34,7 @@ class ListingFeature(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
     listing_id: Mapped[uuid.UUID] = mapped_column(
