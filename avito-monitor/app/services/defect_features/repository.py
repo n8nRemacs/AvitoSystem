@@ -15,7 +15,10 @@ from app.db.models import ListingFeature, ProfileFeatureRule
 
 
 def _is_postgres(session: AsyncSession) -> bool:
-    bind = session.get_bind() if hasattr(session, "get_bind") else session.bind
+    try:
+        bind = session.get_bind() if hasattr(session, "get_bind") else session.bind
+    except Exception:
+        return False
     name = getattr(getattr(bind, "dialect", None), "name", "")
     return name == "postgresql"
 
@@ -138,4 +141,4 @@ async def load_active_feature_keys(
 ) -> set[str]:
     """All feature keys where rule != 'ignore'."""
     rules = await load_profile_rules(session, profile_id)
-    return {k for k, r in rules.items() if r in ("green", "red")}
+    return {k for k, r in rules.items() if r != "ignore"}
