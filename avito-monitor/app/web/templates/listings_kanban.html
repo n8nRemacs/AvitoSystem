@@ -37,46 +37,51 @@
     </select>
   </form>
 
-  {# Phase B — 3 columns. Later phases will extend to 9 columns + horizontal scroll. #}
-  <div class="grid grid-cols-3 gap-4">
+  {# Horizontal scroll lane. Each column is fixed-width (320px) and
+     flex-shrink-0 so the strip overflows once it stops fitting. Phase B
+     fits in viewport (3 × 320 + gaps ≈ 1000px); Phase D scales to 9
+     columns and the user scrolls horizontally. `pb-3` is for the
+     scrollbar so it does not eat content. #}
+  <div class="overflow-x-auto pb-3 -mx-2 px-2">
+    <div class="flex gap-4 items-start" style="min-width:max-content">
 
-    <div class="bg-stone-50 rounded-lg p-3 min-h-[300px]">
-      <div class="flex items-center justify-between mb-3 px-1">
-        <h2 class="text-sm font-semibold text-stone-700 uppercase tracking-wide">Контакт</h2>
-        <span class="text-xs text-stone-500">{{ cards.contact|length }}</span>
+      <div class="bg-stone-50 rounded-lg p-3 min-h-[300px] w-[320px] flex-shrink-0">
+        <div class="flex items-center justify-between mb-3 px-1">
+          <h2 class="text-sm font-semibold text-stone-700 uppercase tracking-wide">Контакт</h2>
+          <span class="text-xs text-stone-500">{{ cards.contact|length }}</span>
+        </div>
+        {% for card in cards.contact %}
+          {% include "_partials/kanban_card_contact.html" %}
+        {% else %}
+          <div class="text-xs text-stone-400 text-center py-8">пусто</div>
+        {% endfor %}
       </div>
-      {% for card in cards.contact %}
-        {% include "_partials/kanban_card_contact.html" %}
-      {% else %}
-        <div class="text-xs text-stone-400 text-center py-8">пусто</div>
-      {% endfor %}
-    </div>
 
-    <div class="bg-stone-50 rounded-lg p-3 min-h-[300px]">
-      <div class="flex items-center justify-between mb-3 px-1">
-        <h2 class="text-sm font-semibold text-stone-700 uppercase tracking-wide">Настройка опроса</h2>
-        <span class="text-xs text-stone-500">{{ cards.questions_setup|length }}</span>
+      <div class="bg-stone-50 rounded-lg p-3 min-h-[300px] w-[320px] flex-shrink-0">
+        <div class="flex items-center justify-between mb-3 px-1">
+          <h2 class="text-sm font-semibold text-stone-700 uppercase tracking-wide">Настройка опроса</h2>
+          <span class="text-xs text-stone-500">{{ cards.questions_setup|length }}</span>
+        </div>
+        {% for card in cards.questions_setup %}
+          {% include "_partials/kanban_card_questions_setup.html" %}
+        {% else %}
+          <div class="text-xs text-stone-400 text-center py-8">пусто</div>
+        {% endfor %}
       </div>
-      {% for card in cards.questions_setup %}
-        {% include "_partials/kanban_card_questions_setup.html" %}
-      {% else %}
-        <div class="text-xs text-stone-400 text-center py-8">пусто</div>
-      {% endfor %}
-    </div>
 
-
-    <div class="bg-stone-50 rounded-lg p-3 min-h-[300px]">
-      <div class="flex items-center justify-between mb-3 px-1">
-        <h2 class="text-sm font-semibold text-stone-700 uppercase tracking-wide">Опрос</h2>
-        <span class="text-xs text-stone-500">{{ cards.questions|length }}</span>
+      <div class="bg-stone-50 rounded-lg p-3 min-h-[300px] w-[320px] flex-shrink-0">
+        <div class="flex items-center justify-between mb-3 px-1">
+          <h2 class="text-sm font-semibold text-stone-700 uppercase tracking-wide">Опрос</h2>
+          <span class="text-xs text-stone-500">{{ cards.questions|length }}</span>
+        </div>
+        {% for card in cards.questions %}
+          {% include "_partials/kanban_card_questions.html" %}
+        {% else %}
+          <div class="text-xs text-stone-400 text-center py-8">пусто</div>
+        {% endfor %}
       </div>
-      {% for card in cards.questions %}
-        {% include "_partials/kanban_card_questions.html" %}
-      {% else %}
-        <div class="text-xs text-stone-400 text-center py-8">пусто</div>
-      {% endfor %}
-    </div>
 
+    </div>
   </div>
 
   <dialog id="setup-dialog" class="rounded-lg shadow-xl backdrop:bg-black/40 backdrop:backdrop-blur-sm">
@@ -116,4 +121,6 @@
   });
   </script>
 </div>
+
+{% include "_partials/_lightbox.html" %}
 {% endblock %}

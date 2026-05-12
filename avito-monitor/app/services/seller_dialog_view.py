@@ -9,12 +9,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Listing, SearchProfile, SellerDialog
+from app.services.listings_view import ListingImage, _first_image_url, _images_list
 from app.services.seller_dialog.constants import (
     STAGE_CONTACT,
     STAGE_QUESTIONS,
@@ -37,6 +37,8 @@ class KanbanCard:
     title: str
     price: int | None
     image_url: str | None
+    images: list[ListingImage]
+    web_url: str
     stage: str
     operator_mode: bool
     opened_at: datetime
@@ -46,14 +48,6 @@ class KanbanCard:
 @dataclass
 class KanbanFilters:
     profile_ids: list[uuid.UUID] = field(default_factory=list)
-
-
-def _first_image_url(images_jsonb: Any) -> str | None:
-    if isinstance(images_jsonb, list) and images_jsonb:
-        first = images_jsonb[0]
-        if isinstance(first, dict):
-            return first.get("url")
-    return None
 
 
 async def query_kanban_cards(
@@ -91,6 +85,11 @@ async def query_kanban_cards(
 
     out: dict[str, list[KanbanCard]] = {s: [] for s in PHASE_B_STAGES}
     for sd, listing, profile_name in rows:
+        listing_url = getattr(listing, "url", None)
+        if listing_url and listing_url.startswith("https://"):
+            web_url = listing_url
+        else:
+            web_url = f"https://www.avito.ru/{listing.avito_id}"
         card = KanbanCard(
             dialog_id=sd.id,
             listing_id=sd.listing_id,
@@ -100,6 +99,8 @@ async def query_kanban_cards(
             title=listing.title,
             price=int(listing.price) if listing.price is not None else None,
             image_url=_first_image_url(listing.images),
+            images=_images_list(listing.images),
+            web_url=web_url,
             stage=sd.stage,
             operator_mode=sd.operator_mode,
             opened_at=sd.opened_at,
