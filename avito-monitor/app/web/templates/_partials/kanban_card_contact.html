@@ -28,28 +28,7 @@
       </div>
     </summary>
 
-    {# Expanded body — thumbnails gallery + Avito link. 4 thumbs per row,
-       click → lightbox via the shared #lightbox handler. #}
-    <div class="border-t border-stone-100 px-3 pt-2 pb-3 bg-stone-50/40">
-      {% if card.images %}
-        <div class="grid grid-cols-4 gap-1.5 mb-2 lightbox-gallery"
-             data-images="{{ card.images|map(attribute='url')|join('|') }}">
-          {% for img in card.images[:8] %}
-            <button type="button" data-idx="{{ loop.index0 }}"
-                    class="block aspect-square bg-stone-200 rounded overflow-hidden cursor-zoom-in">
-              <img src="{{ img.url }}" alt="" class="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy">
-            </button>
-          {% endfor %}
-          {% if card.images|length > 8 %}
-            <div class="aspect-square flex items-center justify-center text-[10px] text-stone-500 bg-stone-200 rounded">
-              +{{ card.images|length - 8 }}
-            </div>
-          {% endif %}
-        </div>
-      {% endif %}
-      <a href="{{ card.web_url }}" target="_blank" rel="noopener noreferrer"
-         class="text-xs text-avito-brand hover:underline">→ Открыть на Avito</a>
-    </div>
+    {% include "_partials/_kanban_card_body.html" %}
   </details>
 
   <div class="px-3 py-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs">

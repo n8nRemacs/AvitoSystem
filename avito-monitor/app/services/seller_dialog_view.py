@@ -39,6 +39,9 @@ class KanbanCard:
     image_url: str | None
     images: list[ListingImage]
     web_url: str
+    description: str | None
+    condition_reasoning: str | None
+    condition_confidence: float | None
     stage: str
     operator_mode: bool
     opened_at: datetime
@@ -101,6 +104,9 @@ async def query_kanban_cards(
             image_url=_first_image_url(listing.images),
             images=_images_list(listing.images),
             web_url=web_url,
+            description=listing.description,
+            condition_reasoning=listing.condition_reasoning,
+            condition_confidence=listing.condition_confidence,
             stage=sd.stage,
             operator_mode=sd.operator_mode,
             opened_at=sd.opened_at,

@@ -1,0 +1,43 @@
+{# Shared expanded body for all kanban cards: description + LLM verdict +
+   image gallery + Avito link. Same content blocks as the "Новые" tab
+   card so operator gets identical context in either view. Parameters
+   block is intentionally omitted — coming in the next iteration where
+   it feeds the questions stage. #}
+<div class="border-t border-stone-100 px-3 pt-3 pb-3 bg-stone-50/40 space-y-3">
+
+  {% if card.description %}
+    <div class="text-sm text-stone-800 whitespace-pre-line leading-relaxed">{{ card.description }}</div>
+  {% else %}
+    <div class="text-xs text-stone-400 italic">Описание не подгружено (LLM ещё не классифицировал лот)</div>
+  {% endif %}
+
+  {% if card.condition_reasoning %}
+    <div class="bg-white rounded-md p-3 border border-stone-200">
+      <div class="text-[11px] uppercase text-stone-500 mb-1">🤖 LLM verdict</div>
+      <div class="text-xs text-stone-800 leading-relaxed">{{ card.condition_reasoning }}</div>
+      {% if card.condition_confidence is not none %}
+        <div class="text-[10px] text-stone-400 mt-1">уверенность: {{ "%.0f"|format(card.condition_confidence * 100) }}%</div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if card.images %}
+    <div class="grid grid-cols-4 gap-1.5 lightbox-gallery"
+         data-images="{{ card.images|map(attribute='url')|join('|') }}">
+      {% for img in card.images[:8] %}
+        <button type="button" data-idx="{{ loop.index0 }}"
+                class="block aspect-square bg-stone-200 rounded overflow-hidden cursor-zoom-in">
+          <img src="{{ img.url }}" alt="" class="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy">
+        </button>
+      {% endfor %}
+      {% if card.images|length > 8 %}
+        <div class="aspect-square flex items-center justify-center text-[10px] text-stone-500 bg-stone-200 rounded">
+          +{{ card.images|length - 8 }}
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <a href="{{ card.web_url }}" target="_blank" rel="noopener noreferrer"
+     class="inline-block text-xs text-avito-brand hover:underline">→ Открыть на Avito</a>
+</div>
