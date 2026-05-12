@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.defect_features.llm_parser import parse_section_defects
+from app.services.defect_features.llm_parser import parse_defect_features, parse_section_defects
 from app.services.defect_features.taxonomy import FeatureSpec
 
 
@@ -85,3 +85,63 @@ async def test_empty_features_returns_empty_no_llm_call():
         )
     assert out == {}
     mock_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_skips_features_already_resolved_by_avito_params():
+    """Avito-param matcher resolved locks.icloud_linked → LLM should NOT
+    be asked about it; LLM still asked about everything else."""
+    captured_features = []
+
+    async def _fake_section(*, section, features, **kw):
+        captured_features.append((section, [f.key for f in features]))
+        return {
+            f.key: {"state": "unknown", "confidence": None,
+                    "evidence": None, "source": "llm"}
+            for f in features
+        }
+
+    with patch(
+        "app.services.defect_features.llm_parser.parse_section_defects",
+        new=_fake_section,
+    ):
+        out = await parse_defect_features(
+            title="iPhone 12 PM",
+            description="...",
+            parameters={"Привязка к iCloud": "Привязан"},
+            active_keys={
+                "locks.icloud_linked", "display.glass_broken",
+                "case.back_broken", "sensors.face_id",
+            },
+        )
+    # Avito-resolved
+    assert out["locks.icloud_linked"]["source"] == "avito_parameters"
+    assert out["locks.icloud_linked"]["state"] == "defect"
+    # LLM-resolved (unknown in fake)
+    assert out["display.glass_broken"]["source"] == "llm"
+    # LLM was NOT asked about locks.icloud_linked (already resolved by Avito)
+    locks_sections = [feats for sect, feats in captured_features if sect == "locks"]
+    assert all("locks.icloud_linked" not in feats for feats in locks_sections)
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_skips_sections_with_no_active_keys():
+    """If active_keys doesn't include any operability features, that
+    section's LLM call must be skipped."""
+    called_sections = []
+
+    async def _fake_section(*, section, features, **kw):
+        called_sections.append(section)
+        return {f.key: {"state": "unknown", "confidence": None,
+                        "evidence": None, "source": "llm"}
+                for f in features}
+
+    with patch(
+        "app.services.defect_features.llm_parser.parse_section_defects",
+        new=_fake_section,
+    ):
+        await parse_defect_features(
+            title="x", description="y", parameters={},
+            active_keys={"display.glass_broken"},
+        )
+    assert called_sections == ["display"]

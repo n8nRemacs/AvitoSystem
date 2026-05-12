@@ -6,13 +6,14 @@ run in parallel via parse_defect_features (Task 6).
 """
 from __future__ import annotations
 
-import json
+import asyncio
 from pathlib import Path
 from typing import Any, Iterable
 
 import yaml
 
-from app.services.defect_features.taxonomy import FeatureSpec
+from app.services.defect_features.avito_params import match_avito_parameters
+from app.services.defect_features.taxonomy import SECTIONS, FeatureSpec, load_taxonomy
 from app.services.llm_analyzer import _llm_call_json
 
 
@@ -90,4 +91,53 @@ async def parse_section_defects(
         block = _coerce_one(result.get(f.key))
         block["source"] = "llm"
         out[f.key] = block
+    return out
+
+
+async def parse_defect_features(
+    *,
+    title: str,
+    description: str,
+    parameters: dict[str, Any] | None,
+    active_keys: set[str],
+) -> dict[str, dict[str, Any]]:
+    """Full pipeline: Avito-params first, then LLM for the rest, parallel by section.
+
+    `active_keys` = the subset of features the caller is interested in
+    (typically `{k for k, r in profile_rules.items() if r != 'ignore'}`).
+    Returns {feature_key: {state, confidence, evidence, source}} for every key
+    in active_keys (state='unknown' if neither layer resolved it).
+    """
+    if not active_keys:
+        return {}
+
+    taxonomy_by_key = {f.key: f for f in load_taxonomy()}
+    requested = {k: taxonomy_by_key[k] for k in active_keys if k in taxonomy_by_key}
+
+    # Layer 1 — Avito structured parameters
+    avito_resolved = match_avito_parameters(parameters, set(requested.keys()))
+
+    # Layer 2 — LLM by section, for keys NOT yet resolved
+    pending = {k: spec for k, spec in requested.items() if k not in avito_resolved}
+    by_section: dict[str, list[FeatureSpec]] = {s: [] for s in SECTIONS}
+    for spec in pending.values():
+        by_section[spec.section].append(spec)
+
+    tasks = [
+        parse_section_defects(
+            section=section, features=feats,
+            title=title, description=description, parameters=parameters or {},
+        )
+        for section, feats in by_section.items() if feats
+    ]
+    llm_results = await asyncio.gather(*tasks) if tasks else []
+
+    out = dict(avito_resolved)
+    for partial in llm_results:
+        out.update(partial)
+
+    # Anything still missing → explicit unknown (defensive)
+    for k in active_keys:
+        out.setdefault(k, {"state": "unknown", "confidence": None,
+                           "evidence": None, "source": "llm"})
     return out
