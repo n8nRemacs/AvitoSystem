@@ -1,55 +1,155 @@
-- key: battery_health
-  title: АКБ здоровье (%)
-  category: battery
-  expected_format: percent
-  default_phrasing: "Спроси точный процент здоровья АКБ из настроек"
-- key: face_id_works
-  title: Face ID работает
-  category: function
-  expected_format: yesno
-  default_phrasing: "Уточни, работает ли Face ID без сбоев"
-- key: icloud_unlinked
-  title: iCloud отвязан
-  category: function
-  expected_format: yesno
-  default_phrasing: "Спроси, отвязан ли iCloud с прошлого аккаунта"
-- key: replaced_display
+# Defect taxonomy — see DOCS/superpowers/specs/2026-05-12-defect-checklist-design.md §5
+- key: display.replaced
+  section: display
   title: Дисплей менялся
-  category: damage
+  default_phrasing: "Уточни — менялся ли дисплей"
   expected_format: yesno
-  default_phrasing: "Уточни — менялся ли дисплей (оригинальный или замена)"
-- key: broken_glass
-  title: Разбито стекло дисплея
-  category: damage
+  severity_hint: green
+  opener_phrasing: "дисплей менялся"
+- key: display.glass_broken
+  section: display
+  title: Стекло дисплея разбито
+  default_phrasing: "Стекло дисплея целое или есть трещины/сколы?"
   expected_format: yesno
-  default_phrasing: "Спроси, целое ли стекло дисплея (трещины, сколы)"
-- key: display_stains_stripes
-  title: Пятна/полосы на дисплее
-  category: damage
+  severity_hint: green
+  opener_phrasing: "разбито стекло дисплея"
+- key: display.touchscreen_glitch
+  section: display
+  title: Тачскрин глючит
+  default_phrasing: "Тачскрин работает корректно?"
   expected_format: yesno
-  default_phrasing: "Уточни — есть ли пятна, полосы, битые пиксели на дисплее"
-- key: broken_back
-  title: Разбита задняя крышка
-  category: damage
+  severity_hint: green
+  opener_phrasing: "глючит тачскрин"
+- key: display.stains_stripes
+  section: display
+  title: Пятна / полосы на дисплее
+  default_phrasing: "Есть ли полосы или пятна на дисплее, битые пиксели?"
   expected_format: yesno
-  default_phrasing: "Спроси, целая ли задняя крышка телефона"
-- key: cameras_work
-  title: Все камеры работают
-  category: function
+  severity_hint: green
+  opener_phrasing: "есть полосы/пятна на дисплее"
+- key: case.back_broken
+  section: case
+  title: Задняя крышка разбита
+  default_phrasing: "Задняя крышка целая?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "разбита задняя крышка"
+- key: case.midframe_bent
+  section: case
+  title: Средняя часть корпуса погнута
+  default_phrasing: "Средняя часть корпуса ровная, без замятий?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "погнута средняя часть корпуса"
+- key: case.midframe_cracked
+  section: case
+  title: Средняя часть корпуса сломана
+  default_phrasing: "На корпусе нет трещин или сломов?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "сломана средняя часть корпуса"
+- key: locks.icloud_linked
+  section: locks
+  title: iCloud привязан к чужому аккаунту
+  default_phrasing: "iCloud отвязан от прошлого аккаунта?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "iCloud привязан"
+- key: locks.passcode_forgotten
+  section: locks
+  title: Пароль на экран забыт
+  default_phrasing: "Пароль на разблокировку известен / снят?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "пароль на экран забыт"
+- key: sensors.face_id
+  section: sensors
+  title: Face ID не работает
+  default_phrasing: "Face ID работает без сбоев?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "не работает Face ID"
+- key: sensors.truetone
+  section: sensors
+  title: TrueTone не работает
+  default_phrasing: "TrueTone в настройках включается?"
+  expected_format: yesno
+  severity_hint: info
+  opener_phrasing: "не работает TrueTone"
+- key: sensors.wifi
+  section: sensors
+  title: WiFi не работает
+  default_phrasing: "WiFi ловит сети, подключается стабильно?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "не работает WiFi"
+- key: sensors.sim
+  section: sensors
+  title: SIM не работает
+  default_phrasing: "SIM-карта определяется, сеть ловит?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "не работает SIM"
+- key: sensors.bluetooth
+  section: sensors
+  title: Bluetooth не работает
+  default_phrasing: "Bluetooth подключается к устройствам?"
+  expected_format: yesno
+  severity_hint: info
+  opener_phrasing: "не работает Bluetooth"
+- key: sensors.other
+  section: sensors
+  title: Другие датчики не работают
+  default_phrasing: "Какие-нибудь другие датчики не работают (proximity, гироскоп)?"
   expected_format: text
-  default_phrasing: "Уточни — все ли камеры работают (основная, широкоугольная, теле, фронт); если есть дефекты — какая именно"
-- key: charging_stability
-  title: Зарядка и стабильность
-  category: function
-  expected_format: text
-  default_phrasing: "Спроси — стабильно ли заряжается, не перезагружается ли, не греется ли при использовании"
-- key: replaced_parts
-  title: Что ещё менялось
-  category: damage
-  expected_format: text
-  default_phrasing: "Уточни — менялись ли какие-то части помимо дисплея (АКБ, камеры, плата и т.п.)"
-- key: complectness
-  title: Комплект (коробка/кабель/зарядка)
-  category: complectness
-  expected_format: text
-  default_phrasing: "Спроси, что есть в комплекте: коробка, кабель, зарядка (адаптер)"
+  severity_hint: info
+  opener_phrasing: "есть проблемы с другими датчиками"
+- key: charging.not_charging
+  section: charging
+  title: Не заряжается
+  default_phrasing: "Аппарат заряжается от кабеля?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "не заряжается"
+- key: charging.wireless_only
+  section: charging
+  title: Заряжается только беспроводной
+  default_phrasing: "Аппарат заряжается от обычного кабеля Lightning?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "заряжается только беспроводной зарядкой"
+- key: charging.unstable
+  section: charging
+  title: Зарядка нестабильна
+  default_phrasing: "Зарядка стабильная или нужно двигать кабель?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "зарядка нестабильна (нужно двигать кабель)"
+- key: operability.boot_loop
+  section: operability
+  title: Висит на прошивке
+  default_phrasing: "Аппарат прошивается / включается без зависания?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "висит на прошивке"
+- key: operability.reboots
+  section: operability
+  title: Периодически перезагружается
+  default_phrasing: "Бывает ли что аппарат сам перезагружается?"
+  expected_format: yesno
+  severity_hint: green
+  opener_phrasing: "периодически перезагружается"
+- key: operability.no_boot
+  section: operability
+  title: Не загружается
+  default_phrasing: "После включения экран загрузки доходит до рабочего стола?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "стартует и не загружается"
+- key: operability.apple_loop
+  section: operability
+  title: Циклится на яблоке
+  default_phrasing: "Аппарат загружается до яблока и идёт дальше?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "циклится на яблоке"
