@@ -104,7 +104,7 @@ def upgrade() -> None:
         op.execute(sa.text(
             "UPDATE seller_dialog_topics SET status = 'pending', answer_text = NULL, "
             "answer_msg_id = NULL, answered_at = NULL "
-            "WHERE topic_key = ANY(:keys) AND status IN ('answered','unclear')"
+            "WHERE topic_key = ANY(:keys) AND status = 'answered'"
         ).bindparams(keys=invert_keys))
 
     # 6. Drop removed keys from library + links + per-dialog rows.
@@ -121,6 +121,12 @@ def upgrade() -> None:
         ).bindparams(k=keys_arr))
 
     # 7. Upsert the 22-feature taxonomy into dialog_topics (idempotent).
+    # NOTE: We intentionally do NOT auto-link new feature keys into
+    # profile_dialog_topics. In Phase 1 onwards, feature gating per profile
+    # is driven by the new profile_feature_rules table (rule != 'ignore').
+    # profile_dialog_topics remains for the legacy Phase B dialog-topic flow,
+    # and the operator opts each feature into a survey explicitly via the
+    # setup-drawer (Phase 2). See spec §6 + §10.1 for rationale.
     yaml_path = (Path(__file__).resolve().parent.parent.parent
                  / "app" / "data" / "dialog_topics.yaml")
     features = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
