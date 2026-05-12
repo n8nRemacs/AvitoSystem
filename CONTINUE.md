@@ -134,11 +134,41 @@ Phase 1 defect-checklist зашиплен 2026-05-12 + правила на iPhon
 2. **Каша двух LLM-систем:** V2 criteria (`criteria_templates.yaml`, 15 entries, через форму профиля) и Defect features (`dialog_topics.yaml`, 22 entries, через отдельную страницу) **пересекаются по 5+ key'ам** (icloud_locked ↔ locks.icloud_linked, screen_broken ↔ display.glass_broken, etc.). V2 LLM bucket вычисляется, но **не используется** (`profile_listings.bucket` пишется из defect-pipeline).
 3. **iPhone 13 при первом polling-проходе слил 871 лот в grey** (нет правил → нет фильтрации). DB почищено 2026-05-12.
 
-**Brainstorm в работе:** ветка `superpowers:brainstorming` начата для unified-criteria дизайна. План на 2 фазы:
-- **Phase 2.0 (stop-gap, ~3h):** вынести feature-rules-страницу из глобального sidebar в форму профиля. iPhone 13 получит свой UI. V2 criteria остаются работать «в холостую».
-- **Phase 2.1 (unification, отдельный спек):** единая модель — defect / attribute filter / lock / info, миграция V2 → unified, удаление дублей. Юзер выбрал именно этот двухфазный путь.
+### §4.0.1 Brainstorm snapshot — что зафиксировано
 
-Brainstorm пауза на этом моменте — после restart сессии можно возобновить с этого state.
+Skill `superpowers:brainstorming` был invoked, контекст спарсен, юзер ответил на первый scope-вопрос. Spec ещё **не написан**.
+
+**Зафиксированные факты (mapping V2 criteria ↔ Defect features):**
+
+| V2 criterion key | Closest defect feature | Тип пересечения |
+|---|---|---|
+| `icloud_locked` | `locks.icloud_linked` | дубль (один-в-один) |
+| `screen_broken` | `display.glass_broken` + `display.touchscreen_glitch` + `display.stains_stripes` | дубль (V2 broader, defect granular) |
+| `not_starting` | `operability.boot_loop` + `no_boot` + `apple_loop` | дубль (V2 broader, defect granular) |
+| `modem_broken` | `sensors.sim` | частичный (defect уже) |
+| `biometric_broken` | `sensors.face_id` | частичный (V2 = Face ID + Touch ID) |
+| `frp_locked` | — | нет counterpart (Android-specific) |
+| `account_blocked` | — | нет counterpart (vendor locks) |
+| `parts_only` | — | нет counterpart (intent, не hardware) |
+| `memory_gte` | — | attribute filter (numeric), другой класс |
+| `title_matches_model` | — | attribute filter (string), другой класс |
+| `battery_health`, `repaired_components` | — | info_llm (extraction-only) |
+| `memory_gb`, `color`, `vendor_model` | — | info_api (extraction-only) |
+
+**Архитектурный факт:** V2 LLM bucket вычисляется (пишется в `profile_listing_evaluations.bucket`) но **больше не используется** — `profile_listings.bucket` (operative field) пишется в `analysis.py:564-588` из `compute_bucket(features, rules)` (defect-pipeline). V2 LLM сейчас работает «в холостую».
+
+**Решения пользователя:**
+- Q1 (phasing): выбрано **B** — две фазы. Phase 2.0 stop-gap (вынести feature-rules в форму профиля) + Phase 2.1 unification (единая модель).
+- Q2..Q5: ещё не заданы.
+
+**Что осталось пройти до spec'а:**
+- Уточнить data model unified-системы: один тип «rule» с дискриминатором, или 4 типа таблиц (defect / attribute / lock / info)?
+- UI placement в форме профиля: tabs / accordion / single page с секциями?
+- Что делать с V2 LLM-evaluation в Phase 2.1: rip целиком, или mapping V2 keys → unified taxonomy?
+- info_api / info_llm — оставляем как «info-only» категорию или сливаем в unified taxonomy?
+- attribute filters (memory_gte etc.) — отдельный type с numeric/string slot, или сливаем в LLM-prompted rule с params?
+
+**Как возобновить:** скажи «продолжаем brainstorm» — я задам Q2 (data-model). Целевая выходная точка — spec в `DOCS/superpowers/specs/2026-05-XX-unified-criteria-design.md` → потом writing-plans для Phase 2.0 + Phase 2.1 (отдельные планы).
 
 ### §4.1 Если хочешь продолжить unified-criteria дизайн
 
