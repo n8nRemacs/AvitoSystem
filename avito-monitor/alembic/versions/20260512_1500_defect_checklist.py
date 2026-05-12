@@ -86,7 +86,18 @@ def upgrade() -> None:
         op.add_column("profile_listings",
                       sa.Column("rejected_reason", sa.Text, nullable=True))
 
-    # 4. Rename existing dialog_topics keys + cascade.
+    # 4. Rename existing dialog_topics keys + cascade to child tables.
+    #    Postgres FK does NOT cascade UPDATE by default, so we drop both
+    #    child FKs, rename in both directions, then recreate FKs.
+    op.drop_constraint(
+        "fk_profile_dialog_topics_topic_key_dialog_topics",
+        "profile_dialog_topics", type_="foreignkey",
+    )
+    op.drop_constraint(
+        "fk_seller_dialog_topics_topic_key_dialog_topics",
+        "seller_dialog_topics", type_="foreignkey",
+    )
+
     for old, (new, _invert) in RENAME_MAP.items():
         op.execute(sa.text(
             "UPDATE dialog_topics SET key = :new WHERE key = :old"
@@ -97,6 +108,17 @@ def upgrade() -> None:
         op.execute(sa.text(
             "UPDATE profile_dialog_topics SET topic_key = :new WHERE topic_key = :old"
         ).bindparams(new=new, old=old))
+
+    op.create_foreign_key(
+        "fk_profile_dialog_topics_topic_key_dialog_topics",
+        "profile_dialog_topics", "dialog_topics",
+        ["topic_key"], ["key"], ondelete="CASCADE",
+    )
+    op.create_foreign_key(
+        "fk_seller_dialog_topics_topic_key_dialog_topics",
+        "seller_dialog_topics", "dialog_topics",
+        ["topic_key"], ["key"], ondelete="CASCADE",
+    )
 
     # 5. Invert state for keys whose semantic flipped — reset to 'pending'.
     invert_keys = [v[0] for v in RENAME_MAP.values() if v[1]]
