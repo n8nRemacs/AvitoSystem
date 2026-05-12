@@ -1,0 +1,87 @@
+{% extends "_layout.html" %}
+{% block page_content %}
+<div class="max-w-[1024px]">
+  <h1 class="text-2xl font-semibold mb-1 text-avito-text">Настройки модели — {{ profile.name }}</h1>
+  <p class="text-sm text-avito-text-soft mb-6">
+    Per-feature правила определяют как лоты бакетятся: 🟢 — желателен ok,
+    🔴 — критичный дефект (auto-reject), ⊘ — не учитываем.
+  </p>
+
+  {% set _SECTION_LABELS = {
+      'display':'Дисплей','case':'Корпус','locks':'Блокировки и ПО',
+      'sensors':'Датчики','charging':'Зарядка','operability':'Работоспособность',
+  } %}
+
+  <form id="rules-form" data-profile-id="{{ profile.id }}">
+    {% for section in ('display','case','locks','sensors','charging','operability') %}
+      <fieldset class="bg-avito-surface border border-avito-border rounded-md mb-4">
+        <legend class="px-3 py-2 text-sm font-semibold text-avito-text">{{ _SECTION_LABELS[section] }}</legend>
+        <div class="divide-y divide-avito-border-soft">
+          {% for f in defect_taxonomy if f.section == section %}
+            {% set current = rules.get(f.key, 'ignore') %}
+            <div class="flex items-center justify-between px-3 py-2">
+              <div class="text-sm text-avito-text">{{ f.title }}</div>
+              <div class="inline-flex rounded-md border border-avito-border bg-avito-elev overflow-hidden text-xs">
+                {% for value, label, cls in [
+                    ('green', '🟢', 'hover:bg-emerald-100'),
+                    ('red',   '🔴', 'hover:bg-rose-100'),
+                    ('ignore','⊘',  'hover:bg-stone-200'),
+                  ] %}
+                  <button type="button" data-rule-key="{{ f.key }}" data-rule-value="{{ value }}"
+                          aria-pressed="{{ 'true' if current == value else 'false' }}"
+                          class="rule-seg px-3 py-1 {{ cls }}
+                                 {% if current == value %}bg-avito-brand-soft font-medium{% endif %}">
+                    {{ label }}
+                  </button>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </fieldset>
+    {% endfor %}
+  </form>
+
+  <div id="rules-toast" class="fixed bottom-4 right-4 bg-avito-text text-white px-4 py-2 rounded-md text-sm hidden"></div>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById('rules-form');
+  const toast = document.getElementById('rules-toast');
+  if (!form) return;
+  const pid = form.dataset.profileId;
+
+  const showToast = (msg) => {
+    toast.textContent = msg;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 2500);
+  };
+
+  form.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.rule-seg');
+    if (!btn) return;
+    const key = btn.dataset.ruleKey;
+    const value = btn.dataset.ruleValue;
+    const resp = await fetch(`/profiles/${pid}/feature-rules/${encodeURIComponent(key)}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rule: value}),
+    });
+    if (!resp.ok) { showToast('Не удалось сохранить'); return; }
+    btn.parentElement.querySelectorAll('.rule-seg').forEach(b => {
+      const active = b === btn;
+      b.setAttribute('aria-pressed', active ? 'true' : 'false');
+      b.classList.toggle('bg-avito-brand-soft', active);
+      b.classList.toggle('font-medium', active);
+    });
+    const data = await resp.json();
+    if (data.recompute) {
+      showToast(`Бакеты: ${data.recompute.green} зелёных / ${data.recompute.grey} серых / ${data.recompute.red} отклонено`);
+    } else {
+      showToast('Сохранено');
+    }
+  });
+})();
+</script>
+{% endblock %}

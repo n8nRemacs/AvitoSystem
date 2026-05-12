@@ -40,6 +40,7 @@
             ('prices',      '/price-intelligence','💰', 'Ценовая разведка',  None),
             ('reliability', '/reliability',       '🩺', 'Reliability',       None),
             ('logs',        '/logs',              '📜', 'Логи',              None),
+            ('model-settings', '/profiles/' ~ (sidebar_active_profile_id or '') ~ '/feature-rules', '🛠', 'Настройки модели', None),
             ('settings',    '/settings',          '⚙️',  'Настройки',         None),
         ] %}
         {% for key, href, icon, label, badge in _items %}
