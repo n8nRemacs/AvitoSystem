@@ -5,6 +5,7 @@ from app.db.models.chat_dialog_state import ChatDialogState
 from app.db.models.criteria_template import CriteriaTemplate
 from app.db.models.health_check import HealthCheck
 from app.db.models.listing import Listing
+from app.db.models.listing_feature import ListingFeature
 from app.db.models.listing_status_event import ListingStatusEvent
 from app.db.models.llm_analysis import LLMAnalysis
 from app.db.models.messenger_chat import MessengerChat
@@ -13,6 +14,7 @@ from app.db.models.notification import Notification
 from app.db.models.price_analysis import PriceAnalysis
 from app.db.models.price_analysis_run import PriceAnalysisRun
 from app.db.models.profile_criteria import ProfileCriterion
+from app.db.models.profile_feature_rule import ProfileFeatureRule
 from app.db.models.profile_listing import ProfileListing
 from app.db.models.profile_listing_evaluation import ProfileListingEvaluation
 from app.db.models.profile_market_stats import ProfileMarketStats
@@ -34,6 +36,7 @@ __all__ = [
     "CriteriaTemplate",
     "HealthCheck",
     "Listing",
+    "ListingFeature",
     "ListingStatusEvent",
     "LLMAnalysis",
     "MessengerChat",
@@ -42,6 +45,7 @@ __all__ = [
     "PriceAnalysis",
     "PriceAnalysisRun",
     "ProfileCriterion",
+    "ProfileFeatureRule",
     "ProfileListing",
     "ProfileListingEvaluation",
     "ProfileMarketStats",
