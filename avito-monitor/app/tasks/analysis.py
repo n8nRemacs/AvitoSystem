@@ -488,6 +488,38 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
             # hides the lot. See feedback_no_qrator_excuse and
             # project_filter_change_reeval memory notes.
             await session.commit()
+
+        # Still run the feature pipeline so listing_features rows are written
+        # uniformly even when the LLM branch is skipped.  The API-killer
+        # condition overlaps with defect taxonomy (locks.icloud_linked,
+        # operability.no_boot, etc.), and the UI checklist + later analytics
+        # need those rows regardless of how the red verdict was reached.
+        try:
+            params_to_use = (
+                detail.parameters
+                if (detail and getattr(detail, "parameters", None))
+                else (listing.parameters or {})
+            )
+            async with sessionmaker() as session:
+                feat_bucket, feat_reason = await analyze_listing_features(
+                    session=session,
+                    listing_id=lid,
+                    profile_id=pid,
+                    title=listing.title or "",
+                    description=listing.description or "",
+                    parameters=params_to_use,
+                )
+            log.info(
+                "analysis.evaluate.api_killer.feat_bucket listing=%s feat_bucket=%s reason=%s",
+                listing_id, feat_bucket, feat_reason,
+            )
+        except Exception:
+            log.exception(
+                "analysis.evaluate.api_killer.feat_pipeline_failed listing=%s",
+                listing_id,
+            )
+            # Feature pipeline failure must not regress the API-killer return.
+
         return {
             "status": "success",
             "skipped_llm": True,
@@ -534,13 +566,20 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
         # flags. We now run the feature-based pipeline (parser → upsert →
         # compute_bucket) which returns a deterministic bucket from per-profile
         # feature rules. This overrides the LLM bucket for all downstream writes.
+        # Prefer detail.parameters (fresh MCP fetch) over listing.parameters
+        # (the ORM object loaded before the detail fetch, potentially stale).
+        params_for_features = (
+            detail.parameters
+            if (detail and getattr(detail, "parameters", None))
+            else (listing.parameters or {})
+        )
         feat_bucket, feat_reason = await analyze_listing_features(
             session=session,
             listing_id=lid,
             profile_id=pid,
             title=listing.title or "",
             description=listing.description or "",
-            parameters=listing.parameters or {},
+            parameters=params_for_features,
         )
         # feat_bucket is "green"/"grey"/"red"; use it as the final bucket.
         final_bucket = feat_bucket
