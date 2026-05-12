@@ -22,7 +22,7 @@
   - любой неопределённый признак с rule ≠ ignore → bucket=grey (опрос подтвердит)
   - все green-flag подтверждены ok, ни одного red-flag-defect → bucket=green
 - В expanded body карточки kanban (и tab «Новые») — новый блок «Признаки» с иконками ✓/⊘/⚪.
-- В Phase 2: setup-modal переехала в drawer, унаследовала чек-лист с тоглами на unknown-фичах, **personalised opener бота** на основе confirmed-defects + **двойной LLM на каждый inbound** (targeted topic-parse + broad feature-scan) для динамического движения лота по бакетам в реальном времени опроса.
+- В Phase 2: setup-modal переехала в drawer, унаследовала чек-лист с тоглами на unknown-фичах, **personalised opener бота** на основе confirmed-defects + **опрос идёт по категориям** (один человеческий вопрос на категорию = подтверждение confirmed defects + asked unknown'ы; ≤ 6 циклов вопрос-ответ вместо 20+) + **двойной LLM на каждый inbound** (per-category parse + broad feature-scan) для динамического движения лота по бакетам в реальном времени опроса.
 
 После shipping:
 - Лоты с iCloud locked (или другим red-flag, что оператор сконфигурит) идут в Отклонённые автоматически, не требуют ручной триажа.
@@ -67,6 +67,7 @@
 | Q11 | **No-defects opener — НЕ нужен** | Если confirmed-defects = 0, opener-подтверждающую строку не делаем. Сразу первый «А вот это как?» по unknown-тоглам или recap (если тоглов нет). |
 | Q12 | **Двойной LLM на каждый inbound** в Phase 2: targeted parse_topic_answer (existing) + новый scan_message_for_features (broad sweep) | Продавец может проговориться об ином признаке отвечая на вопрос про АКБ — мы должны это поймать и пересчитать bucket. |
 | Q13 | **`condition_class` остаётся**, но bucket больше им не считается. condition_class — derived из condition + используется только market-stats / legacy UI. | Не ломаем аналитику; убираем единственный источник истины для bucketing → feature-rules. |
+| Q14 | **Опрос идёт по категориям (батчем), не per-topic** (Phase 2). Один вопрос на категорию = подтверждение confirmed defects этой категории + asked unknown'ы | Натуральный диалог. 22 микровопроса → ≤6 человеческих фраз. Не раздражает продавца. |
 
 ## 5. Таксономия (полный список)
 
@@ -371,47 +372,91 @@ async def recompute_buckets_for_profile(session, profile_id):
 
 Submit → init `seller_dialog_topics` rows только для активированных тоглов (со `priority` из таксономии) → транзишн в stage=questions → kick off `dialog_tick_questions`.
 
-### 10.2 Personalised opener бота
+### 10.2 Category-batched questions (главное изменение опроса)
 
-В `dialog_tick_questions` first tick (новый код):
+**Принцип:** вместо 15-20 микро-вопросов (по одному per topic) — **один вопрос на категорию** (display / case / locks / sensors / charging / operability). В этом вопросе бот:
+
+1. Подтверждает уже-confirmed defects из этой категории как наблюдение.
+2. В той же фразе спрашивает unknown'ы, которые operator активировал в setup-drawer.
+
+Пример (категория `display`, есть confirmed `display.glass_broken`, активны тоглы `display.replaced` + `display.stains_stripes` + `display.touchscreen_glitch`):
+
+> «Вижу, что у вас на дисплее разбито стекло. По остальным моментам уточните, пожалуйста: дисплей менялся когда-нибудь? Полосы или пятна на нём есть? Тачскрин работает корректно?»
+
+Один человеческий блок на категорию × ≤ 6 категорий = ≤ 6 циклов вопрос-ответ. Опрос ощущается как обычный диалог, а не как опросник.
+
+**Логика `dialog_tick_questions` (переписана):**
 
 ```python
-async def build_opener(listing, features, rules) -> str | None:
-    confirmed_defects = [
-        topics[k].opener_phrasing for k, st in features.items()
-        if st == 'defect' and rules.get(k) in ('green', 'red')
-    ]
-    if not confirmed_defects:
-        return None  # no opener, idu сразу к первому вопросу
-    return (
-        "Я внимательно прочитал ваше объявление. Понял, что у вас: "
-        + ", ".join(confirmed_defects)
-        + ". Всё верно?"
+async def dialog_tick_questions(dialog_id):
+    dialog = ...
+    features = load_listing_features(dialog.listing_id)
+    rules = load_profile_rules(dialog.profile_id)
+    active_topics = load_dialog_topics_by_state(dialog_id, state='pending')
+
+    if dialog.stage == 'questions' and not dialog.opener_sent_at:
+        # First tick: opener (если есть confirmed defects) + первый категорийный вопрос
+        await send_opener_if_any(dialog, features, rules)
+        return  # wait for seller reply
+
+    # Subsequent ticks: следующая категория с pending topics
+    next_cat = pick_next_category(active_topics)
+    if next_cat is None:
+        await finalize_recap(dialog)
+        return
+
+    confirmed_in_cat = [k for k, st in features.items()
+                       if k.startswith(f'{next_cat}.') and st == 'defect']
+    asked_keys = [t.topic_key for t in active_topics
+                 if t.topic_key.startswith(f'{next_cat}.')]
+
+    question = await formulate_category_question(
+        category=next_cat,
+        confirmed=confirmed_in_cat,
+        asked=asked_keys,
     )
+    await send_message(dialog, question)
+    mark_topics_asked(dialog_id, asked_keys)
 ```
 
-`opener_phrasing` — новое поле в `dialog_topics.yaml`, короткая натуральная формулировка дефекта («разбито стекло дисплея», «привязан iCloud», «не работает Face ID»).
+**Opener** (общий — отделён от категорий):
+- Если есть confirmed defects ВО ВСЕХ категориях вместе → opener: «Я внимательно прочитал ваше объявление. Понял, что у вас: <список>. Всё верно?» Это sanity-check, чтобы продавец сразу мог поправить ошибку парсинга («Нет, это была старая фотка, экран целый»).
+- Если confirmed defects = 0 → opener пропускаем, сразу первый категорийный вопрос.
+- Opener-reply → `parse_seller_agreement` + `scan_message_for_features` параллельно (как было в §10.3, см. ниже).
 
-Если opener вернул `None` — bot шлёт сразу первый «А вот это как? — <question>» как раньше.
+**Retry внутри категории:** если `parse_category_answer` вернул `state=unknown` для части asked (продавец пропустил часть) — бот переспрашивает только эти: «Уточните, пожалуйста, ещё: тачскрин работает корректно?» Max 2 retry на категорию; на 3-й попытке тема закрывается с `state=unanswered`, переходим к следующей категории.
 
-Если opener послан — bot ждёт ответ → `parse_seller_agreement` (existing) + `scan_message_for_features` (new) параллельно.
-- agreement=yes → продолжаем к unknown-тоглам.
-- agreement=no и broad-scan нашёл feature-correction → update listing_features (`source='seller_dialog'`), recompute_bucket. Если bucket=green → recap → SUGGEST. Если grey/red остались — продолжаем опрос (или close при red).
-- agreement=unclear → бот переспрашивает («Подскажите пожалуйста точно, какие из этих моментов в порядке, а какие нет?»). Counter retry_count++; на 2-м retry эскалация в operator_mode.
+### 10.3 LLM-dispatcher'ы в Phase 2
 
-### 10.3 Двойной LLM на каждый inbound (questions stage)
+| Dispatcher | Phase | Status | Inputs | Outputs |
+|---|---|---|---|---|
+| `formulate_category_question(category, confirmed, asked)` | 2 | **NEW** (replaces per-topic `formulate_question`) | категория, список confirmed defects, список asked keys | одна натуральная фраза |
+| `parse_category_answer(category, asked, message, open_topics_other_cat)` | 2 | **NEW** (extends `parse_topic_answer`) | категория + asked keys + текст + открытые темы других категорий | `{asked_key: {state, evidence}}` + side_topics (в т.ч. других категорий) |
+| `scan_message_for_features(message, active_features)` | 2 | **NEW** (broad-sweep, см. ниже) | текст + все active features профиля | `{any_feature_key: {state, confidence, evidence}}` |
+| `parse_seller_agreement(text)` | B (already shipped) | reuse | текст | yes / no / unclear |
+| `formulate_recap(answered)` | B (already shipped) | reuse | answered topics | recap-текст |
 
-В SSE handler для seller_dialog inbound (existing `handle_seller_inbound`):
+Промпты `formulate_category_question` и `parse_category_answer` лежат в `app/prompts/questions/<dispatcher>.md` с per-category few-shot examples (опционально per category — common template + section-specific few-shots).
+
+### 10.4 Двойной LLM на каждый inbound (questions stage)
+
+В SSE handler для seller_dialog inbound:
 
 ```python
 parsed, scanned = await asyncio.gather(
-    parse_topic_answer(open_topic, text, open_topics_list),
+    parse_category_answer(current_cat, asked_keys, text, open_topics_other_cats),
     scan_message_for_features(text, profile_active_features, listing),
 )
-# update topic state from parsed
-# update listing_features from scanned, recompute_bucket
-# if bucket=red → close_dialog + notify, stop processing
+
+# 1. Update seller_dialog_topics: asked → answered/unknown по parsed
+# 2. Update listing_features: upsert по parsed + scanned (source='seller_dialog')
+# 3. recompute_bucket
+# 4. Если bucket=red → close_dialog(reason='auto_reject_from_dialog:<feature>')
+#                     + TG-notification + stop opросa
+# 5. Иначе → enqueue dialog_tick_questions → следующая категория или recap
 ```
+
+`parse_category_answer` уже ловит side_topics в пределах *других* открытых категорий (естественное продолжение текущего `parse_topic_answer`). `scan_message_for_features` идёт глобально — может сработать на feature даже если operator её не активировал тоглом (но rule ≠ ignore на профиле). Это позволяет ловить случайные упоминания: «у меня iCloud отвязан кстати» — мы это запишем как ok даже если в setup-drawer этот тогл не был включён.
 
 ## 11. Backwards compat
 
@@ -459,18 +504,23 @@ parsed, scanned = await asyncio.gather(
 
 Если recall < 95% по критическим фичам (icloud, broken_glass) — Phase 1.5: keyword fallback.
 
-### Phase 2 (~6h dev + 1-2d soak)
+### Phase 2 (~8h dev + 1-2d soak)
 
 1. Setup-modal → checklist-drawer с тоглами (2h)
 2. Persistence seller_dialog_topics из тоглов (0.5h)
-3. `build_opener` + opener-reply handler (1h)
-4. `scan_message_for_features` LLM + integration в `handle_seller_inbound` (1.5h)
-5. Auto-close dialog при bucket=red от broad-scan (0.5h)
-6. UI индикатор «динамика bucket» (Phase 2.5 если будет нужно)
+3. `build_opener` + opener-reply handler (0.5h)
+4. **NEW: `formulate_category_question` + `parse_category_answer` LLM dispatchers** + prompts + Pydantic schemas (2h)
+5. **NEW: Переписать `dialog_tick_questions` — категорийная ходьба с per-category retries** (1.5h)
+6. `scan_message_for_features` LLM + integration в `handle_seller_inbound` параллельно с `parse_category_answer` (1h)
+7. Auto-close dialog при bucket=red от broad-scan (0.5h)
+8. Unit-tests per new dispatcher + integration test для одного category-cycle (включён в выше эстимейты)
 
 **Acceptance criteria Phase 2:**
 - На активацию опроса bot шлёт personalised opener (с защитой no-defects=no-opener).
-- На inbound product test scenario: seller проговорился об iCloud → лот auto-closed dialog + перешёл в rejected.
+- Опрос идёт **по категориям** (≤ 6 циклов вопрос-ответ), не per-topic (≤ 22).
+- В категорийной фразе бот **подтверждает confirmed defects** этой категории + спрашивает unknown'ы.
+- На inbound product test scenario: seller проговорился об iCloud (не в активной категории) → broad-scan ловит, лот auto-closed dialog + переходит в rejected.
+- Опрос на типичном лоте (1 категория с 2-3 unknown'ами) — 1 вопрос + 1 ответ + recap, не 3 микро-вопроса.
 
 ## 14. Open questions / future work
 
