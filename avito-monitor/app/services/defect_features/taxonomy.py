@@ -35,9 +35,13 @@ _YAML_PATH = Path(__file__).parent.parent.parent / "data" / "dialog_topics.yaml"
 
 @lru_cache(maxsize=1)
 def load_taxonomy() -> tuple[FeatureSpec, ...]:
-    """Read app/data/dialog_topics.yaml and return tuple of FeatureSpec."""
+    """Read app/data/dialog_topics.yaml and return tuple of FeatureSpec.
+
+    Fail-fast on duplicate keys or unknown sections so downstream
+    consumers (parser, bucketer) can trust the data.
+    """
     raw = yaml.safe_load(_YAML_PATH.read_text(encoding="utf-8"))
-    return tuple(
+    specs = tuple(
         FeatureSpec(
             key=item["key"],
             section=item["section"],
@@ -49,3 +53,16 @@ def load_taxonomy() -> tuple[FeatureSpec, ...]:
         )
         for item in raw
     )
+    # Validators
+    keys = [s.key for s in specs]
+    if len(keys) != len(set(keys)):
+        from collections import Counter
+        dupes = sorted(k for k, c in Counter(keys).items() if c > 1)
+        raise ValueError(f"duplicate feature keys in dialog_topics.yaml: {dupes}")
+    bad_sections = sorted({s.section for s in specs} - set(SECTIONS))
+    if bad_sections:
+        raise ValueError(
+            f"unknown sections in dialog_topics.yaml: {bad_sections} "
+            f"(allowed: {list(SECTIONS)})"
+        )
+    return specs
