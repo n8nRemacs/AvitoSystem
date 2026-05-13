@@ -98,6 +98,23 @@ def test_unknown_section_raises(monkeypatch, tmp_path):
     tmod.load_taxonomy.cache_clear()
 
 
+def test_unknown_kind_raises(monkeypatch, tmp_path):
+    """Phase 2.1: invalid kind values are rejected at load time."""
+    _patch_yaml(monkeypatch, tmp_path, """
+        - key: display.glass_broken
+          kind: bogus
+          section: display
+          title: A
+          default_phrasing: x
+          expected_format: yesno
+          severity_hint: green
+          opener_phrasing: x
+    """)
+    with pytest.raises(ValueError, match="unknown kind"):
+        tmod.load_taxonomy()
+    tmod.load_taxonomy.cache_clear()
+
+
 # ---------- Phase 2.1 tests ----------
 
 def test_taxonomy_kind_distribution():

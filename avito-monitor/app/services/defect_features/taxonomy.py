@@ -11,9 +11,9 @@ Phase 2.1: extended from 22 → 31 features with 'kind' discriminator:
 from __future__ import annotations
 
 import functools
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import yaml
 
@@ -41,7 +41,7 @@ class FeatureSpec:
     # price_signal / info_api fields
     prompt_fragment: Optional[str] = None
     # info_api fields
-    api_path: Optional[object] = None  # str or list[str]
+    api_path: Optional[Union[str, list[str]]] = None
     parser: Optional[str] = None
 
 
@@ -99,19 +99,21 @@ def load_taxonomy() -> tuple[FeatureSpec, ...]:
     return specs
 
 
-@functools.lru_cache(maxsize=1)
 def load_defect_features() -> tuple[FeatureSpec, ...]:
-    """Return only kind=defect features (26 in Phase 2.1)."""
+    """Return only kind=defect features (26 in Phase 2.1).
+
+    Not cached at this layer — load_taxonomy() is cached, and filtering 31 items
+    is trivial. Avoids stale-cache risk if tests patch _YAML_PATH and only call
+    load_taxonomy.cache_clear() (helper caches wouldn't invalidate).
+    """
     return tuple(f for f in load_taxonomy() if f.kind == "defect")
 
 
-@functools.lru_cache(maxsize=1)
 def load_price_signal_features() -> tuple[FeatureSpec, ...]:
     """Return only kind=price_signal features (2 in Phase 2.1)."""
     return tuple(f for f in load_taxonomy() if f.kind == "price_signal")
 
 
-@functools.lru_cache(maxsize=1)
 def load_info_api_features() -> tuple[FeatureSpec, ...]:
     """Return only kind=info_api features (3 in Phase 2.1)."""
     return tuple(f for f in load_taxonomy() if f.kind == "info_api")
