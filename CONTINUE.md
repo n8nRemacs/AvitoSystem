@@ -23,11 +23,13 @@
 | # | Шаг | Кто | Время |
 |---|---|---|---|
 | §5.1 | Sanity (branch/alembic/prod 200) | Claude | 1 мин |
-| §5.2 | **Manual UI smoke на /defects** (полный checklist § 4.1) | Юзер | 15-30 мин |
-| §5.3 | **Final code-review** (per subagent-driven skill) на ветку перед merge | Claude (Opus subagent) | 10 мин |
-| §5.4 | Merge `feat/defect-catalog` → main + push | Claude | 5 мин |
-| §5.5 | «Чуть подчистить UI» — мелкие doменные правки которые увидел юзер | Юзер→Claude | 15-60 мин |
-| §5.6 | **Project C brainstorm:** автогенерация LLM-промптов через квиз с Sonnet/Haiku | Юзер+Claude | 30-60 мин |
+| §5.2 | **★★★ Fix добавления корневого признака — ОК/Отмена не реагируют** (см. §4.2.4) | Юзер+DevTools→Claude | 15-30 мин **БЛОКЕР** |
+| §5.3 | **Manual UI smoke** (после §5.2 fix) | Юзер | 15-30 мин |
+| §5.4 | **Final code-review** (per subagent-driven skill) на ветку перед merge | Claude (Opus subagent) | 10 мин |
+| §5.5 | Merge `feat/defect-catalog` → main + push | Claude | 5 мин |
+| §5.6 | UI cleanup мелочи + kind=node/section (§4.2.5) | Юзер→Claude | 15-60 мин |
+| §5.7 | Section-level inheritance brainstorm (§4.2.6) | Юзер+Claude | 30 мин |
+| §5.8 | **Project C brainstorm:** автогенерация LLM-промптов через квиз с Sonnet/Haiku | Юзер+Claude | 30-60 мин |
 
 ---
 
@@ -170,6 +172,36 @@ Deployed. Stop на manual smoke (юзер пошёл спать).
 | BL4 | Re-extract `_render_node_form()` helper if number of routes grows past 8 (currently 8 — borderline) | Minor refactor | defects.py |
 | BL5 | Empty form-mount div remains after form clear — может убирать `#device-form-mount` content при cancel | Minor | devices.html / catalog.html |
 | BL6 | Cancel-form GET route без unit-test (тривиально, low risk) | Minor | test_defects_routes.py |
+
+### §4.2.4 ★★★ ROOT-add форма не реагирует ни на ОК ни на Отмена (репорт юзера 2026-05-14 поздно вечером) — **P0**
+
+Юзер: «дефект не убрался или отказ в работе добавления корневого признака. Вношу данные но на кнопку ОК не реагирует, кстати, кнопка отмена тоже не срабатывает».
+
+**Без browser DevTools диагностировать невозможно.** На сессии 2026-05-15 нужно:
+
+1. Открыть `https://avitosystem.duckdns.org/defects/catalog` → клик «[+] Добавить корневой признак» → форма появилась в `#feature-form-mount`.
+2. **Открыть DevTools → Network tab** → клик ОК → смотреть:
+   - Был ли вообще POST `/defects/catalog`?
+   - Если был — какой status code? (200 ожидаем, 422 = validation fail, 4xx = клиент, 5xx = сервер)
+   - Если НЕ был — HTMX не подхватил `hx-post` на форме. Возможно htmx.process() не fire'нул для swap'нутого контента.
+3. **Console tab** — есть ли JS errors? HTMX warnings?
+4. **DOM inspect** на форме: проверить что атрибуты реально рендерятся: `hx-post="/defects/catalog"`, `hx-target="#feature-tree"`, `hx-swap="innerHTML"`.
+
+**Возможные причины (priority order):**
+
+| # | Hypothesis | Симптом DevTools | Fix |
+|---|---|---|---|
+| H1 | HTMX не процессит swapped content — форма в `#feature-form-mount` не получила обработку | Нет POST в network. Form atribs виден в DOM. | Добавить `hx-on::after-swap="htmx.process(event.detail.target)"` на button или в form, ИЛИ глобально `htmx.config.includeIndicatorStyles = true` |
+| H2 | Form sends but HTMX swap не fire'ится (target `#feature-tree` отсутствует в DOM на root-add странице?) | POST status 200, но tree не обновлён. | Verify `#feature-tree` exists when form rendered. Может target должен быть `#feature-form-mount` parent |
+| H3 | Дефолт `kind=defect` для корневой ноды конфликтует с валидацией (root nodes должны быть `kind=node` или `section`) | POST status 400 или 422 | Disambig kind для корневых: default kind=section в add-form OR backend силой задаёт kind=node для parent_id=None |
+| H4 | Подсунул новые HTML без `csrf_token`? Каких middleware нет/появилось? | 403 или 422 | Проверить main.py middleware list |
+| H5 | Cancel button — `hx-target="this"` swap outerHTML — только сам button заменится empty, форма остаётся. Не логическая ошибка ОК, но UX-баг. | Cancel: button исчезает, form persist | Fix: `hx-target="closest form"` или `hx-target="#feature-form-mount"` |
+
+**Quick win если H1:** добавить `hx-on::htmx:after-swap` на mounting button — re-process new content. Это разрешит и ОК и Отмена единым махом.
+
+**Cancel button UX bug (отдельно, H5):** при клике Отмена должна свернуть всю форму. Сейчас `hx-target="this"` → только кнопка исчезает. Fix: `hx-target="closest form"` чтобы swap'нуть целиком форму, или `hx-target="#feature-form-mount"`/`#device-form-mount` для root-add случая.
+
+**Это блокер для merge** — Project A polish без работающего add UI бесполезен. Fix первым делом на сессии 2026-05-15.
 
 ### §4.2.5 ★ kind=`node` vs `section` mismatch (известный bug, найден 2026-05-14 поздно вечером)
 
