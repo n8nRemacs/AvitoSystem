@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import User
 from app.deps import db_session, require_user
 
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 router = APIRouter(prefix="/defects", tags=["defects"])
