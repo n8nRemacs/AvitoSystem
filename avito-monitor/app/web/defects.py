@@ -32,6 +32,9 @@ from app.services.defect_catalog.resolver import (
     _feature_path,
     resolve_applicable_defects,
 )
+# Imported lazily inside handlers to avoid circular import at module level
+# (routers.py is loaded first by main.py; defects.py is a sibling)
+from app.web.routers import _layout_context
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -50,10 +53,9 @@ async def devices_page(
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request, "defects/devices.html",
-        {"active_tab": "devices", "user": user},
-    )
+    ctx = await _layout_context(user, session, active="defects")
+    ctx["active_tab"] = "devices"
+    return templates.TemplateResponse(request, "defects/devices.html", ctx)
 
 
 @router.get("/catalog", response_class=HTMLResponse)
@@ -62,10 +64,9 @@ async def catalog_page(
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request, "defects/catalog.html",
-        {"active_tab": "catalog", "user": user},
-    )
+    ctx = await _layout_context(user, session, active="defects")
+    ctx["active_tab"] = "catalog"
+    return templates.TemplateResponse(request, "defects/catalog.html", ctx)
 
 
 async def _build_device_tree(session, parent_id):
