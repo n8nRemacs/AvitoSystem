@@ -1,303 +1,337 @@
-# CONTINUE — следующая сессия
+# CONTINUE — следующая сессия (2026-05-13 после Phase 2.1 ship, юзер skip soak)
 
-> **Если ты Claude в новой сессии:** прочитай этот файл целиком + `DOCS/REFERENCE/README.md` (общая карта state'а) + `DOCS/superpowers/specs/2026-05-12-defect-checklist-design.md` (rev 1, дизайн всей feature×rules системы — Phase 1 shipped + Phase 2 описана) + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory в `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md`. **Главная задача сейчас — soak Phase 1 defect-checklist** (после shipped 2026-05-12). Пока юзер не настроит правила и не запустит backfill — реального трафика на feature pipeline нет.
+> **Если ты Claude в новой сессии:** прочитай этот файл + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md` (особенно `project_phase_2_1_shipped.md`). **Phase 2.1 уже в проде, юзер решил skip soak и делать всё по порядку.** Идёшь по §5: Шаг 0 sanity → Шаг 1 prompt-fix F1 → Шаг 2 merge → Шаг 3 bucket decision → Шаг 4 manual UI smoke (юзер) → Шаг 5 stale test → Шаг 6 backlog. Шаги blocking друг для друга (кроме §5.6 — параллельно).
 
 ---
 
 ## §1. TL;DR
 
-Defect Checklist Phase 1 **зашиплен в prod 2026-05-12**:
+**Phase 2.1 (unified-criteria schema + V2 rip)** — **shipped в prod 2026-05-13 07:50 UTC**.
 
-- 2 новые таблицы (`listing_features` UPSERT по `(listing_id, feature_key)`, `profile_feature_rules` UPSERT по `(profile_id, feature_key)`) + миграция `0015_defect_checklist` применена.
-- 22 defect-фичи × 6 секций (display/case/locks/sensors/charging/operability) в `app/data/dialog_topics.yaml`, старые 11 ключей переименованы в dotted-формат + 4 удалены.
-- LLM-парсер по разделам: `match_avito_parameters` short-circuit для структурированных Avito-полей (iCloud, passcode) → `parse_section_defects` 6 conservative-промптов параллельно через `asyncio.gather`. Cost ≈ $0.0006/лот (Gemini Flash Lite).
-- Pure `compute_bucket(features, rules) → (green|grey|red, reason)` — детерминированно по truth-table из spec §8.
-- Integration в `analyze_listing`: после `classify_condition` → parser → bucket из rules. Auto-reject pending/viewed лотов с new_bucket=red (с `rejected_reason='auto:<feature_key>'`).
-- UI: блок «Признаки» на каждой карточке (kanban + listings), collapsible sidebar (hamburger + localStorage), страница `/profiles/{id}/feature-rules` с 3-state переключателями (🟢/🔴/⊘) + sync bucket recompute с toast counters.
-- Backfill: `python -m scripts.backfill_features [--profile <id>]`.
+- Ветка `phase-2.1-unification` (23 commits) запушена в `origin`, **НЕ замержена в main**.
+- Migration head на prod: `0016_unified_criteria`. V2-таблицы (`criteria_templates`, `profile_criteria`, `profile_listing_evaluations`) дропнуты. `llm_analyses` сохранена.
+- `listing_features` теперь имеет `kind` discriminator (`defect` / `price_signal` / `info_api`) и `value` JSONB.
+- Worker processed 130+ новых лотов за 1.5 часа после deploy. Snapshot 09:00 UTC: 1934 defect + 258 info_api + 172 price_signal rows.
+- 1 hotfix задеплоен (`4af53c4`) — `repaired_components` shape mismatch.
 
-18 commits на main за 2026-05-12 (15 task commits + 2 fixes + 1 hotfix миграции). 37 unit/integration тестов проходят. **Главное что осталось — operator должен (1) выставить правила на профиле iPhone 12 PM через UI, (2) запустить backfill, (3) понаблюдать качество парсера 3-4 дня соака.**
+**Что прямо сейчас делать** (юзер решил skip soak 2026-05-13 09:05 UTC):
+
+| # | Шаг | Кто | Время | Status |
+|---|---|---|---|---|
+| §5.1 | Sanity verify | Claude | 1 мин | pending |
+| §5.2 | **Fix F1 — prompt drift `repaired_components`** ★ | Claude | ~15 мин + deploy | pending |
+| §5.3 | Merge `phase-2.0-tabs` + `phase-2.1-unification` → main | Claude | ~5 мин | pending |
+| §5.4 | F2 — bucket=0 green decision (нужен brainstorm с юзером) | Claude+юзер | ~30 мин | pending |
+| §5.5 | Manual UI smoke (только юзер в браузере) | Юзер | 15-30 мин | pending |
+| §5.6 | F5 — fix стейл test `PHASE_A_STAGES` | Claude (параллельно) | 5 мин | pending |
+| §5.7 | Backlog | TBD | TBD | pending |
 
 ---
 
-## §2. Production state — 2026-05-12 (вечер)
+## §2. Production state
 
 | Что | Где |
 |---|---|
-| **VPS** | `81.200.119.132` (Beget RU). 10 контейнеров up. |
-| **Public URL** | `https://avitosystem.duckdns.org` |
-| **БД** | Cloud Supabase Frankfurt project `drwgozasaypgphkxyizt`. Pooler 6543 + `prepared_statement_cache_size=0`. |
+| **VPS** | `81.200.119.132` (ssh root@81.200.119.132, key auth). Все Python-сервисы rebuild'нуты 2026-05-13 07:48. |
+| **Public URL** | `https://avitosystem.duckdns.org` (Caddy → avito-monitor:8000) |
+| **БД** | Cloud Supabase Frankfurt `drwgozasaypgphkxyizt`. Pooler 6543 transaction mode + `?ssl=require&prepared_statement_cache_size=0`. |
 | **Outbound к Avito** | ru-vpn `155.212.217.226` через SOCKS5 SSH-туннель `socks5h://172.18.0.1:1081` |
-| **Профили** | `iPhone 12 Pro max 10500-13500` (active, 21 правило выставлено, 120 лотов: 23 accepted / 97 rejected, всё в grey бакете т.к. features ещё не парсились) + `iPhone 13` (**is_active=False**, 0 правил, лоты+evaluations почищены 2026-05-12 после первого test-полла который слил 871 grey-лот). iPhone 13 ждёт unified-criteria редизайна. |
-| **HEAD на main** | будет обновлён следующим коммитом (cleanup junk files + iPhone 13 DB cleanup). До этого `79f8aef fix(migration): drop/recreate FKs around topic-key rename`. |
-| **Alembic head** | `0015_defect_checklist` (chain: 0013→0014→0015) |
-| **Phone** | OnePlus 8T `110139ce`, USB к Windows ПК |
-| **V2 reliability autoreply** | **OFF** через `MESSENGER_BOT_ENABLED=false` (соак-таймаут). SSE listener сам жив, seller_dialog ветка работает |
+| **Deploy** | `tar -czf - --exclude __pycache__ --exclude .git . \| ssh root@81.200.119.132 'cd /opt/avito-system/repo/avito-monitor && tar -xzf -'` → `docker compose build avito-monitor worker scheduler avito-mcp messenger-bot telegram-bot health-checker` → `docker compose up -d --force-recreate <same list>` |
+| **Alembic head на prod** | `0016_unified_criteria` (head) |
+| **Профили** | `iPhone 12 Pro max 10500-13500` (active, ~25 ProfileListing) + `iPhone 13` (inactive) |
+| **V2 reliability autoreply** | OFF (`MESSENGER_BOT_ENABLED=false`). seller_dialog ветка жива. |
+| **pg_dump pre-2.1 backup** | `/opt/avito-system/data/pre-phase-2.1-backup-20260513-0742.dump` (2.0M) |
 
-### §2.1 Контейнеры (без изменений с прошлой сессии)
+### §2.1 Containers — все на новом image после deploy
 
-| Сервис | Назначение |
-|---|---|
-| `caddy` | HTTPS reverse-proxy, ACME |
-| `avito-xapi` | FastAPI шлюз к мобильному Avito API (curl_cffi + SOCKS5) |
-| `avito-monitor` | Web UI + поиск/мониторинг + defect-feature pipeline |
-| `avito-mcp` | FastMCP SSE сервер |
-| `worker` | TaskIQ-воркер (polling + LLM analysis + seller_dialog tasks + новый feature pipeline) |
-| `scheduler` | TaskIQ-планировщик (cron'ы) |
-| `messenger-bot` | SSE listener `/api/v1/messenger/realtime/events` → handler → seller_dialog ветка. V2 reliability ветка отключена через env |
-| `telegram-bot` | aiogram long-poll бот для уведомлений |
-| `health-checker` | account_tick loop, scenarios A-I |
-| `redis` | TaskIQ broker + кэши |
+```
+avito-system-avito-monitor-1  (gunicorn/uvicorn + FastAPI dashboard)
+avito-system-avito-mcp-1
+avito-system-avito-xapi-1     (не Phase 2.1 — не пересобирался)
+avito-system-caddy-1
+avito-system-health-checker-1
+avito-system-messenger-bot-1
+avito-system-redis-1
+avito-system-scheduler-1
+avito-system-telegram-bot-1
+avito-system-worker-8
+```
+
+**Важно:** `docker compose build avito-monitor` НЕ обновляет образы worker/scheduler/messenger-bot/telegram-bot/health-checker/avito-mcp — у каждого свой image SHA, хотя build context один (`./repo/avito-monitor`). При следующем code-deploy надо `docker compose build` для ВСЕХ Python-сервисов сразу, иначе worker будет на старом коде и ловить column-not-found.
 
 ---
 
-## §3. Defect-checklist pipeline — что есть сейчас
+## §3. Phase 2.1 — что было сделано (22 commits)
 
-### §3.1 Поток данных
-
-```
-Polling → listings (existing)
-    ↓
-analyze_listing → classify_condition (existing, condition_class остаётся для market-stats)
-    ↓
-analyze_listing_features (NEW):
-  1) load profile_feature_rules → active_keys (rule != ignore)
-  2) parse_defect_features:
-     ├─ match_avito_parameters (Avito iCloud/passcode short-circuit)
-     └─ asyncio.gather над parse_section_defects для 6 секций
-  3) upsert listing_features rows
-  4) compute_bucket(features, rules) → (green|grey|red, reason)
-    ↓
-write pl.bucket = bucket
-auto-reject если bucket=red AND user_action ∈ (None, pending, viewed):
-  pl.user_action = 'rejected'
-  pl.rejected_reason = f'auto:{reason}'
-```
-
-### §3.2 Таблицы
+Полный список — `git log --oneline phase-2.0-tabs..phase-2.1-unification`:
 
 ```
-listing_features
-  id PK, listing_id FK→listings CASCADE, feature_key, state (ok|defect|unknown),
-  confidence float NULL, source (avito_parameters|llm|description_kw|seller_dialog),
-  evidence text NULL, parsed_at timestamptz.
-  UNIQUE(listing_id, feature_key).
-
-profile_feature_rules
-  id PK, profile_id FK→search_profiles CASCADE, feature_key, rule (green|red|ignore),
-  updated_at timestamptz.
-  UNIQUE(profile_id, feature_key).
-
-profile_listings.rejected_reason  (новый column, формат 'auto:<feature>' или 'manual:operator')
+4af53c4  fix(card-price-signal): tolerate bare-array repaired_components value   ← Hotfix
+8b68b3c  fix(tests): move web fixtures into top-level conftest
+9f5bc16  feat(backfill): add --limit option for smoke runs                       ← Task 12
+58dcf0f  feat(card): «Параметры» block — vendor_model + memory_gb + color        ← Task 11
+09fcaa7  feat(card): «Цена / торг» block — battery_health + repaired_components  ← Task 10
+c04884c  fix(pipeline): set source on price_signal + info_api rows
+a79664f  feat(pipeline): integrate price_signal + info_api into analyze_listing  ← Task 9
+a1c6118  feat(defect-features): info_api reader module                           ← Task 8
+3a3cbf4  feat(defect-features): price_signal extractor module                    ← Task 7
+50608d8  feat(defect-parser): recognize 4 new defect keys                        ← Task 6
+0a92fd6  feat(profile-form): remove V2 LLM-criteria + V2 pipeline UI sections    ← Task 5
+1212752  fix(v2-rip): preserve notification_settings on edit
+770b6f9  feat(v2-rip): remove V2 LLM pipeline                                    ← Task 4
+d3a1348  fix(migration): 0016 keep llm_analyses + profile_listings.bucket
+527bbc5  Revert "feat(v2-rip): remove V2 LLM pipeline code, models, prompts, yaml"
+2a68c6b  (reverted) feat(v2-rip)
+f1f1803  fix(scripts): V2 mapping uses correct profile_criteria schema
+97bdfe1  feat(scripts): migrate_v2_to_defect_rules helper                        ← Task 3
+3254093  fix(migration): 0016 drop V2-orphan columns + FK
+9b3c057  feat(migration): 0016 unified_criteria                                  ← Task 2
+0a4762c  chore(taxonomy): fix review-flagged issues
+a11071e  feat(taxonomy): extend yaml to 31 features                              ← Task 1
 ```
 
-### §3.3 Таксономия (22 фичи в `app/data/dialog_topics.yaml`)
+### Архитектурные изменения
 
-| section | keys |
-|---|---|
-| display | replaced, glass_broken, touchscreen_glitch, stains_stripes |
-| case | back_broken, midframe_bent, midframe_cracked |
-| locks | icloud_linked, passcode_forgotten |
-| sensors | face_id, truetone, wifi, sim, bluetooth, other |
-| charging | not_charging, wireless_only, unstable |
-| operability | boot_loop, reboots, no_boot, apple_loop |
+- **Schema:** 31 фича в `dialog_topics.yaml` (26 defect + 2 price_signal + 3 info_api). Discriminator `kind` + `value` JSONB. `compute_bucket` фильтрует только `kind='defect'`.
+- **Pipeline:** `analyze_listing_features` теперь делает 3 вещи в одном проходе: `parse_defect_features` (LLM section parsers) → `extract_price_signal_features` (batched LLM) → `read_info_api_features` (pure Python). Все три UPSERT'ятся в `listing_features`.
+- **V2 rip:** удалены V2 модели (`criteria_template`, `profile_criteria`, `profile_listing_evaluation`), V2 prompts, V2 UI sections (Step 5/5b из form.html), V2 grader (`LLMAnalyzer.evaluate_listing`). Сохранены shared: `llm_analyses`, `profile_listings.bucket`, `LLMAnalyzer.compare_to_reference` (Price Intelligence), seller_dialog functions, `DBLLMCache`, `llm_budget`.
+- **UI:** profile-edit-form упрощён до 3 tabs (Поиск/Признаки/Уведомления). Card получает 2 новых блока: «Цена / торг» + «Параметры».
+- **Backfill:** `python -m scripts.backfill_features --limit N --profile UUID` обрабатывает все 3 kinds через единый orchestrator.
 
-Каждая фича имеет `severity_hint` (red|green|info — дефолт-намёк для оператора в UI) и `opener_phrasing` (для Phase 2 personalised opener).
+### V2 → defect-rules mapping (выполнен на prod)
 
-### §3.4 LLM-вызовы (в `app/services/defect_features/llm_parser.py`)
+5 inserts применено через `scripts/migrate_v2_to_defect_rules --all --apply`:
 
-| Функция | Что делает | Промпт |
-|---|---|---|
-| `match_avito_parameters` | Dict-driven: iCloud/passcode → state по substring-match. Short-circuit без LLM. | — (pure Python) |
-| `parse_section_defects(section, features, …)` | Один LLM-запрос на категорию, conservative — unknown по умолчанию. Возвращает state/confidence/evidence per requested feature. | `app/prompts/parse_section_<section>.md` |
-| `parse_defect_features(title, description, parameters, active_keys)` | Orchestrator: match_avito → asyncio.gather над 6 секциями для pending фич → merge. | — (orchestration) |
-| `compute_bucket(features, rules)` | Pure: truth-table из spec §8. | — (pure Python, 8 unit-тестов) |
+```
+iPhone 13:
+  account_blocked  → locks.vendor_account   = 'red'
+  frp_locked       → locks.frp_locked       = 'red'
+iPhone 12 PM:
+  account_blocked  → locks.vendor_account   = 'red'
+  frp_locked       → locks.frp_locked       = 'red'
+  biometric_broken → sensors.touch_id       = 'red'
+```
 
-Все через OpenRouter `google/gemini-2.5-flash-lite`, safe fallback (state='unknown' для всех) на ошибке.
-
-### §3.5 UI surface
-
-- **Карточки kanban + listings** — блок «Признаки» в expanded body: 2-column grid по секциям, ✓ зелёная / ⊘ красный круг / ⚪ серый кружок. Hover = evidence tooltip. Фичи с rule=ignore не показываются.
-- **Sidebar collapse** — hamburger в topbar, w-60 ↔ w-14, state в localStorage.kpis_sidebar_collapsed.
-- **«🛠 Настройки модели»** новый sidebar nav-пункт, активен когда у юзера есть хоть один профиль (резолвится из earliest-created). Открывает `/profiles/{id}/feature-rules`.
-- **`/profiles/{id}/feature-rules`** — таблица 22 фич × 3-state переключатель (🟢 green-flag / 🔴 red-flag / ⊘ ignore). Click → PATCH endpoint upsert'ит rule + sync `recompute_buckets_for_profile` (batched 1 SELECT, не N+1) + toast «Бакеты: N зелёных / N серых / N отклонено». Double-click защищён disabled-guard в JS.
+`color`, `memory_gb`, `vendor_model`, `repaired_components` — V2 ключи без defect-эквивалента (теперь info_api / price_signal kind, не criteria-rules).
 
 ---
 
-## §4. Что делать в новой сессии — unified-criteria редизайн (Phase 2 brainstorm в работе)
+## §4. Post-deploy prod stats (snapshot 2026-05-13 ~09:00 UTC)
 
-### §4.0 Текущий статус — pivot к unified criteria
+### §4.1 Уже подтверждено работающим
 
-Phase 1 defect-checklist зашиплен 2026-05-12 + правила на iPhone 12 PM выставлены (21 шт). Юзер создал второй профиль **iPhone 13**, и выявились архитектурные проблемы:
+- ✅ Pipeline пишет все 3 kinds в `listing_features`. **Свежий snapshot**: 1934 defect + 258 info_api + 172 price_signal rows (worker отработал ~130 новых лотов за 1.5 часа после deploy).
+- ✅ LLM extracts battery_health процентами (sample: `{"percent": 83}`)
+- ✅ info_api reads корректно (`{"gb": 256}`, `{"text": "Apple iPhone 12 Pro Max"}`)
+- ✅ /login + /search-profiles + form POST работают (303 redirects корректны)
+- ✅ Worker logs чистые (нет V2 column errors после rebuild)
+- ✅ Card UI «Цена / торг» рендерится для лотов с battery_health (после hotfix `4af53c4`)
+- ✅ V2 mapping применён: 5 inserts (locks.vendor_account ×2, locks.frp_locked ×2, sensors.touch_id ×1)
 
-1. **Sidebar nav «🛠 Настройки модели» захардкожена на первый профиль** — для iPhone 13 нет UI к feature-rules.
-2. **Каша двух LLM-систем:** V2 criteria (`criteria_templates.yaml`, 15 entries, через форму профиля) и Defect features (`dialog_topics.yaml`, 22 entries, через отдельную страницу) **пересекаются по 5+ key'ам** (icloud_locked ↔ locks.icloud_linked, screen_broken ↔ display.glass_broken, etc.). V2 LLM bucket вычисляется, но **не используется** (`profile_listings.bucket` пишется из defect-pipeline).
-3. **iPhone 13 при первом polling-проходе слил 871 лот в grey** (нет правил → нет фильтрации). DB почищено 2026-05-12.
+### §4.2 Конкретные finding'и из prod-DB (юзер решил skip soak — фиксим сразу)
 
-### §4.0.1 Brainstorm snapshot — что зафиксировано
+| # | Finding | Severity | План фикса |
+|---|---|---|---|
+| F1 | **LLM drift `repaired_components` 71%**: из 14 non-null cases — 10 bare-array `[{...}]` vs 4 canonical `{"items":[...]}` (DB-stat 2026-05-13). Сейчас спасает template hotfix `4af53c4`, но prompt symptom-level. | High (cosmetic/UI) | Шаг 1 §5.2 — prompt-tune `app/prompts/extract_price_signal.md` |
+| F2 | **Bucket distribution iPhone 12 PM: 133 grey + 3 red + 0 green** из 136 лотов. 34 лота имеют `state='unknown'` для всех red-rules. Зелёного bucket нет — `compute_bucket` требует подтверждённого `state='ok'` для всех правил, а unknown ≠ ok. | Medium (product semantics) | Шаг 3 §5.4 — review `compute_bucket` logic + decision: треатить unknown как neutral или как not-green? Возможно надо relax semantics. |
+| F3 | **111 лотов без single defect=defect row** (`SELECT COUNT(DISTINCT pl.listing_id) WHERE NOT EXISTS state='defect'`). Это либо LLM не нашёл defect (good), либо feature pipeline не дошёл до них (bad). Backfill обрабатывал только `user_action IN (NULL/pending/viewed/accepted)`, а 109 rejected лотов остались с pre-Phase 2.1 features. | Low (intentional) | Опционально: backfill rejected лоты тоже, для consistency. |
+| F4 | **Recall battery_health %**: 17 non-null из 86 (`has_value=86`, всего `null` 69). Из 17 — 12 с percent, 5 с text. Похоже LLM ловит АКБ только когда явно упомянут. | Unknown — нужна manual проверка | Шаг 4 §5.5 — sample 20-30 лотов вручную, сравнить с описанием. |
+| F5 | **`PHASE_A_STAGES` test failing** (pre-existing) | Low (test-only) | Шаг 5 §5.6 — фикс теста под Phase B alias |
 
-Skill `superpowers:brainstorming` был invoked, контекст спарсен, юзер ответил на первый scope-вопрос. Spec ещё **не написан**.
+### §4.3 Pre-existing failures (baseline, не Phase 2.1)
 
-**Зафиксированные факты (mapping V2 criteria ↔ Defect features):**
+Полный test suite (`pytest tests/`): 391/402 pass, 9 failures. Эти 9 — pre-existing, **не регрессия Phase 2.1**:
+- `tests/avito_mcp/test_tools.py` (1) — стейл assertion `iPhone vs Apple`
+- `tests/health_checker/test_*` (5) — пайплайн алертов
+- `tests/seller_dialog/test_view.py` (1) — PHASE_A→B stage rename (F5 выше)
+- `tests/test_polling.py` (1) — Windows cp1252 codec
+- `tests/test_autosearch_sync.py` (1) — async mock warning escalation
 
-| V2 criterion key | Closest defect feature | Тип пересечения |
-|---|---|---|
-| `icloud_locked` | `locks.icloud_linked` | дубль (один-в-один) |
-| `screen_broken` | `display.glass_broken` + `display.touchscreen_glitch` + `display.stains_stripes` | дубль (V2 broader, defect granular) |
-| `not_starting` | `operability.boot_loop` + `no_boot` + `apple_loop` | дубль (V2 broader, defect granular) |
-| `modem_broken` | `sensors.sim` | частичный (defect уже) |
-| `biometric_broken` | `sensors.face_id` | частичный (V2 = Face ID + Touch ID) |
-| `frp_locked` | — | нет counterpart (Android-specific) |
-| `account_blocked` | — | нет counterpart (vendor locks) |
-| `parts_only` | — | нет counterpart (intent, не hardware) |
-| `memory_gte` | — | attribute filter (numeric), другой класс |
-| `title_matches_model` | — | attribute filter (string), другой класс |
-| `battery_health`, `repaired_components` | — | info_llm (extraction-only) |
-| `memory_gb`, `color`, `vendor_model` | — | info_api (extraction-only) |
+---
 
-**Архитектурный факт:** V2 LLM bucket вычисляется (пишется в `profile_listing_evaluations.bucket`) но **больше не используется** — `profile_listings.bucket` (operative field) пишется в `analysis.py:564-588` из `compute_bucket(features, rules)` (defect-pipeline). V2 LLM сейчас работает «в холостую».
+## §5. Что делать в следующей сессии
 
-**Решения пользователя:**
-- Q1 (phasing): выбрано **B** — две фазы. Phase 2.0 stop-gap (вынести feature-rules в форму профиля) + Phase 2.1 unification (единая модель).
-- Q2..Q5: ещё не заданы.
+**Решение юзера 2026-05-13 09:05 UTC: skip soak, делать всё по порядку.** Шаги ниже в строгом порядке — каждый шаг blocking для следующего (кроме §5.6, который можно параллельно).
 
-**Что осталось пройти до spec'а:**
-- Уточнить data model unified-системы: один тип «rule» с дискриминатором, или 4 типа таблиц (defect / attribute / lock / info)?
-- UI placement в форме профиля: tabs / accordion / single page с секциями?
-- Что делать с V2 LLM-evaluation в Phase 2.1: rip целиком, или mapping V2 keys → unified taxonomy?
-- info_api / info_llm — оставляем как «info-only» категорию или сливаем в unified taxonomy?
-- attribute filters (memory_gte etc.) — отдельный type с numeric/string slot, или сливаем в LLM-prompted rule с params?
+### §5.1 Шаг 0 — sanity verify (1 минута)
 
-**Как возобновить:** скажи «продолжаем brainstorm» — я задам Q2 (data-model). Целевая выходная точка — spec в `DOCS/superpowers/specs/2026-05-XX-unified-criteria-design.md` → потом writing-plans для Phase 2.0 + Phase 2.1 (отдельные планы).
-
-### §4.1 Если хочешь продолжить unified-criteria дизайн
-
-Спека пока не написана. Нужно:
-1. Пройти clarifying-questions цикл по data model (один тип vs тип-aware), placement UI (форма профиля section vs sub-page vs drawer), deprecation V2 criteria (kill / mapping / coexist).
-2. Дизайн в `DOCS/superpowers/specs/2026-05-XX-unified-criteria-design.md`.
-3. После approve → writing-plans → 2 фазы.
-
-### §4.2 Если хочешь быстрый stop-gap (Phase 2.0 в одиночку)
-
-Минимальная задача — переместить sidebar nav пункт «🛠 Настройки модели» из глобального layout'a в форму профиля (`/search-profiles/{id}/edit`) как отдельную секцию или вкладку. Эстимейт 2-3h. Тогда iPhone 13 сразу настраивается. V2 criteria остаются в той же форме как сейчас (дубль, но не блокер).
-
-### §4.3 Если хочешь soak Phase 1 на iPhone 12 PM пока
-
-Backfill ещё не запущен — `listing_features` пуст. Чтобы получить реальные данные парсера:
 ```bash
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-monitor python -m scripts.backfill_features'
-```
-~$0.0006 × 120 ≈ $0.07. После пробежки увидишь в expanded card body блок «Признаки» с ✓/⊘/⚪. Соак-наблюдения см. §4.4.
-
-### §4.4 Соак-наблюдения (3-4 дня после backfill)
-
-Метрики ручной оценки:
-- **Recall парсера** — на ~50 свежих лотах оценить вручную: насколько LLM правильно ловит defect-сигналы? Если recall < 95% по критичным фичам (icloud, broken_glass) — нужен Phase 1.5 keyword fallback.
-- **False-positive auto-reject** — сколько iCloud-locked-detected было ложными? Recovery через «↶ Вернуть в новые» в Rejected.
-- **LLM cost/день** — на сколько вырос. Если выше $0.05/день — оптимизация.
-
-Команды для дампа state:
-```powershell
-# Сколько лотов в каждом бакете после backfill
-ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 python -c "
-import asyncio, asyncpg, os
-async def m():
-    url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\", \"postgresql://\")
-    c = await asyncpg.connect(url, statement_cache_size=0)
-    rows = await c.fetch(\"SELECT bucket, count(*) FROM profile_listings GROUP BY bucket\")
-    for r in rows: print(dict(r))
-    auto_rej = await c.fetchval(\"SELECT count(*) FROM profile_listings WHERE rejected_reason LIKE \x27auto:%\x27\")
-    print(\"auto-rejected:\", auto_rej)
-    await c.close()
-asyncio.run(m())"'
-
-# LLM расход за 24ч
-ssh root@81.200.119.132 "cd /opt/avito-system && docker compose logs --since=24h worker 2>&1 | grep -iE 'parse_section|llm.cost' | tail -20"
+cd c:/Projects/Sync/AvitoSystem
+git branch --show-current  # phase-2.1-unification
+git log --oneline phase-2.0-tabs..HEAD | head -5
+# Top: 1ee7bc4 docs(continue): rewrite for post-Phase-2.1-ship state
+#      4af53c4 fix(card-price-signal): tolerate bare-array
+cd avito-monitor && python -m pytest tests/web/ tests/defect_features/ tests/test_v2_rip.py -q --tb=no
+# Expected: 102 passed
 ```
 
-### §4.5 Backlog Phase 1 follow-ups (не блокеры)
+Smoke prod:
+```bash
+ssh root@81.200.119.132 'curl -sS --resolve avitosystem.duckdns.org:443:127.0.0.1 -k -o /dev/null -w "%{http_code}\n" https://avitosystem.duckdns.org/login'
+# Expected: 200
+ssh root@81.200.119.132 'docker logs avito-system-avito-monitor-1 --tail 50 2>&1 | grep -iE "error|exception" | grep -v "Event loop" | head -10'
+# Expected: empty
+```
 
-- **T9-followup: API-killers bypass feature pipeline** — частично исправлено (hotfix `5a1854c` вызывает feature pipeline и в API-killer ветке тоже, отдельной сессией). Если в логах увидим race conditions / двойные upsert'ы — переработать.
-- Все остальные code-review findings уже зашиты в commits (`64bde03` repository hardening, `8cac265` taxonomy validators, `9c10f8b` N+1 + double-click fix, `5a1854c` API-killer + stale params).
+### §5.2 Шаг 1 — Fix F1 (LLM drift `repaired_components`) ★
 
-### §4.6 Что в Phase 2 seller-dialog (категорийный опрос, после soak)
+**Что:** Переписать `app/prompts/extract_price_signal.md` чтобы LLM стабильно возвращал `{"items":[...]}` обёртку (сейчас 71% drift на bare array).
 
-Описано в spec `2026-05-12-defect-checklist-design.md` §10:
+**Acceptance:** После 100+ новых лотов через polling — `SELECT jsonb_typeof(value) FROM listing_features WHERE feature_key='repaired_components' AND value IS NOT NULL` показывает >85% `object` (canonical).
 
-1. **Setup-modal → checklist-drawer**: текущий setup-modal Phase B заменяется на slide-out drawer с тоглами на unknown-фичах. Operator может включить тоглы только на тех, что хочет уточнить.
-2. **Category-batched survey**: вместо 22 микро-вопросов один человеческий вопрос на категорию. «Вижу что у вас разбито стекло. По остальным моментам уточните: дисплей менялся? полосы/пятна? тачскрин работает?» — ≤ 6 циклов вопрос-ответ. Новые LLM dispatcher'ы `formulate_category_question` + `parse_category_answer`.
-3. **Personalised opener**: «Я внимательно прочитал ваше объявление. Понял, что у вас: <список confirmed defects>. Всё верно?» Если confirmed defects = 0 → opener пропускается.
-4. **Двойной LLM на каждый inbound**: existing `parse_topic_answer` (targeted) + новый `scan_message_for_features` (broad sweep по всем active features профиля). Продавец проговорился про iCloud в ответе на вопрос про АКБ → recompute_bucket → если стало red → close dialog + TG notify.
+**Steps:**
+1. Прочитать текущий `app/prompts/extract_price_signal.md`. Найти секцию про `repaired_components`.
+2. Усилить инструкцию:
+   - В начале: «**STRICT JSON SHAPE**: верхний уровень обязательно ОБЪЕКТ с двумя ключами `battery_health` и `repaired_components`. Каждый ключ — либо объект, либо null. НЕ массив на верхнем уровне.»
+   - Для `repaired_components`: добавить явный canonical example блок:
+     ```
+     CORRECT: {"repaired_components": {"items": [{"component":"экран","quality":"original","evidence":"..."}]}}
+     WRONG:   {"repaired_components": [{"component":"экран", ...}]}    ← массив на верхнем уровне НЕДОПУСТИМ
+     ```
+   - В конце добавить «If you return a bare array instead of an object with items, your response will be rejected and re-asked.»
+3. Локальный тест `python -m pytest tests/defect_features/test_price_signal_extractor.py -v` — все 5 должны pass без изменений (моки не зависят от prompt).
+4. Sync + rebuild + recreate. **ВАЖНО: rebuild всех Python-services**:
+   ```bash
+   tar -czf - --exclude __pycache__ --exclude .git . | ssh root@81.200.119.132 'cd /opt/avito-system/repo/avito-monitor && tar -xzf -'
+   ssh root@81.200.119.132 'cd /opt/avito-system && docker compose build avito-monitor avito-mcp messenger-bot scheduler worker health-checker telegram-bot && docker compose up -d --force-recreate avito-monitor worker scheduler avito-mcp messenger-bot telegram-bot health-checker'
+   ```
+5. Commit message:
+   ```
+   fix(prompt): force {"items":[...]} wrapper for repaired_components
+   
+   Phase 2.1 post-deploy finding F1 — LLM returned bare array 71% of
+   non-null cases (10/14). Add STRICT JSON SHAPE block + correct/wrong
+   examples + rejection-warning sentence. Template hotfix in 4af53c4
+   remains as defence-in-depth.
+   ```
 
-Phase 2 ≈ 8h dev + 1-2d soak. Дispatch'нем когда recall парсера Phase 1 ≥ 95%.
+### §5.3 Шаг 2 — Merge `phase-2.1-unification` в `main`
+
+После §5.2 deploy чистый — мержим.
+
+```bash
+cd c:/Projects/Sync/AvitoSystem
+git checkout main
+git pull origin main
+# Phase 2.0 НЕ замержен в main (deployed напрямую с phase-2.0-tabs).
+# Сначала мержим phase-2.0-tabs в main (если ещё не):
+git merge --no-ff phase-2.0-tabs -m "Merge Phase 2.0 — unified-criteria UI placement (deployed 2026-05-13)"
+# Затем phase-2.1-unification:
+git merge --no-ff phase-2.1-unification -m "Merge Phase 2.1 — unified criteria + V2 rip (deployed 2026-05-13)"
+git push origin main
+```
+
+**Проверка после merge:**
+```bash
+git log --oneline main -5  # должны быть оба merge коммита
+git diff main..phase-2.1-unification  # должно быть пусто
+```
+
+**Cleanup (опционально, после подтверждения что main pushed чисто):**
+```bash
+# Локально и на origin:
+git branch -d phase-2.0-tabs phase-2.1-unification
+git push origin --delete phase-2.0-tabs phase-2.1-unification
+```
+
+### §5.4 Шаг 3 — Bucket=0 green decision (F2)
+
+**Контекст:** 133/136 grey, 0 green. Из 34 grey-лотов все red-rules имеют `state='unknown'` — `compute_bucket` не считает их green потому что требует `state='ok'`.
+
+**Decision tree:**
+
+```
+Семантика green = "лот точно ok по всем red-rules"?
+├── YES → текущая логика правильна. 0 green = LLM не подтверждает явно "АКБ ok" / "экран ok" / "сенсоры ok" для большинства лотов.
+│         Fix: либо tune parser-prompts чтобы chess ok-state увереннее, либо relax compute_bucket чтобы unknown ≈ ok.
+│
+└── NO → green = "нет ни одного defect=defect", unknown ОК.
+         Fix: правка compute_bucket — `unknown` treated like `ok` для green decision.
+```
+
+**Steps:**
+1. Прочитать `app/services/defect_features/bucket.py` — текущую логику.
+2. Brainstorm с юзером (через AskUserQuestion если нужно): какая семантика правильная?
+3. Если меняем семантику — patch + test + redeploy.
+4. Если меняем prompts (option YES) — это §5.6 ниже.
+
+**Acceptance:** После решения и фикса — бакет distribution на iPhone 12 PM имеет non-zero green count.
+
+### §5.5 Шаг 4 — Manual UI smoke (только юзер) — F4 recall verification
+
+Юзер в браузере (https://avitosystem.duckdns.org):
+
+- ☐ Sidebar — без «Настройки модели»
+- ☐ Profile edit (iPhone 12 PM) — 3 tabs, tab «Поиск» без Step 5/5b
+- ☐ Tab «Признаки» — 26 фич, видны Touch ID / FRP / vendor_account / parts_only
+- ☐ Kanban — на лотах с battery_health виден блок «Цена / торг» (🔋)
+- ☐ Kanban — на лотах с params (память/цвет/модель) виден блок «Параметры» (📱💾🎨)
+- ☐ Sample 20-30 лотов с упоминанием АКБ %: проверить что extractor поймал процент правильно
+- ☐ Sample 20-30 лотов с replaced экраном/АКБ: проверить quality detection (original/aftermarket/unknown)
+- ☐ Bucket counts на kanban: green/grey/red chips отображают правильные числа
+
+**Если что-то крашится в UI** — back to §5.2 паттерн (patch + redeploy всех сервисов).
+
+### §5.6 Шаг 5 — Cleanup pre-existing test failure F5
+
+`tests/seller_dialog/test_view.py::test_phase_a_stages_contains_two_stages` — assertion ожидает `["contact", "questions_setup"]`, а `PHASE_A_STAGES` (alias `PHASE_B_STAGES`) теперь `["contact", "questions_setup", "questions"]`. Стейл тест.
+
+**Fix:** обновить assertion в тесте под новый stage flow. ~5 минут.
+
+```python
+# tests/seller_dialog/test_view.py
+def test_phase_a_stages_contains_two_stages():
+    # Phase A→B transition: PHASE_A_STAGES is now alias for PHASE_B_STAGES (3 stages)
+    assert PHASE_A_STAGES == ["contact", "questions_setup", "questions"]
+```
+
+Можно делать параллельно с §5.2-5.4. Не блокирует прод.
+
+### §5.7 Шаг 6 — Backlog (после §5.2-5.6)
+
+Из auto-memory + DECISIONS, по приоритету:
+
+1. **Bucket flow → urgent TG для green** (`project_bucket_flow_design.md`) — green в alert-zone должен слать urgent TG. Сейчас зелёных 0 (см. F2), так что blocked на §5.4 decision.
+2. **Refresh-flow push gap** (`reference_refresh_flow_gap.md`) — Avito-app silent refresh = push не идёт = JWT протухает; pull-based план ~10ч.
+3. **Price-tiered criteria** (`project_price_tiered_criteria.md`) — строгость criteria зависит от цены: low → relaxed cosmetics, high → pristine. Spec не написан, brainstorm нужен.
+4. **Seller dialog Phase B** (`project_seller_dialog_phase_a.md`) — Phase A shipped (Hi-greeting MVP), Phase B (questions_setup → questions etc.) ещё в дизайне.
+5. **Prompt-tuning batch (parse_section_*)** — после §5.5 sample проверок может вылезти recall problems в section parsers.
+
+### §5.8 Что НЕ делать без подтверждения
+
+- Force-push в main / phase-2.0-tabs / phase-2.1-unification
+- Дропать таблицы / колонки / прод-данные
+- Rebuild image только для одного сервиса (§2.1 — нужны все Python-services вместе)
+- `git branch -d phase-2.X-...` до merge в main и smoke verification
 
 ---
 
-## §5. Backlog (за пределами defect-checklist)
+## §6. Известные грабли (актуально на 2026-05-13)
 
-### §5.1 Seller-dialog (Phase B уже shipped, остальные фазы):
+### Из Phase 2.1 deploy
 
-- **Phase C** (drawer вместо modal для setup) — частично перекрывается Phase 2 defect-checklist (там и будет drawer).
-- **Phase D**: stages 4-9 (`price_negotiation` → ... → `closed`). Включает «Согласование цены» (operator-driven), polling `items/{id}.price` watch, Avito-delivery tracking.
-- **Phase E**: SLA worker `dialog_silence_tick` + 4 оставшихся TG-пинга + sortings/filters в kanban + Phase 2 smart auto-tick.
+- ❌ **`docker compose build avito-monitor` НЕ обновляет образы worker/scheduler/messenger-bot/telegram-bot/health-checker/avito-mcp** — у каждого свой image SHA, хоть build context общий. Надо `docker compose build` для ВСЕХ Python-сервисов вместе.
+- ❌ **pg_dump 16 vs server 17.6** — host pg-client несовместим с Cloud Supabase 17. Use `docker run --rm postgres:17 pg_dump ...`.
+- ❌ **Cloud Supabase pooler search_path пустой** — `psql` запросы требуют `SET search_path=public` ИЛИ schema-qualified `public.table_name`. SQLAlchemy/asyncpg в коде работает потому что queries автоматически используют public (default). Если будешь дебажить через psql напрямую — добавляй `--set=search_path=public` или `public.<table>`.
+- ❌ **DATABASE_URL preprocessing для pg_dump/psql** — у нас `postgresql+asyncpg://...?ssl=require&prepared_statement_cache_size=0`. Для libpq tools конвертация: `s|postgresql+asyncpg://|postgresql://|; s/[?&]prepared_statement_cache_size=0//; s/[?&]ssl=require/?sslmode=require/`.
+- ❌ **`Event loop is closed` в shell scripts на shutdown** — asyncpg+SQLAlchemy quirk при `dispose_engine()`. Не fatal, ignore.
+- ❌ **`pytest_plugins` в non-top-level conftest deprecated** — pytest 8+ блокирует. Define fixtures прямо в conftest.
 
-### §5.2 Известные мелочи (V1.5)
+### Из Phase 2.1 spec/audit
 
-- **AVITO_OWN_USER_ID env** не сконфигурирован → SSE direction грязный.
-- **SSE durability / catch-up** — теряет события при reconnect (нет resume-token). Pull-based fallback по active dialog'ам.
-- **«Евгений: » prefix в SSE text** — нормализовать.
-- **accept→reject race** — worker создаёт dialog даже если operator уже reject'нул.
-- **accept→reject→accept resurrection** — второй accept не реанимирует closed dialog (idempotency).
-- **`RELIABILITY_DISABLED_SCENARIOS=G`** — scenario G в health-checker раньше скипалась, теперь messenger-bot задеплоен — пора включить probe.
-- **docker-compose.yml не в git** — `/opt/avito-system/docker-compose.yml` редактируется напрямую на VPS.
-- **V2 reliability whitelist bug** — `whitelist_own_listings_only=True` не отсёк чужой канал в ship-blocker инциденте Phase A. Разобрать при возврате к V2.
+- ❌ **При V2 rip — НЕ удалять**: `llm_analyses` (Telegram /llm-budget + Price Intelligence cache), `profile_listings.bucket` (Phase 1 пишет/читает), `LLMAnalyzer.compare_to_reference`, seller_dialog functions, `DBLLMCache`, `llm_budget`.
+- ❌ **`tasks/analysis.py:evaluate_listing` НЕ удалять** task wrapper — `polling.py:832` импортирует. Рефакторить body, не сигнатуру.
+- ❌ **Spec § «V2 удаляется целиком» — НЕ значит drop любого V2-era resource.** Audit table в `DOCS/superpowers/plans/2026-05-13-unified-criteria-phase-2.1.md` после-fact'ум устарел в части shared resources — реальный список см. в `c04884c` и `1212752` коммитах.
+- ❌ **`listing_features.source` — NOT NULL в DB.** Pipeline должен сетить `source` для всех kinds: defect → 'llm' / 'avito_params' / 'description_kw' (LLM parser сам решает), price_signal → 'llm', info_api → 'avito_params'.
+- ❌ **`upsert_listing_features` принимает `list[dict]`** (не `dict[str, dict]`). Каждый dict: `{feature_key, kind, state?, value?, confidence?, source, evidence?}`.
 
----
+### Из общей prod-эксплуатации
 
-## §6. Команды для проверки состояния
-
-### §6.1 БД — feature rows + rules + бакеты
-
-```powershell
-ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 python -c "
-import asyncio, asyncpg, os
-async def m():
-    url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\", \"postgresql://\")
-    c = await asyncpg.connect(url, statement_cache_size=0)
-    print(\"alembic:\", await c.fetchval(\"SELECT version_num FROM alembic_version\"))
-    print(\"listing_features:\", await c.fetchval(\"SELECT count(*) FROM listing_features\"))
-    print(\"profile_feature_rules:\", await c.fetchval(\"SELECT count(*) FROM profile_feature_rules\"))
-    by_bucket = await c.fetch(\"SELECT bucket, count(*) FROM profile_listings GROUP BY bucket\")
-    print(\"buckets:\", [dict(r) for r in by_bucket])
-    auto_rej = await c.fetchval(\"SELECT count(*) FROM profile_listings WHERE rejected_reason LIKE \x27auto:%\x27\")
-    print(\"auto-rejected:\", auto_rej)
-    by_rule = await c.fetch(\"SELECT rule, count(*) FROM profile_feature_rules GROUP BY rule\")
-    print(\"rules:\", [dict(r) for r in by_rule])
-    await c.close()
-asyncio.run(m())"'
-```
-
-### §6.2 Worker логи на feature-pipeline
-
-```powershell
-ssh root@81.200.119.132 "cd /opt/avito-system && docker compose logs --tail=200 worker 2>&1 | grep -iE 'parse_section|analyze_listing_features|compute_bucket|defect|ERROR' | tail -30"
-```
-
-### §6.3 Health check + smoke
-
-```powershell
-curl.exe -sS -o NUL -w "kanban -> %{http_code}`n" "https://avitosystem.duckdns.org/listings?tab=in_progress"
-curl.exe -sS -o NUL -w "new    -> %{http_code}`n" "https://avitosystem.duckdns.org/listings?tab=new"
-ssh root@81.200.119.132 "cd /opt/avito-system && docker compose ps --format 'table {{.Service}}\t{{.Status}}'"
-```
-
-### §6.4 Backfill вручную (одного профиля)
-
-```powershell
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-monitor python -m scripts.backfill_features --profile <profile_uuid>'
-```
-
-`--dry-run` чтоб только посчитать сколько лотов будут обработаны.
+- ❌ **Никогда не пересобирай только один service** (повтор) — shared image, нужны все consumers.
+- ❌ **JWT-сессии могут стать server-side-зомби** — manual refresh launch Avito-app 60 сек.
+- ❌ **TaskIQ-task'и регистрировать в `app/tasks/broker.py::_register_tasks()`** через import.
+- ❌ **Не deploy'ить через rsync с Windows** — нет в системе. Use `tar + ssh tar -xf`.
+- ❌ **SQLite не поддерживает JSONB + `pg_insert.on_conflict_do_update`** — для тестов в `tests/defect_features/conftest.py` dialect-aware UPSERT (`_is_postgres(session)` check).
 
 ---
 
@@ -306,44 +340,72 @@ ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-m
 ```
 Проект: c:/Projects/Sync/AvitoSystem/
 
-Прочитай CONTINUE.md, DOCS/REFERENCE/README.md (особенно top entry про
-2026-05-12 defect-checklist), и DOCS/superpowers/specs/2026-05-12-defect-
-checklist-design.md.
+Прочитай CONTINUE.md + auto-memory (особенно project_phase_2_1_shipped.md).
 
-Phase 1 defect-checklist зашиплен в prod 2026-05-12. Pipeline работает,
-но profile_feature_rules пуст — пока operator не выставит правила через
-UI и не запустит backfill, реальных feature-данных нет. Текущая задача —
-soak: проверить точность LLM-парсера на свежих лотах, мониторить
-auto-reject rate, ловить regressions. Phase 2 (category-batched survey +
-opener + двойной LLM-per-inbound) — после соак.
+Состояние: Phase 2.1 в проде с 2026-05-13. Юзер решил skip soak.
+Идём по §5 по порядку:
 
-Production: VPS 81.200.119.132 + Cloud Supabase Frankfurt.
-UI https://avitosystem.duckdns.org. HEAD = 79f8aef.
-V2 reliability bot выключен (MESSENGER_BOT_ENABLED=false).
+  Шаг 0  §5.1  sanity verify (1 мин)
+  Шаг 1  §5.2  ★ Fix F1 — prompt drift repaired_components (71% bare-array)
+              переписать app/prompts/extract_price_signal.md с STRICT JSON
+              SHAPE + canonical/wrong examples + rejection-warning.
+              Deploy via tar+ssh sync + rebuild ВСЕХ 7 Python-сервисов.
+  Шаг 2  §5.3  merge phase-2.0-tabs + phase-2.1-unification в main
+  Шаг 3  §5.4  bucket=0 green decision (F2) — brainstorm с юзером
+              про семантику compute_bucket (unknown ≈ ok или нет?)
+  Шаг 4  §5.5  manual UI smoke (юзер сам в браузере)
+  Шаг 5  §5.6  fix стейл PHASE_A_STAGES test (параллельно)
+  Шаг 6  §5.7  backlog (bucket→TG / push gap / price-tiered / Phase B)
+
+Production:
+- VPS 81.200.119.132 (ssh root@, key auth)
+- Cloud Supabase Frankfurt drwgozasaypgphkxyizt
+- Alembic head 0016_unified_criteria
+- https://avitosystem.duckdns.org
+
+ОЧЕНЬ ВАЖНО при prod-deploy: docker compose build для ВСЕХ Python-сервисов
+сразу (avito-monitor worker scheduler avito-mcp messenger-bot telegram-bot
+health-checker), не только avito-monitor — иначе worker будет на старом коде.
+Это уже один раз нас укусило (см. §10 deploy log).
 ```
 
 ---
 
-## §8. Что НЕ работает / избежать повторений
-
-- ❌ **Postgres НЕ каскадирует FK при UPDATE по умолчанию.** Если мигрируешь rename ключа в parent table — сначала drop FK, потом UPDATE child + parent, потом recreate FK. Hotfix `79f8aef` в миграции 0015 это исправил.
-- ❌ **Docker container НЕ видит изменений в host filesystem** (avito-monitor не монтирует repo как volume) — для миграций нужен `docker compose build avito-monitor` после правки migration file. Затем `docker compose run --rm avito-monitor alembic upgrade head`.
-- ❌ **Никогда не пересобирай только один service** через `docker compose build avito-monitor` — shared image. Когда меняешь общий код (`app/services/*`), используй `docker compose build` (без аргументов) + `docker compose up -d --force-recreate <все потребители>`.
-- ❌ **`<script>` теги в HTML, инжектируемом через `innerHTML`, НЕ выполняются**. Delegated handlers в parent template.
-- ❌ **`templates.TemplateResponse` новая сигнатура**: `(request, name, context)` позиционно.
-- ❌ **JWT-сессии могут стать server-side-зомби**: TTL валиден, но Avito ревокнул раньше → 401. Recovery: запустить Avito-app на телефоне на 60 сек.
-- ❌ **Avito createItemChannel хочет itemId как int**, не string.
-- ❌ **TaskIQ-task'и регистрировать в `app/tasks/broker.py::_register_tasks()`** через import — иначе worker не подхватит.
-- ❌ **Card partials НЕ должны линковать на `/listings/{id}`** — этот route не существует.
-- ❌ **Не deploy'ить через rsync с Windows** — нет в системе. Использовать `tar + scp + ssh tar -xf`.
-- ❌ **PowerShell не имеет grep** — либо grep внутри ssh, либо PowerShell `Select-String`.
-- ❌ **SQLite не поддерживает JSONB + `pg_insert.on_conflict_do_update`** — для тестов с in-memory SQLite в `tests/defect_features/conftest.py` используется hand-written CREATE TABLE + dialect-aware UPSERT (`_is_postgres(session)` check в `repository.py`).
-- ❌ **Pythonside UUID default + server_default** — на моделях `ListingFeature` и `ProfileFeatureRule` стоит и `default=uuid.uuid4`, и `server_default=text("gen_random_uuid()")`. Это для SQLite test compatibility (SQLite не знает `gen_random_uuid()`). В Postgres prod SQLAlchemy использует Python-side default — функционально эквивалентно.
-
----
-
-## §9. Где секреты
+## §8. Где секреты
 
 - **Глобальные:** `c:/Projects/Sync/CLAUDE.md`
 - **VPS** `/opt/avito-system/.env`
 - **Auto-memory:** `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/`
+- **pg_dump бэкапы:** `/opt/avito-system/data/`
+
+---
+
+## §9. Ссылки на актуальные документы
+
+- `DOCS/superpowers/specs/2026-05-12-unified-criteria-design.md` — spec Phase 2.0+2.1
+- `DOCS/superpowers/plans/2026-05-13-unified-criteria-phase-2.1.md` — план 14 tasks (выполнен, §Task 4 + §Task 2 устарели per audit — см. `d3a1348`/`1212752`/`c04884c`)
+- `DOCS/superpowers/plans/2026-05-12-unified-criteria-phase-2.0.md` — план Phase 2.0 (shipped earlier)
+- `DOCS/REFERENCE/README.md` — общая карта production
+- `DOCS/DECISIONS.md` — ADR-001..011
+
+---
+
+## §10. Phase 2.1 deploy log (для архива)
+
+```
+2026-05-13 07:42 UTC  pg_dump (2.0M) via docker postgres:17
+2026-05-13 07:43 UTC  tar+ssh sync source
+2026-05-13 07:43 UTC  docker compose build avito-monitor
+2026-05-13 07:44 UTC  V2 mapping --apply: 5 inserts
+2026-05-13 07:44 UTC  alembic upgrade head: 0015 → 0016_unified_criteria
+2026-05-13 07:44 UTC  docker compose up -d --force-recreate avito-monitor (partial)
+2026-05-13 07:45 UTC  worker logs показали V2 column errors → старый image
+2026-05-13 07:48 UTC  docker compose build для всех 7 Python-сервисов
+2026-05-13 07:48 UTC  docker compose up -d --force-recreate всех
+2026-05-13 07:49 UTC  worker logs чистые, monitor запросы 200/303
+2026-05-13 07:50 UTC  backfill iPhone 12 PM (25 lots): {green:0, grey:20, red:5}
+2026-05-13 07:52 UTC  User report: Internal Server Error
+2026-05-13 07:53 UTC  Diagnose: repaired_components shape mismatch (LLM bare array)
+2026-05-13 07:54 UTC  Hotfix 4af53c4 deployed, /listings 303 (no crash)
+2026-05-13 07:54 UTC  git push origin phase-2.1-unification (с hotfix)
+```

@@ -40,7 +40,7 @@ from app.db.base import get_sessionmaker
 from app.db.models import (
     Listing,
     ListingStatusEvent,
-    ProfileCriterion,
+    ProfileFeatureRule,
     ProfileListing,
     ProfileRun,
     SearchProfile,
@@ -822,9 +822,9 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     # DB session keeps the transaction short and lets the worker pull
     # them up immediately from Redis.
     #
-    # Phase C: legacy analyze_listing removed. All profiles must have at
-    # least one profile_criteria row. Profiles without criteria are
-    # skipped (safety guard — no silently wrong LLM calls).
+    # Phase 2.1: guard on profile_feature_rules (Phase 1 defect-features).
+    # Profiles without any feature rules are skipped — no silently wrong
+    # bucket assignments.
     enqueued_for_analysis = 0
     if to_analyze:
         from sqlalchemy import func as sa_func
@@ -832,14 +832,14 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
         from app.tasks.analysis import evaluate_listing
 
         async with sessionmaker() as session:
-            count = await session.scalar(
-                select(sa_func.count(ProfileCriterion.id)).where(
-                    ProfileCriterion.profile_id == pid
+            rule_count = await session.scalar(
+                select(sa_func.count(ProfileFeatureRule.id)).where(
+                    ProfileFeatureRule.profile_id == pid
                 )
             )
-        if not count:
+        if not rule_count:
             log.warning(
-                "polling.no_criteria_skip_analysis profile_id=%s",
+                "polling.no_feature_rules_skip_analysis profile_id=%s",
                 profile_id,
             )
         else:

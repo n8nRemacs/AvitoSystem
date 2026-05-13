@@ -1,0 +1,338 @@
+"""unified_criteria — extend listing_features kind/value + drop V2 tables
+
+Revision ID: 0016_unified_criteria
+Revises: 0015_defect_checklist
+Create Date: 2026-05-13 10:00:00
+"""
+from typing import Sequence, Union
+
+import sqlalchemy as sa
+from alembic import op
+from sqlalchemy.dialects import postgresql
+
+
+revision: str = "0016_unified_criteria"
+down_revision: Union[str, None] = "0015_defect_checklist"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    # 1) Extend listing_features — add kind + value columns
+    op.add_column(
+        "listing_features",
+        sa.Column(
+            "kind",
+            sa.String(length=32),
+            nullable=False,
+            server_default="defect",
+        ),
+    )
+    op.add_column(
+        "listing_features",
+        sa.Column("value", postgresql.JSONB(), nullable=True),
+    )
+    # state was NOT NULL — relax to allow NULL for non-defect kinds
+    op.alter_column("listing_features", "state", nullable=True)
+
+    # 2) CHECK constraint: defect rows must have state; non-defect may omit state
+    op.create_check_constraint(
+        "lf_kind_shape_chk",
+        "listing_features",
+        "(kind = 'defect' AND state IS NOT NULL) OR "
+        "(kind IN ('price_signal', 'info_api'))",
+    )
+
+    # 3) Drop V2-related FK columns on profile_listings (if still present —
+    #    0009_drop_legacy_v2_artifacts may have already removed them).
+    bind = op.get_bind()
+    pl_cols = {
+        row[0]
+        for row in bind.execute(
+            sa.text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'profile_listings'"
+            )
+        )
+    }
+    for col in ("match_result_id", "condition_classification_id"):
+        if col in pl_cols:
+            op.drop_column("profile_listings", col)
+
+    # NOTE: profile_listings.bucket is KEPT — Phase 1 defect-features pipeline
+    # actively writes it (web/routers.py:569 after recompute_buckets_for_profile)
+    # and reads it (listings_view.py kanban filter + chip counts, tasks/analytics
+    # clean-price filter). The bucket column originally added by 0006 (V2) is now
+    # SHARED with Phase 1; semantics changed from V2-cache to defect-features-result.
+
+    # 3c) Drop profile_listings.latest_evaluation_id FK + column.
+    #     MUST happen before op.drop_table("profile_listing_evaluations") —
+    #     plain DROP TABLE (no CASCADE) fails while this FK exists.
+    if "latest_evaluation_id" in pl_cols:
+        inspector = sa.inspect(bind)
+        for fk in inspector.get_foreign_keys("profile_listings"):
+            if fk.get("referred_table") == "profile_listing_evaluations":
+                op.drop_constraint(
+                    fk["name"], "profile_listings", type_="foreignkey"
+                )
+                break
+        op.drop_column("profile_listings", "latest_evaluation_id")
+
+    # 3d) Drop V2-orphan columns on search_profiles (added by 0006).
+    sp_cols = {
+        row[0]
+        for row in bind.execute(
+            sa.text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'search_profiles'"
+            )
+        )
+    }
+    for col in (
+        "evaluate_strategy",
+        "confidence_threshold",
+        "criteria_set_hash",
+        "bucket_routing",
+    ):
+        if col in sp_cols:
+            op.drop_column("search_profiles", col)
+
+    # 4) Drop V2 tables in child-first FK order.
+    #    Guard with IF EXISTS in case 0009 / future migrations already removed them.
+    existing_tables = {
+        row[0]
+        for row in bind.execute(
+            sa.text(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            )
+        )
+    }
+    # NOTE: llm_analyses is KEPT — used by Telegram /llm-budget cost report,
+    # llm_budget.py service, and LLMAnalyzer.compare_to_reference (Price
+    # Intelligence cache). Originally added in 0002_search_profiles, not V2-only.
+    for tbl in (
+        "profile_listing_evaluations",
+        "profile_criteria",
+        "criteria_templates",
+    ):
+        if tbl in existing_tables:
+            op.drop_table(tbl)
+
+
+def downgrade() -> None:
+    """Reverse: re-create V2 tables (EMPTY) + drop kind/value, restore state NOT NULL.
+
+    NOTE: V2 data is UNRECOVERABLE via downgrade alone. Production rollback
+    requires pg_restore from a pre-migration pg_dump (per spec §9 mitigation).
+
+    Tables are re-created with their original schemas from:
+    - criteria_templates, profile_criteria, profile_listing_evaluations →
+        0006_v2_llm_pipeline (20260505_1000_v2_llm_pipeline_schema.py)
+
+    NOTE: llm_analyses + profile_listings.bucket are NOT re-added — they were
+    never dropped by upgrade (kept as shared resources, see upgrade comments).
+    """
+
+    # 1) Re-create V2 tables in dependency order (parents first).
+
+    # criteria_templates — global criteria library (0006_v2_llm_pipeline)
+    op.create_table(
+        "criteria_templates",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("key", sa.String(64), nullable=False),
+        sa.Column("title_ru", sa.String(255), nullable=False),
+        sa.Column("description_ru", sa.Text()),
+        sa.Column("kind", sa.String(16), nullable=False),
+        sa.Column("prompt_fragment", sa.Text()),
+        sa.Column("api_path", sa.String(255)),
+        sa.Column("params_schema", postgresql.JSONB()),
+        sa.Column("output_schema", postgresql.JSONB()),
+        sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.UniqueConstraint("key", name="uq_criteria_templates_key"),
+    )
+
+    # NOTE: llm_analyses is NOT re-created here — upgrade does not drop it
+    # (shared resource: Telegram /llm-budget + llm_budget.py + Price Intelligence cache).
+
+    # profile_criteria — per-profile criterion selection (0006_v2_llm_pipeline)
+    op.create_table(
+        "profile_criteria",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column(
+            "profile_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("search_profiles.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "template_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("criteria_templates.id", ondelete="RESTRICT"),
+        ),
+        sa.Column("custom_key", sa.String(64)),
+        sa.Column("custom_title_ru", sa.String(255)),
+        sa.Column("custom_kind", sa.String(16)),
+        sa.Column("custom_prompt_fragment", sa.Text()),
+        sa.Column("params", postgresql.JSONB()),
+        sa.Column("is_hard", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+    )
+    op.create_index(
+        "ix_profile_criteria_profile", "profile_criteria", ["profile_id"]
+    )
+
+    # profile_listing_evaluations — per-profile bucket verdict (0006_v2_llm_pipeline)
+    op.create_table(
+        "profile_listing_evaluations",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column(
+            "profile_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("search_profiles.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "listing_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("listings.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("bucket", sa.String(8), nullable=False),
+        sa.Column(
+            "confidence_threshold",
+            sa.Numeric(4, 3),
+            nullable=False,
+            server_default="0.7",
+        ),
+        sa.Column(
+            "criteria_flags",
+            postgresql.JSONB(),
+            nullable=False,
+            server_default="{}",
+        ),
+        sa.Column(
+            "info_fields",
+            postgresql.JSONB(),
+            nullable=False,
+            server_default="{}",
+        ),
+        sa.Column(
+            "red_criterion_keys",
+            postgresql.JSONB(),
+            nullable=False,
+            server_default="[]",
+        ),
+        sa.Column("criteria_set_hash", sa.String(64), nullable=False),
+        sa.Column(
+            "evaluated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+    )
+    op.create_index(
+        "ix_profile_listing_evaluations_profile_listing",
+        "profile_listing_evaluations",
+        ["profile_id", "listing_id"],
+    )
+    op.create_index(
+        "ix_profile_listing_evaluations_profile_bucket",
+        "profile_listing_evaluations",
+        ["profile_id", "bucket"],
+    )
+
+    # 2) Re-add V2-orphan columns to search_profiles and profile_listings.
+    #    Order: search_profiles first (no FK dependency), then profile_listings
+    #    (latest_evaluation_id FK requires profile_listing_evaluations to exist,
+    #    which was re-created above).
+
+    # search_profiles — exact types/defaults from 0006_v2_llm_pipeline
+    op.add_column(
+        "search_profiles",
+        sa.Column(
+            "evaluate_strategy",
+            sa.String(length=16),
+            nullable=False,
+            server_default="per_listing",
+        ),
+    )
+    op.add_column(
+        "search_profiles",
+        sa.Column(
+            "confidence_threshold",
+            sa.Numeric(4, 3),
+            nullable=False,
+            server_default="0.7",
+        ),
+    )
+    op.add_column(
+        "search_profiles",
+        sa.Column("criteria_set_hash", sa.String(length=64), nullable=True),
+    )
+    op.add_column(
+        "search_profiles",
+        sa.Column("bucket_routing", postgresql.JSONB(), nullable=True),
+    )
+
+    # NOTE: profile_listings.bucket is NOT re-added — upgrade does not drop it.
+    # latest_evaluation_id FK — profile_listing_evaluations was re-created above
+    op.add_column(
+        "profile_listings",
+        sa.Column(
+            "latest_evaluation_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey(
+                "profile_listing_evaluations.id", ondelete="SET NULL"
+            ),
+            nullable=True,
+        ),
+    )
+
+    # NOTE: match_result_id / condition_classification_id were dropped in
+    #       0009_drop_legacy_v2_artifacts before this migration. We do NOT
+    #       re-add them here — the 0009 downgrade handles that level of rollback.
+
+    # 3) Reverse listing_features changes
+    op.drop_constraint("lf_kind_shape_chk", "listing_features", type_="check")
+    op.drop_column("listing_features", "value")
+    op.drop_column("listing_features", "kind")
+    # Restore state NOT NULL — will fail if any non-defect rows exist with NULL
+    # state. Clean those up manually before downgrading in practice.
+    op.alter_column("listing_features", "state", nullable=False)

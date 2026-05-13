@@ -37,22 +37,12 @@ class ProfileListing(Base):
         String(32), default=ProcessingStatus.FETCHED.value
     )
     in_alert_zone: Mapped[bool] = mapped_column(Boolean, default=False)
-    condition_classification_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("llm_analyses.id", ondelete="SET NULL")
-    )
-    match_result_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("llm_analyses.id", ondelete="SET NULL")
-    )
     user_action: Mapped[str | None] = mapped_column(
         String(16), default=UserAction.PENDING.value
     )
 
-    # V2 pipeline — denormalised from latest profile_listing_evaluations row
+    # Phase 1 defect-features pipeline — bucket written by analyze_listing_features
     bucket: Mapped[str | None] = mapped_column(String(8))
-    latest_evaluation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("profile_listing_evaluations.id", ondelete="SET NULL"),
-    )
 
     # Defect-feature pipeline — reason for auto-reject (e.g. "auto:locks.icloud_linked")
     rejected_reason: Mapped[str | None] = mapped_column(String, nullable=True)

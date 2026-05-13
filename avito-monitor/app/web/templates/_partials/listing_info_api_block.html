@@ -1,0 +1,36 @@
+{# Phase 2.1: info_api card block.
+   Expects: features — dict[feature_key -> {kind, value}]
+   Renders empty if all three (memory_gb, color, vendor_model) are null. #}
+
+{% set _vm = features.get('vendor_model') if features else none %}
+{% set _mem = features.get('memory_gb') if features else none %}
+{% set _col = features.get('color') if features else none %}
+{% set _has_vm = _vm and _vm.value and _vm.value.get('text') %}
+{% set _has_mem = _mem and _mem.value and _mem.value.get('gb') %}
+{% set _has_col = _col and _col.value and _col.value.get('text') %}
+
+{% if _has_vm or _has_mem or _has_col %}
+<div class="bg-avito-surface border-t border-avito-border-soft px-3 py-2 text-xs space-y-1">
+  <div class="text-[10px] uppercase tracking-wide text-avito-text-muted mb-1">Параметры</div>
+
+  {% if _has_vm %}
+    <div class="flex items-center gap-2">
+      <span>📱</span>
+      <span class="text-avito-text">{{ _vm.value.text }}</span>
+    </div>
+  {% endif %}
+
+  <div class="flex flex-wrap gap-3">
+    {% if _has_mem %}
+      <span class="flex items-center gap-1 text-avito-text">
+        <span>💾</span><span><strong>{{ _mem.value.gb }}</strong> ГБ</span>
+      </span>
+    {% endif %}
+    {% if _has_col %}
+      <span class="flex items-center gap-1 text-avito-text">
+        <span>🎨</span><span>{{ _col.value.text }}</span>
+      </span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

@@ -145,3 +145,59 @@ async def test_orchestrator_skips_sections_with_no_active_keys():
             active_keys={"display.glass_broken"},
         )
     assert called_sections == ["display"]
+
+
+@pytest.mark.asyncio
+async def test_parser_recognizes_touch_id_defect_key(mocker):
+    """Phase 2.1 Task 6: sensors section parser handles touch_id key."""
+    mock_llm = AsyncMock(return_value={
+        "sensors.face_id": {"state": "ok", "evidence": "Face ID работает"},
+        "sensors.touch_id": {"state": "defect", "evidence": "Touch ID сломан"},
+    })
+    mocker.patch("app.services.defect_features.llm_parser._llm_call_json", mock_llm)
+
+    result = await parse_section_defects(
+        title="iPhone SE",
+        description="Touch ID сломан, Face ID работает",
+        parameters={},
+        section="sensors",
+        active_keys=["sensors.face_id", "sensors.touch_id"],
+    )
+    assert result["sensors.touch_id"].state == "defect"
+
+
+@pytest.mark.asyncio
+async def test_parser_recognizes_frp_and_vendor_account(mocker):
+    """Phase 2.1 Task 6: locks section parser handles frp_locked + vendor_account."""
+    mock_llm = AsyncMock(return_value={
+        "locks.frp_locked": {"state": "defect", "evidence": "FRP блок"},
+        "locks.vendor_account": {"state": "ok", "evidence": "чистый"},
+    })
+    mocker.patch("app.services.defect_features.llm_parser._llm_call_json", mock_llm)
+
+    result = await parse_section_defects(
+        title="Xiaomi Mi 11",
+        description="Привязан к Google аккаунту",
+        parameters={},
+        section="locks",
+        active_keys=["locks.frp_locked", "locks.vendor_account"],
+    )
+    assert result["locks.frp_locked"].state == "defect"
+
+
+@pytest.mark.asyncio
+async def test_parser_recognizes_parts_only(mocker):
+    """Phase 2.1 Task 6: operability parser handles parts_only intent."""
+    mock_llm = AsyncMock(return_value={
+        "operability.parts_only": {"state": "defect", "evidence": "на запчасти"},
+    })
+    mocker.patch("app.services.defect_features.llm_parser._llm_call_json", mock_llm)
+
+    result = await parse_section_defects(
+        title="iPhone X на запчасти",
+        description="Не работает, только на разбор",
+        parameters={},
+        section="operability",
+        active_keys=["operability.parts_only"],
+    )
+    assert result["operability.parts_only"].state == "defect"

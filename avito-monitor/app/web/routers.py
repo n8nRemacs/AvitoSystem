@@ -12,10 +12,9 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import CriteriaTemplate, ProfileCriterion, SearchProfile, User
+from app.db.models import SearchProfile, User
 from app.deps import current_user_optional, db_session, require_user
 from app.schemas.search_profile import (
-    ProfileCriterionSpec,
     SearchProfileCreate,
     SearchProfileUpdate,
 )
@@ -175,8 +174,6 @@ async def profile_new(
         "submit_label": "Создать профиль",
         "profile": None,
         "regions": _load_regions(),
-        "criteria_library": await _load_criteria_library(session),
-        "criteria_state": {"selected": {}, "custom": []},
         "rules": {},
         "active_tab": "search",
     })
@@ -211,18 +208,6 @@ def _form_get_list(form: dict[str, Any], key: str) -> list[str]:
     return [str(v)] if v else []
 
 
-def _form_get_float(form: dict[str, Any], key: str) -> float | None:
-    v = form.get(key)
-    if v in (None, "", []):
-        return None
-    if isinstance(v, list):
-        v = v[0]
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
-
-
 def _form_get_str(form: dict[str, Any], key: str) -> str | None:
     v = form.get(key)
     if isinstance(v, list):
@@ -235,9 +220,6 @@ def _form_get_str(form: dict[str, Any], key: str) -> str | None:
 async def _parse_form_to_create(request: Request) -> SearchProfileCreate:
     raw = await request.form()
     form = {k: raw.getlist(k) if len(raw.getlist(k)) > 1 else raw.get(k) for k in raw}
-    notif_settings: dict[str, Any] = {}
-    if _form_get_bool(form, "enable_v2"):
-        notif_settings["llm_pipeline_v2"] = True
     return SearchProfileCreate(
         name=_form_get_str(form, "name") or "Без названия",
         avito_search_url=_form_get_str(form, "avito_search_url") or "",
@@ -248,28 +230,19 @@ async def _parse_form_to_create(request: Request) -> SearchProfileCreate:
         search_max_price=_form_get_int(form, "search_max_price"),
         alert_min_price=_form_get_int(form, "alert_min_price"),
         alert_max_price=_form_get_int(form, "alert_max_price"),
-        custom_criteria=_form_get_str(form, "custom_criteria"),
-        allowed_conditions=_form_get_list(form, "allowed_conditions") or ["working"],
-        analyze_photos=_form_get_bool(form, "analyze_photos"),
-        evaluate_strategy=_form_get_str(form, "evaluate_strategy") or "per_listing",
-        confidence_threshold=_form_get_float(form, "confidence_threshold") or 0.7,
+        allowed_conditions=["working"],
         poll_interval_minutes=_form_get_int(form, "poll_interval_minutes") or 15,
         is_active=_form_get_bool(form, "is_active"),
-        notification_settings=notif_settings,
         notification_channels=_form_get_list(form, "notification_channels") or ["telegram"],
-        criteria_specs=_form_get_criteria(form),
     )
 
 
 async def _parse_form_to_update(request: Request) -> SearchProfileUpdate:
     raw = await request.form()
     form = {k: raw.getlist(k) if len(raw.getlist(k)) > 1 else raw.get(k) for k in raw}
-    # The update path always carries the v2 toggle (it's a checkbox in the
-    # form), so unconditionally rebuild notification_settings to reflect
-    # the user's current selection. Other notification_settings keys are
-    # preserved through SearchProfileUpdate's None-means-unset semantics
-    # above plus the service layer's merge logic.
-    notif_settings: dict[str, Any] = {"llm_pipeline_v2": _form_get_bool(form, "enable_v2")}
+    # NOTE: notification_settings intentionally omitted — the edit form does
+    # not carry any keys for it, so passing None would wipe stored settings
+    # via setattr in update_profile (exclude_unset would still include it).
     return SearchProfileUpdate(
         name=_form_get_str(form, "name"),
         avito_search_url=_form_get_str(form, "avito_search_url"),
@@ -280,20 +253,9 @@ async def _parse_form_to_update(request: Request) -> SearchProfileUpdate:
         search_max_price=_form_get_int(form, "search_max_price"),
         alert_min_price=_form_get_int(form, "alert_min_price"),
         alert_max_price=_form_get_int(form, "alert_max_price"),
-        custom_criteria=_form_get_str(form, "custom_criteria"),
-        allowed_conditions=_form_get_list(form, "allowed_conditions") or None,
-        analyze_photos=_form_get_bool(form, "analyze_photos"),
-        evaluate_strategy=_form_get_str(form, "evaluate_strategy"),
-        confidence_threshold=_form_get_float(form, "confidence_threshold"),
         poll_interval_minutes=_form_get_int(form, "poll_interval_minutes"),
         is_active=_form_get_bool(form, "is_active"),
-        notification_settings=notif_settings,
         notification_channels=_form_get_list(form, "notification_channels") or None,
-        # Always carry criteria_specs (possibly empty) — the form
-        # always renders the criteria editor, so an unchecked-everywhere
-        # state means "no criteria". None (== don't touch) is reserved
-        # for non-form callers like the JSON API.
-        criteria_specs=_form_get_criteria(form),
     )
 
 
@@ -316,8 +278,6 @@ async def profile_create(
             "submit_label": "Создать профиль",
             "profile": None,
             "regions": _load_regions(),
-            "criteria_library": await _load_criteria_library(session),
-            "criteria_state": {"selected": {}, "custom": []},
             "error": f"Не удалось сохранить профиль: {e}",
             "rules": {},
             "active_tab": "search",
@@ -372,8 +332,6 @@ async def profile_edit_form(
         "submit_label": "Сохранить изменения",
         "profile": profile,
         "regions": _load_regions(),
-        "criteria_library": await _load_criteria_library(session),
-        "criteria_state": await _load_profile_criteria_state(session, profile.id),
         "rules": rules,
         "active_tab": active_tab,
     })
@@ -1489,197 +1447,6 @@ async def settings_accounts(
 
 def _load_regions() -> list[dict[str, Any]]:
     return json.loads((DATA_DIR / "avito_regions.json").read_text(encoding="utf-8"))
-
-
-# ---------------------------------------------------------------------------
-# V2 criteria editor helpers (Phase B)
-# ---------------------------------------------------------------------------
-
-# kind → header label rendered above each block in the form
-_CRITERIA_KIND_LABELS = {
-    "criterion": "Жёсткие критерии",
-    "info_llm": "Info-поля (LLM-извлечение)",
-    "info_api": "Info-поля (из параметров объявления)",
-}
-_CRITERIA_KIND_ORDER = ("criterion", "info_llm", "info_api")
-
-
-async def _load_criteria_library(
-    session: AsyncSession,
-) -> list[dict[str, Any]]:
-    """Load active CriteriaTemplate rows grouped by kind, in display order.
-
-    Returns a list of {kind, label, items[]} blocks; each item is a
-    plain dict the Jinja template renders into a checkbox + optional
-    inline params form.
-    """
-    stmt = (
-        select(CriteriaTemplate)
-        .where(CriteriaTemplate.is_active.is_(True))
-        .order_by(CriteriaTemplate.kind, CriteriaTemplate.title_ru)
-    )
-    rows = (await session.execute(stmt)).scalars().all()
-
-    by_kind: dict[str, list[dict[str, Any]]] = {k: [] for k in _CRITERIA_KIND_ORDER}
-    for tpl in rows:
-        if tpl.kind not in by_kind:
-            continue
-        by_kind[tpl.kind].append({
-            "id": str(tpl.id),
-            "key": tpl.key,
-            "title_ru": tpl.title_ru,
-            "description_ru": tpl.description_ru or "",
-            "params_schema": tpl.params_schema,
-            "version": tpl.version,
-        })
-
-    return [
-        {"kind": k, "label": _CRITERIA_KIND_LABELS[k], "items": by_kind[k]}
-        for k in _CRITERIA_KIND_ORDER
-        if by_kind[k]
-    ]
-
-
-async def _load_profile_criteria_state(
-    session: AsyncSession, profile_id: uuid.UUID
-) -> dict[str, Any]:
-    """Read the profile's current ``profile_criteria`` rows for form pre-fill.
-
-    Returns:
-        ``{"selected": {<template_key>: {<param>: value, ...}}, "custom": [...]}``
-
-    The template lookup is done via JOIN so we map template_id back to
-    its ``key`` (stable identifier the form uses).
-    """
-    stmt = (
-        select(ProfileCriterion, CriteriaTemplate)
-        .join(
-            CriteriaTemplate,
-            ProfileCriterion.template_id == CriteriaTemplate.id,
-            isouter=True,
-        )
-        .where(ProfileCriterion.profile_id == profile_id)
-        .order_by(ProfileCriterion.sort_order)
-    )
-    rows = (await session.execute(stmt)).all()
-    selected: dict[str, dict[str, Any]] = {}
-    custom: list[dict[str, Any]] = []
-    for pc, tpl in rows:
-        if tpl is not None:
-            selected[tpl.key] = pc.params or {}
-        else:
-            custom.append({
-                "title": pc.custom_title_ru or "",
-                "kind": pc.custom_kind or "criterion",
-                "prompt": pc.custom_prompt_fragment or "",
-            })
-    return {"selected": selected, "custom": custom}
-
-
-def _form_get_criteria(form: dict[str, Any]) -> list[ProfileCriterionSpec]:
-    """Parse criteria-editor fields out of the multi-dict form payload.
-
-    The form contributes three field families:
-
-    * ``criteria_template_keys`` — multi-checkbox of library template
-      keys the user selected.
-    * ``crit_param_<key>_<param>`` — inline param values for any
-      parametrised template (e.g. ``crit_param_memory_gte_gb``).
-      ``title_matches_model_allowed`` is parsed as one-line-per-item.
-    * ``custom_crit_title[]`` / ``custom_crit_kind[]`` /
-      ``custom_crit_prompt[]`` — parallel lists for the repeating
-      "Произвольные критерии" rows.
-
-    Empty / blank custom rows are dropped silently. Library checkboxes
-    that aren't selected simply produce no spec (and therefore no row).
-    """
-    specs: list[ProfileCriterionSpec] = []
-
-    # --- 1. Library checkboxes + inline params ------------------------
-    keys_raw = form.get("criteria_template_keys")
-    if keys_raw is None:
-        keys: list[str] = []
-    elif isinstance(keys_raw, list):
-        keys = [str(k) for k in keys_raw if k]
-    else:
-        keys = [str(keys_raw)] if keys_raw else []
-
-    for key in keys:
-        params = _parse_template_params(form, key)
-        specs.append(
-            ProfileCriterionSpec(template_key=key, params=params or None)
-        )
-
-    # --- 2. Custom rows -----------------------------------------------
-    titles_raw = form.get("custom_crit_title[]")
-    kinds_raw = form.get("custom_crit_kind[]")
-    prompts_raw = form.get("custom_crit_prompt[]")
-
-    def _as_list(v: Any) -> list[str]:
-        if v is None:
-            return []
-        if isinstance(v, list):
-            return [str(x) if x is not None else "" for x in v]
-        return [str(v)]
-
-    titles = _as_list(titles_raw)
-    kinds = _as_list(kinds_raw)
-    prompts = _as_list(prompts_raw)
-    n = max(len(titles), len(kinds), len(prompts))
-    for i in range(n):
-        title = (titles[i] if i < len(titles) else "").strip()
-        kind = (kinds[i] if i < len(kinds) else "").strip() or "criterion"
-        prompt = (prompts[i] if i < len(prompts) else "").strip()
-        if not title and not prompt:
-            continue
-        specs.append(
-            ProfileCriterionSpec(
-                custom_title=title,
-                custom_kind=kind,
-                custom_prompt=prompt,
-            )
-        )
-
-    return specs
-
-
-def _parse_template_params(form: dict[str, Any], key: str) -> dict[str, Any]:
-    """Extract ``crit_param_<key>_*`` fields for a given library key.
-
-    The two parametrised templates currently in the YAML:
-
-    * ``memory_gte`` → ``crit_param_memory_gte_gb`` (int)
-    * ``title_matches_model`` →
-      ``crit_param_title_matches_model_allowed`` (newline-separated
-      array of model strings)
-
-    Anything else is ignored — we don't blindly forward arbitrary
-    fields into ``params`` because the V2 prompt renders only what its
-    schema declares.
-    """
-    out: dict[str, Any] = {}
-    if key == "memory_gte":
-        raw = form.get("crit_param_memory_gte_gb")
-        if isinstance(raw, list):
-            raw = raw[0] if raw else None
-        if raw not in (None, ""):
-            try:
-                out["gb"] = int(str(raw).strip())
-            except ValueError:
-                pass
-    elif key == "title_matches_model":
-        raw = form.get("crit_param_title_matches_model_allowed")
-        if isinstance(raw, list):
-            raw = raw[0] if raw else None
-        if raw:
-            allowed = [
-                line.strip()
-                for line in str(raw).splitlines()
-                if line.strip()
-            ]
-            if allowed:
-                out["allowed"] = allowed
-    return out
 
 
 # ---------------------------------------------------------------------------
