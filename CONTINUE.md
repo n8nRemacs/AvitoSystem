@@ -1,303 +1,286 @@
-# CONTINUE — следующая сессия
+# CONTINUE — следующая сессия (2026-05-13 после Phase 2.0 ship + Phase 2.1 pause)
 
-> **Если ты Claude в новой сессии:** прочитай этот файл целиком + `DOCS/REFERENCE/README.md` (общая карта state'а) + `DOCS/superpowers/specs/2026-05-12-defect-checklist-design.md` (rev 1, дизайн всей feature×rules системы — Phase 1 shipped + Phase 2 описана) + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory в `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md`. **Главная задача сейчас — soak Phase 1 defect-checklist** (после shipped 2026-05-12). Пока юзер не настроит правила и не запустит backfill — реального трафика на feature pipeline нет.
+> **Если ты Claude в новой сессии:** прочитай этот файл целиком + `DOCS/REFERENCE/README.md` + `DOCS/superpowers/specs/2026-05-12-unified-criteria-design.md` (spec на Phase 2.0+2.1) + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md`. **Главная задача сейчас — корректное завершение Phase 2.1 (unified criteria + V2 rip).** Phase 2.0 (UI placement) уже задеплоен в prod, Phase 2.1 на паузе после audit обнаружил shared-resources blunder в плане.
 
 ---
 
 ## §1. TL;DR
 
-Defect Checklist Phase 1 **зашиплен в prod 2026-05-12**:
+**Phase 1 defect-checklist** — shipped 2026-05-12 (22 фичи, `listing_features` + `profile_feature_rules`, pipeline integrated, UI с feature-rules editor).
 
-- 2 новые таблицы (`listing_features` UPSERT по `(listing_id, feature_key)`, `profile_feature_rules` UPSERT по `(profile_id, feature_key)`) + миграция `0015_defect_checklist` применена.
-- 22 defect-фичи × 6 секций (display/case/locks/sensors/charging/operability) в `app/data/dialog_topics.yaml`, старые 11 ключей переименованы в dotted-формат + 4 удалены.
-- LLM-парсер по разделам: `match_avito_parameters` short-circuit для структурированных Avito-полей (iCloud, passcode) → `parse_section_defects` 6 conservative-промптов параллельно через `asyncio.gather`. Cost ≈ $0.0006/лот (Gemini Flash Lite).
-- Pure `compute_bucket(features, rules) → (green|grey|red, reason)` — детерминированно по truth-table из spec §8.
-- Integration в `analyze_listing`: после `classify_condition` → parser → bucket из rules. Auto-reject pending/viewed лотов с new_bucket=red (с `rejected_reason='auto:<feature_key>'`).
-- UI: блок «Признаки» на каждой карточке (kanban + listings), collapsible sidebar (hamburger + localStorage), страница `/profiles/{id}/feature-rules` с 3-state переключателями (🟢/🔴/⊘) + sync bucket recompute с toast counters.
-- Backfill: `python -m scripts.backfill_features [--profile <id>]`.
+**Phase 2.0 unified-criteria UI placement** — shipped 2026-05-13:
+- Sidebar nav «🛠 Настройки модели» удалён.
+- Profile edit form реструктуризован в 3 tabs: «🔎 Поиск» / «🧩 Признаки» / «🔔 Уведомления». Tab «Признаки» содержит partial с per-feature правилами (тот же markup что standalone-страница).
+- Tab «Уведомления» содержит реальные Telegram/Max checkboxes (перемещены из старого Step 7).
+- localStorage persistence + URL `?tab=features` deep-link (server-side активирует правильный tab).
+- Standalone `/profiles/{id}/feature-rules` остаётся для backwards-compat.
+- 23/23 web tests pass. Branch `phase-2.0-tabs` (4 task commits + 1 docs commit). **Deployed на VPS 81.200.119.132**, public URL `https://avitosystem.duckdns.org`. Ветка НЕ замержена в main.
 
-18 commits на main за 2026-05-12 (15 task commits + 2 fixes + 1 hotfix миграции). 37 unit/integration тестов проходят. **Главное что осталось — operator должен (1) выставить правила на профиле iPhone 12 PM через UI, (2) запустить backfill, (3) понаблюдать качество парсера 3-4 дня соака.**
+**Phase 2.1 unified-criteria schema + V2 rip** — **PAUSED 2026-05-13 mid-execution.** Tasks 1-3 done (yaml taxonomy 22→31 features, migration 0016, V2-mapping helper script). **Task 4 (V2 code rip) реверт**нут — implementer over-rip'нул shared resources. Audit показал что план перегнул палку в 2-х местах. Tasks 5-14 ещё не запускались.
+
+**Critical NEXT ACTION:** Применить audit findings (см. §4) — fix migration 0016 + переписать Task 4 instructions + продолжить subagent-driven execution.
 
 ---
 
-## §2. Production state — 2026-05-12 (вечер)
+## §2. Production state
 
 | Что | Где |
 |---|---|
-| **VPS** | `81.200.119.132` (Beget RU). 10 контейнеров up. |
-| **Public URL** | `https://avitosystem.duckdns.org` |
-| **БД** | Cloud Supabase Frankfurt project `drwgozasaypgphkxyizt`. Pooler 6543 + `prepared_statement_cache_size=0`. |
+| **VPS** | `81.200.119.132` (Beget RU, 2c/4GB, Ubuntu 24.04 + Docker 29). Доступ `ssh root@81.200.119.132` (key auth). |
+| **Public URL** | `https://avitosystem.duckdns.org` (Caddy → avito-monitor:8000) |
+| **БД** | Cloud Supabase Frankfurt `drwgozasaypgphkxyizt`. Pooler 6543 + `?prepared_statement_cache_size=0` (transaction mode). |
 | **Outbound к Avito** | ru-vpn `155.212.217.226` через SOCKS5 SSH-туннель `socks5h://172.18.0.1:1081` |
-| **Профили** | `iPhone 12 Pro max 10500-13500` (active, 21 правило выставлено, 120 лотов: 23 accepted / 97 rejected, всё в grey бакете т.к. features ещё не парсились) + `iPhone 13` (**is_active=False**, 0 правил, лоты+evaluations почищены 2026-05-12 после первого test-полла который слил 871 grey-лот). iPhone 13 ждёт unified-criteria редизайна. |
-| **HEAD на main** | будет обновлён следующим коммитом (cleanup junk files + iPhone 13 DB cleanup). До этого `79f8aef fix(migration): drop/recreate FKs around topic-key rename`. |
-| **Alembic head** | `0015_defect_checklist` (chain: 0013→0014→0015) |
-| **Phone** | OnePlus 8T `110139ce`, USB к Windows ПК |
-| **V2 reliability autoreply** | **OFF** через `MESSENGER_BOT_ENABLED=false` (соак-таймаут). SSE listener сам жив, seller_dialog ветка работает |
+| **Deploy в prod** | **phase-2.0-tabs branch** (НЕ main). Sync через `tar -czf - --exclude __pycache__ --exclude .git . \| ssh root@81.200.119.132 'cd /opt/avito-system/repo/avito-monitor && tar -xzf -'`, потом `docker compose build avito-monitor && docker compose up -d --force-recreate avito-monitor` |
+| **Alembic head на prod** | `0015_defect_checklist` (0016 ЕЩЁ НЕ ПРИМЕНЁН — Phase 2.1 не задеплоен) |
+| **Профили** | `iPhone 12 Pro Max 10500-13500` (active, 21 правило, ~120 лотов в кане) + `iPhone 13` (inactive, 0 правил) |
+| **V2 reliability autoreply** | OFF (`MESSENGER_BOT_ENABLED=false`). seller_dialog ветка SSE handler жива. |
 
-### §2.1 Контейнеры (без изменений с прошлой сессии)
-
-| Сервис | Назначение |
-|---|---|
-| `caddy` | HTTPS reverse-proxy, ACME |
-| `avito-xapi` | FastAPI шлюз к мобильному Avito API (curl_cffi + SOCKS5) |
-| `avito-monitor` | Web UI + поиск/мониторинг + defect-feature pipeline |
-| `avito-mcp` | FastMCP SSE сервер |
-| `worker` | TaskIQ-воркер (polling + LLM analysis + seller_dialog tasks + новый feature pipeline) |
-| `scheduler` | TaskIQ-планировщик (cron'ы) |
-| `messenger-bot` | SSE listener `/api/v1/messenger/realtime/events` → handler → seller_dialog ветка. V2 reliability ветка отключена через env |
-| `telegram-bot` | aiogram long-poll бот для уведомлений |
-| `health-checker` | account_tick loop, scenarios A-I |
-| `redis` | TaskIQ broker + кэши |
+### §2.1 Containers (без изменений)
+caddy / avito-xapi / avito-monitor / avito-mcp / worker / scheduler / messenger-bot / telegram-bot / health-checker / redis.
 
 ---
 
-## §3. Defect-checklist pipeline — что есть сейчас
+## §3. Phase 2.1 — state на сегодня (2026-05-13)
 
-### §3.1 Поток данных
+### §3.1 Branch state
 
-```
-Polling → listings (existing)
-    ↓
-analyze_listing → classify_condition (existing, condition_class остаётся для market-stats)
-    ↓
-analyze_listing_features (NEW):
-  1) load profile_feature_rules → active_keys (rule != ignore)
-  2) parse_defect_features:
-     ├─ match_avito_parameters (Avito iCloud/passcode short-circuit)
-     └─ asyncio.gather над parse_section_defects для 6 секций
-  3) upsert listing_features rows
-  4) compute_bucket(features, rules) → (green|grey|red, reason)
-    ↓
-write pl.bucket = bucket
-auto-reject если bucket=red AND user_action ∈ (None, pending, viewed):
-  pl.user_action = 'rejected'
-  pl.rejected_reason = f'auto:{reason}'
-```
-
-### §3.2 Таблицы
+**Branch:** `phase-2.1-unification` (от `phase-2.0-tabs`).
 
 ```
-listing_features
-  id PK, listing_id FK→listings CASCADE, feature_key, state (ok|defect|unknown),
-  confidence float NULL, source (avito_parameters|llm|description_kw|seller_dialog),
-  evidence text NULL, parsed_at timestamptz.
-  UNIQUE(listing_id, feature_key).
-
-profile_feature_rules
-  id PK, profile_id FK→search_profiles CASCADE, feature_key, rule (green|red|ignore),
-  updated_at timestamptz.
-  UNIQUE(profile_id, feature_key).
-
-profile_listings.rejected_reason  (новый column, формат 'auto:<feature>' или 'manual:operator')
+527bbc5  Revert "feat(v2-rip): remove V2 LLM pipeline code, models, prompts, yaml"
+2a68c6b  (reverted) feat(v2-rip): remove V2 LLM pipeline code, models, prompts, yaml
+f1f1803  fix(scripts): V2 mapping uses correct profile_criteria schema
+97bdfe1  feat(scripts): migrate_v2_to_defect_rules helper                        ← Task 3 done
+3254093  fix(migration): 0016 drop V2-orphan columns + FK before table drops    ← Task 2 fix
+9b3c057  feat(migration): 0016 unified_criteria — kind/value cols + V2 drop     ← Task 2 done
+0a4762c  chore(taxonomy): fix review-flagged issues
+a11071e  feat(taxonomy): extend yaml to 31 features with kind discriminator     ← Task 1 done
 ```
 
-### §3.3 Таксономия (22 фичи в `app/data/dialog_topics.yaml`)
+Net effect:
+- **Task 1 ✅** — `dialog_topics.yaml` 22→31 features (22 defect → 26 defect + 2 price_signal + 3 info_api). Loader exposes `load_defect_features()` / `load_price_signal_features()` / `load_info_api_features()`. 13 tests pass.
+- **Task 2 ⚠️** — migration 0016 создана + fixed Issue 1 (FK drop before table drop). **НО** migration всё ещё дропает 2 shared resources (см. §4) — нужна правка прежде чем применять на prod.
+- **Task 3 ✅** — `scripts/migrate_v2_to_defect_rules.py` с asyncpg LEFT JOIN на criteria_templates через COALESCE.
+- **Task 4 🔄** — V2 rip implementer over-rip'нул shared resources, был полностью реверт'нут. Нужна переписка с precise file map (см. §4).
+- **Tasks 5-14** — pending, ещё не стартовали.
 
-| section | keys |
-|---|---|
-| display | replaced, glass_broken, touchscreen_glitch, stains_stripes |
-| case | back_broken, midframe_bent, midframe_cracked |
-| locks | icloud_linked, passcode_forgotten |
-| sensors | face_id, truetone, wifi, sim, bluetooth, other |
-| charging | not_charging, wireless_only, unstable |
-| operability | boot_loop, reboots, no_boot, apple_loop |
+### §3.2 Phase 2.1 цель (напомнить)
 
-Каждая фича имеет `severity_hint` (red|green|info — дефолт-намёк для оператора в UI) и `opener_phrasing` (для Phase 2 personalised opener).
+Унифицировать defect-features Phase 1 и V2 LLM pipeline в одну таблицу `listing_features` с дискриминатором `kind ∈ {defect, price_signal, info_api}`. 31 фича total. V2 grader + V2 UI section выпиливаются. Card получает два новых блока: «Цена / торг» (price_signal: battery_health + repaired_components) + «Параметры» (info_api: memory_gb + color + vendor_model).
 
-### §3.4 LLM-вызовы (в `app/services/defect_features/llm_parser.py`)
-
-| Функция | Что делает | Промпт |
-|---|---|---|
-| `match_avito_parameters` | Dict-driven: iCloud/passcode → state по substring-match. Short-circuit без LLM. | — (pure Python) |
-| `parse_section_defects(section, features, …)` | Один LLM-запрос на категорию, conservative — unknown по умолчанию. Возвращает state/confidence/evidence per requested feature. | `app/prompts/parse_section_<section>.md` |
-| `parse_defect_features(title, description, parameters, active_keys)` | Orchestrator: match_avito → asyncio.gather над 6 секциями для pending фич → merge. | — (orchestration) |
-| `compute_bucket(features, rules)` | Pure: truth-table из spec §8. | — (pure Python, 8 unit-тестов) |
-
-Все через OpenRouter `google/gemini-2.5-flash-lite`, safe fallback (state='unknown' для всех) на ошибке.
-
-### §3.5 UI surface
-
-- **Карточки kanban + listings** — блок «Признаки» в expanded body: 2-column grid по секциям, ✓ зелёная / ⊘ красный круг / ⚪ серый кружок. Hover = evidence tooltip. Фичи с rule=ignore не показываются.
-- **Sidebar collapse** — hamburger в topbar, w-60 ↔ w-14, state в localStorage.kpis_sidebar_collapsed.
-- **«🛠 Настройки модели»** новый sidebar nav-пункт, активен когда у юзера есть хоть один профиль (резолвится из earliest-created). Открывает `/profiles/{id}/feature-rules`.
-- **`/profiles/{id}/feature-rules`** — таблица 22 фич × 3-state переключатель (🟢 green-flag / 🔴 red-flag / ⊘ ignore). Click → PATCH endpoint upsert'ит rule + sync `recompute_buckets_for_profile` (batched 1 SELECT, не N+1) + toast «Бакеты: N зелёных / N серых / N отклонено». Double-click защищён disabled-guard в JS.
+Spec — `DOCS/superpowers/specs/2026-05-12-unified-criteria-design.md`.
+Plan — `DOCS/superpowers/plans/2026-05-13-unified-criteria-phase-2.1.md` (требует правки секций Task 2 + Task 4 per §4 audit).
 
 ---
 
-## §4. Что делать в новой сессии — unified-criteria редизайн (Phase 2 brainstorm в работе)
+## §4. **CRITICAL: Shared Resources Audit (2026-05-13)**
 
-### §4.0 Текущий статус — pivot к unified criteria
+После Task 4 V2 rip обнаружено что план Phase 2.1 ошибочно классифицировал 2 ресурса как «V2-only», хотя они активно используются другими частями системы. Audit прошёл через grep по 4-м ключевым файлам (listings_view, web/routers, tasks/analytics, llm_budget).
 
-Phase 1 defect-checklist зашиплен 2026-05-12 + правила на iPhone 12 PM выставлены (21 шт). Юзер создал второй профиль **iPhone 13**, и выявились архитектурные проблемы:
+### §4.1 Таблица аудита
 
-1. **Sidebar nav «🛠 Настройки модели» захардкожена на первый профиль** — для iPhone 13 нет UI к feature-rules.
-2. **Каша двух LLM-систем:** V2 criteria (`criteria_templates.yaml`, 15 entries, через форму профиля) и Defect features (`dialog_topics.yaml`, 22 entries, через отдельную страницу) **пересекаются по 5+ key'ам** (icloud_locked ↔ locks.icloud_linked, screen_broken ↔ display.glass_broken, etc.). V2 LLM bucket вычисляется, но **не используется** (`profile_listings.bucket` пишется из defect-pipeline).
-3. **iPhone 13 при первом polling-проходе слил 871 лот в grey** (нет правил → нет фильтрации). DB почищено 2026-05-12.
+| Ресурс | План говорил | Реальность | Решение |
+|---|---|---|---|
+| Таблица `criteria_templates` | DROP | V2-only ✅ | **DROP** |
+| Таблица `profile_criteria` | DROP | V2-only ✅ | **DROP** |
+| Таблица `profile_listing_evaluations` | DROP | V2-only ✅ | **DROP** |
+| Таблица `llm_analyses` | DROP | ❌ Shared. Используют: `/llm-budget` команда Telegram (`integrations/telegram/commands.py:90`), `llm_budget.py` cost tracker, `LLMAnalyzer.compare_to_reference` (Price Intelligence cache) | **KEEP** |
+| Колонка `profile_listings.bucket` | DROP | ❌ Shared. **Phase 1 defect-features АКТИВНО пишет** (`web/routers.py:569` после `recompute_buckets_for_profile`) и читает (`listings_view.py:170` kanban filter, `:319-323` chip counts, `tasks/analytics.py:263` clean-price filter) | **KEEP** |
+| Колонка `profile_listings.latest_evaluation_id` | DROP | V2-only (`tasks/analysis.py:481,619` — V2 evaluate flow) ✅ | **DROP** (+drop FK constraint первым) |
+| Колонки `search_profiles.evaluate_strategy / confidence_threshold / criteria_set_hash / bucket_routing` | DROP | V2-only ✅ | **DROP** |
+| Модель `criteria_template.py` | DELETE | V2-only ✅ | **DELETE** |
+| Модель `profile_criteria.py` | DELETE | V2-only ✅ | **DELETE** |
+| Модель `profile_listing_evaluation.py` | DELETE | V2-only ✅ | **DELETE** |
+| Модель `llm_analysis.py` | DELETE | ❌ Used by Telegram /llm-budget + llm_budget.py | **KEEP** |
+| Модели stale fields `profile_listing.{match_result_id, condition_classification_id}` | (план не упоминал) | DB columns already dropped in 0009 — модель stale | **Clean model only** (не migration) |
+| Файл `llm_cache.py` (`DBLLMCache`) | (implementer заstubили) | Кэширует Price Intelligence через `llm_analyses` | **KEEP active** |
+| Файл `llm_budget.py` | (implementer заstubили) | Cost tracking через `llm_analyses` | **KEEP active** |
+| Yaml `criteria_templates.yaml` | DELETE | V2 library source ✅ | **DELETE** |
+| Prompts `evaluate_criterion.md / evaluate_listing_batch.md / extract_info.md` | DELETE | V2 prompts ✅ | **DELETE** |
+| `LLMAnalyzer.evaluate_listing` метод + `_eval_*` helpers + `_compute_bucket` helper | DELETE | V2-only ✅ | **DELETE** |
+| `LLMAnalyzer.compare_to_reference` метод + `_cache_key_for_compare` | KEEP | Price Intelligence Block 7 ✅ | **KEEP** |
+| Module-level functions в `llm_analyzer.py`: `detect_yes_selling`, `formulate_question`, `parse_topic_answer`, `formulate_recap`, `parse_seller_agreement` | KEEP | seller_dialog ✅ | **KEEP** |
+| Module-level helpers `_criterion_flag_from_dict`, `_info_extract_from_dict` | DELETE | V2-only ✅ | **DELETE** |
+| Module-level `_llm_call_json` | KEEP | Используется другими модулями (price_signal_extractor в Task 7) ✅ | **KEEP** |
+| Task `tasks/analysis.py:evaluate_listing` (TaskIQ worker entrypoint) | DELETE | ⚠️ Partial. Polling.py:832 enqueueит этот task per discovered lot. Сам task в текущей версии имеет: (a) V2 path (criteria specs + LLMAnalyzer.evaluate_listing + latest_evaluation_id write), (b) NEW Phase 1 call to `analyze_listing_features` from `defect_features/pipeline.py`. | **REFACTOR**: оставить task wrapper, тело упростить до Phase 1 пути — `await analyze_listing_features(...)`, потом `pl.bucket = bucket`. Drop V2-specific setup (criteria specs, LLMAnalyzer.evaluate_listing call, latest_evaluation_id) |
+| `tasks/analytics.py:has_v2_criteria` branch | DELETE | V2-only ✅ | **DELETE** branch (но KEEP `pl.bucket` reads — это Phase 1) |
 
-### §4.0.1 Brainstorm snapshot — что зафиксировано
+### §4.2 Почему Task 2 migration не катится на prod как есть
 
-Skill `superpowers:brainstorming` был invoked, контекст спарсен, юзер ответил на первый scope-вопрос. Spec ещё **не написан**.
+**Текущая migration 0016 на ветке (commit 3254093) сейчас содержит:**
+1. `op.drop_column("profile_listings", "bucket")` — **СЛОМАЕТ Phase 1 defect-features pipeline** (kanban filter без значения, chip counts нули, feature-rules-recompute не сохраняет результат).
+2. `op.drop_table("llm_analyses")` — **СЛОМАЕТ** `/llm-budget` Telegram-команду, `llm_budget.py` cost tracking, и Price Intelligence cache (compare_to_reference будет работать но без кэша → +cost +latency).
 
-**Зафиксированные факты (mapping V2 criteria ↔ Defect features):**
+**Эти 2 drops НЕОБХОДИМО удалить из migration 0016 до prod deploy.**
 
-| V2 criterion key | Closest defect feature | Тип пересечения |
-|---|---|---|
-| `icloud_locked` | `locks.icloud_linked` | дубль (один-в-один) |
-| `screen_broken` | `display.glass_broken` + `display.touchscreen_glitch` + `display.stains_stripes` | дубль (V2 broader, defect granular) |
-| `not_starting` | `operability.boot_loop` + `no_boot` + `apple_loop` | дубль (V2 broader, defect granular) |
-| `modem_broken` | `sensors.sim` | частичный (defect уже) |
-| `biometric_broken` | `sensors.face_id` | частичный (V2 = Face ID + Touch ID) |
-| `frp_locked` | — | нет counterpart (Android-specific) |
-| `account_blocked` | — | нет counterpart (vendor locks) |
-| `parts_only` | — | нет counterpart (intent, не hardware) |
-| `memory_gte` | — | attribute filter (numeric), другой класс |
-| `title_matches_model` | — | attribute filter (string), другой класс |
-| `battery_health`, `repaired_components` | — | info_llm (extraction-only) |
-| `memory_gb`, `color`, `vendor_model` | — | info_api (extraction-only) |
+### §4.3 Почему Task 4 был реверт'нут
 
-**Архитектурный факт:** V2 LLM bucket вычисляется (пишется в `profile_listing_evaluations.bucket`) но **больше не используется** — `profile_listings.bucket` (operative field) пишется в `analysis.py:564-588` из `compute_bucket(features, rules)` (defect-pipeline). V2 LLM сейчас работает «в холостую».
+Implementer **корректно следовал инструкциям плана**, но план + Task 2 review были неправы про shared resources. После V2 rip:
+1. Polling.py:832 импортировал `evaluate_listing` task → ImportError (task удалён) → polling не enqueueит → **новые лоты не обрабатываются**.
+2. ProfileListing.bucket column в модели удалён → SQLAlchemy reads/writes в listings_view → AttributeError на kanban → **kanban сломан**.
+3. llm_analyses dropped → /llm-budget команда сломана + llm_budget стал no-op stub.
 
-**Решения пользователя:**
-- Q1 (phasing): выбрано **B** — две фазы. Phase 2.0 stop-gap (вынести feature-rules в форму профиля) + Phase 2.1 unification (единая модель).
-- Q2..Q5: ещё не заданы.
+Сам по себе implementer был thorough — он зафлажил concerns в DONE_WITH_CONCERNS. Но проблемы были fundamental, не fixable инлайн. Revert был правильным шагом.
 
-**Что осталось пройти до spec'а:**
-- Уточнить data model unified-системы: один тип «rule» с дискриминатором, или 4 типа таблиц (defect / attribute / lock / info)?
-- UI placement в форме профиля: tabs / accordion / single page с секциями?
-- Что делать с V2 LLM-evaluation в Phase 2.1: rip целиком, или mapping V2 keys → unified taxonomy?
-- info_api / info_llm — оставляем как «info-only» категорию или сливаем в unified taxonomy?
-- attribute filters (memory_gte etc.) — отдельный type с numeric/string slot, или сливаем в LLM-prompted rule с params?
+---
 
-**Как возобновить:** скажи «продолжаем brainstorm» — я задам Q2 (data-model). Целевая выходная точка — spec в `DOCS/superpowers/specs/2026-05-XX-unified-criteria-design.md` → потом writing-plans для Phase 2.0 + Phase 2.1 (отдельные планы).
+## §5. Что делать в следующей сессии
 
-### §4.1 Если хочешь продолжить unified-criteria дизайн
+### §5.1 Шаг 0 — sanity verify
 
-Спека пока не написана. Нужно:
-1. Пройти clarifying-questions цикл по data model (один тип vs тип-aware), placement UI (форма профиля section vs sub-page vs drawer), deprecation V2 criteria (kill / mapping / coexist).
-2. Дизайн в `DOCS/superpowers/specs/2026-05-XX-unified-criteria-design.md`.
-3. После approve → writing-plans → 2 фазы.
-
-### §4.2 Если хочешь быстрый stop-gap (Phase 2.0 в одиночку)
-
-Минимальная задача — переместить sidebar nav пункт «🛠 Настройки модели» из глобального layout'a в форму профиля (`/search-profiles/{id}/edit`) как отдельную секцию или вкладку. Эстимейт 2-3h. Тогда iPhone 13 сразу настраивается. V2 criteria остаются в той же форме как сейчас (дубль, но не блокер).
-
-### §4.3 Если хочешь soak Phase 1 на iPhone 12 PM пока
-
-Backfill ещё не запущен — `listing_features` пуст. Чтобы получить реальные данные парсера:
 ```bash
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-monitor python -m scripts.backfill_features'
-```
-~$0.0006 × 120 ≈ $0.07. После пробежки увидишь в expanded card body блок «Признаки» с ✓/⊘/⚪. Соак-наблюдения см. §4.4.
-
-### §4.4 Соак-наблюдения (3-4 дня после backfill)
-
-Метрики ручной оценки:
-- **Recall парсера** — на ~50 свежих лотах оценить вручную: насколько LLM правильно ловит defect-сигналы? Если recall < 95% по критичным фичам (icloud, broken_glass) — нужен Phase 1.5 keyword fallback.
-- **False-positive auto-reject** — сколько iCloud-locked-detected было ложными? Recovery через «↶ Вернуть в новые» в Rejected.
-- **LLM cost/день** — на сколько вырос. Если выше $0.05/день — оптимизация.
-
-Команды для дампа state:
-```powershell
-# Сколько лотов в каждом бакете после backfill
-ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 python -c "
-import asyncio, asyncpg, os
-async def m():
-    url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\", \"postgresql://\")
-    c = await asyncpg.connect(url, statement_cache_size=0)
-    rows = await c.fetch(\"SELECT bucket, count(*) FROM profile_listings GROUP BY bucket\")
-    for r in rows: print(dict(r))
-    auto_rej = await c.fetchval(\"SELECT count(*) FROM profile_listings WHERE rejected_reason LIKE \x27auto:%\x27\")
-    print(\"auto-rejected:\", auto_rej)
-    await c.close()
-asyncio.run(m())"'
-
-# LLM расход за 24ч
-ssh root@81.200.119.132 "cd /opt/avito-system && docker compose logs --since=24h worker 2>&1 | grep -iE 'parse_section|llm.cost' | tail -20"
+cd c:/Projects/Sync/AvitoSystem
+git branch --show-current  # → phase-2.1-unification
+git log --oneline phase-2.0-tabs..HEAD  # → 5 commits, последний 527bbc5 (revert)
+cd avito-monitor && python -m pytest tests/web/ tests/defect_features/ -v --tb=no -q 2>&1 | tail -5
+# Expected: ~60 PASS (Phase 2.0 + Phase 1 unchanged after revert)
 ```
 
-### §4.5 Backlog Phase 1 follow-ups (не блокеры)
+### §5.2 Шаг 1 — Fix migration 0016
 
-- **T9-followup: API-killers bypass feature pipeline** — частично исправлено (hotfix `5a1854c` вызывает feature pipeline и в API-killer ветке тоже, отдельной сессией). Если в логах увидим race conditions / двойные upsert'ы — переработать.
-- Все остальные code-review findings уже зашиты в commits (`64bde03` repository hardening, `8cac265` taxonomy validators, `9c10f8b` N+1 + double-click fix, `5a1854c` API-killer + stale params).
+Задача: убрать 2 over-aggressive drops + их downgrade additions.
 
-### §4.6 Что в Phase 2 seller-dialog (категорийный опрос, после soak)
+**Файл:** `avito-monitor/alembic/versions/20260513_1000_unified_criteria.py`
 
-Описано в spec `2026-05-12-defect-checklist-design.md` §10:
+**Upgrade — удалить:**
+```python
+# 3b) Drop profile_listings.bucket (V2 cache column added by 0006).
+if "bucket" in pl_cols:
+    op.drop_column("profile_listings", "bucket")
+```
+И из списка `tables_to_drop` убрать `"llm_analyses"`.
 
-1. **Setup-modal → checklist-drawer**: текущий setup-modal Phase B заменяется на slide-out drawer с тоглами на unknown-фичах. Operator может включить тоглы только на тех, что хочет уточнить.
-2. **Category-batched survey**: вместо 22 микро-вопросов один человеческий вопрос на категорию. «Вижу что у вас разбито стекло. По остальным моментам уточните: дисплей менялся? полосы/пятна? тачскрин работает?» — ≤ 6 циклов вопрос-ответ. Новые LLM dispatcher'ы `formulate_category_question` + `parse_category_answer`.
-3. **Personalised opener**: «Я внимательно прочитал ваше объявление. Понял, что у вас: <список confirmed defects>. Всё верно?» Если confirmed defects = 0 → opener пропускается.
-4. **Двойной LLM на каждый inbound**: existing `parse_topic_answer` (targeted) + новый `scan_message_for_features` (broad sweep по всем active features профиля). Продавец проговорился про iCloud в ответе на вопрос про АКБ → recompute_bucket → если стало red → close dialog + TG notify.
+**Downgrade — удалить соответствующие add_column для `profile_listings.bucket`** + удалить `op.create_table("llm_analyses", ...)` block.
 
-Phase 2 ≈ 8h dev + 1-2d soak. Дispatch'нем когда recall парсера Phase 1 ≥ 95%.
+Также проверить — в downgrade `latest_evaluation_id` re-add'ит column как FK на `profile_listing_evaluations.id`. Если он был originally added в 0006 как FK на `llm_analyses` через какой-то joint setup — это не наш случай (он FK на profile_listing_evaluations.id per 0006). OK as-is.
+
+**После правки прогон:**
+```bash
+cd avito-monitor
+alembic heads  # → 0016_unified_criteria (head)
+python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; print(ScriptDirectory.from_config(Config('alembic.ini')).get_revision('0016_unified_criteria').revision)"
+# → 0016_unified_criteria
+```
+
+Commit:
+```
+git add avito-monitor/alembic/versions/20260513_1000_unified_criteria.py
+git commit -m "fix(migration): 0016 keep llm_analyses + profile_listings.bucket
+
+Audit 2026-05-13 revealed both are shared resources, not V2-only:
+- llm_analyses: used by Telegram /llm-budget command, llm_budget.py cost
+  tracker, and LLMAnalyzer.compare_to_reference (Price Intelligence cache).
+- profile_listings.bucket: Phase 1 defect-features pipeline actively writes
+  this column (web/routers.py:569 after recompute_buckets_for_profile) and
+  reads it in listings_view.py kanban filter + chip counts + tasks/analytics
+  clean-price filter.
+
+Migration now drops only V2-only artifacts: criteria_templates,
+profile_criteria, profile_listing_evaluations tables; profile_listings
+.latest_evaluation_id FK+column; search_profiles V2 columns."
+```
+
+### §5.3 Шаг 2 — Re-execute Task 4 (V2 rip — corrected)
+
+**Цель:** удалить V2-only код, СОХРАНИТЬ shared resources, отрефакторить task wrapper.
+
+**Файлы для DELETE (8):**
+- `app/db/models/criteria_template.py`
+- `app/db/models/profile_criteria.py`
+- `app/db/models/profile_listing_evaluation.py`
+- `app/data/criteria_templates.yaml`
+- `app/prompts/evaluate_criterion.md`
+- `app/prompts/evaluate_listing_batch.md`
+- `app/prompts/extract_info.md`
+- `tests/services/test_llm_analyzer.py` (старые V2 тесты — все 8 уже падают per pre-existing baseline)
+
+**Файлы для MODIFY:**
+- `app/db/models/__init__.py` — убрать импорты `CriteriaTemplate`, `ProfileCriterion`, `ProfileListingEvaluation` (но **сохранить `LLMAnalysis`**)
+- `app/db/models/profile_listing.py` — убрать атрибуты `latest_evaluation_id`, `match_result_id`, `condition_classification_id` (DB columns dropped in 0009 + 0016). **Сохранить `bucket` column** (Phase 1 пишет).
+- `app/db/models/search_profile.py` — убрать `evaluate_strategy`, `confidence_threshold`, `criteria_set_hash`, `bucket_routing`. Остальное keep.
+- `app/services/llm_analyzer.py` — большая хирургия:
+  - DELETE: `LLMAnalyzer.evaluate_listing`, `_eval_batch`, `_eval_one_criterion`, `_eval_info_batch`, `_cache_key_for_criterion`, `_cache_key_for_info_llm`, `_fallback_unknown_for_specs`
+  - DELETE module-level: `_criterion_flag_from_dict`, `_info_extract_from_dict`, `_compute_bucket`
+  - KEEP: `LLMAnalyzer.__init__`, `_cache_key_for_compare`, `compare_to_reference`, `CriterionSpec`, `InfoFieldSpec`, `_OpenRouterProto`, `_CacheProto`, `_llm_call_json`, `_read_prompt`, `_listing_to_render_dict`, `_hash`, `_safe_json_loads`, all `detect_yes_selling` / `formulate_*` / `parse_topic_answer` / `parse_seller_agreement`, `_render_fragment_cached`, `_render_fragment`, `_comparison_from_dict`
+  - UPDATE docstring (lines 1-25): убрать упоминание `evaluate_listing` как «entry point», оставить только compare_to_reference + seller_dialog.
+  - UPDATE imports: remove `BatchEvaluationResponse`, `CriterionFlag`, `InfoFieldExtract`, `ListingEvaluation` from shared.models.llm. Keep `ComparisonResult`, `LLMResponse`.
+- `app/schemas/search_profile.py` — DELETE `ProfileCriterionSpec` Pydantic. Remove V2 fields from `SearchProfileBase`/`Update` (`evaluate_strategy`, `confidence_threshold`, etc).
+- `app/services/search_profiles.py` — DELETE `set_profile_criteria`, `_compute_criteria_set_hash`, `_slugify_key`, любые helpers работающие с V2 criteria. Keep остальное.
+- `app/tasks/analysis.py` — **REFACTOR не DELETE**:
+  - Сохранить `@broker.task(task_name="...")` декоратор и сигнатуру `async def evaluate_listing(...)` (polling.py:832 импортирует).
+  - **Полностью переписать тело**: убрать V2 spec building, LLMAnalyzer.evaluate_listing call, latest_evaluation_id write. Вместо этого:
+    ```python
+    @broker.task(task_name="app.tasks.analysis.evaluate_listing")
+    async def evaluate_listing(profile_id: uuid.UUID, listing_id: uuid.UUID, ...) -> ...:
+        async with session_factory() as session:
+            listing = await session.get(Listing, listing_id)
+            profile = await session.get(SearchProfile, profile_id)
+            if not listing or not profile:
+                return
+            # Phase 1 defect-features pipeline
+            from app.services.defect_features.pipeline import analyze_listing_features
+            await analyze_listing_features(session, listing, profile)
+            # NOTE: Phase 2.1 Task 9 will replace this with full analyze_listing
+            # that also handles price_signal + info_api extraction in one call.
+            await session.commit()
+    ```
+  - Drop `check_api_killers` если оно V2-only (проверь grep'ом).
+- `app/tasks/analytics.py` — DELETE V2 `has_v2_criteria` branch + `ProfileCriterion` import. **Сохранить** `ProfileListing.bucket` reads (Phase 1).
+- `app/tasks/polling.py` — НЕ ТРОГАТЬ (он импортирует evaluate_listing task который остаётся).
+- `app/web/routers.py` — DELETE V2-related imports (`CriteriaTemplate`, `ProfileCriterion`, `ProfileCriterionSpec`), V2 criteria editor helpers (`_load_criteria_library`, `_load_profile_criteria_state` — будут удалены в Task 5 anyway). Keep `pl.bucket = new_bucket` write (Phase 1 path).
+- `app/integrations/telegram/callbacks.py` — `ACTION_RECLASSIFY` — проверить, V2-only или нет. Если только для evaluate_listing path — drop.
+
+**Файлы НЕ ТРОГАТЬ (вопреки instinct'у):**
+- `app/db/models/llm_analysis.py` — **KEEP**, used by /llm-budget + llm_budget.
+- `app/services/llm_cache.py` — **KEEP**, used by compare_to_reference.
+- `app/services/llm_budget.py` — **KEEP**.
+
+**Тест файл:** Заменить `tests/test_v2_rip.py` (был в Task 4) — на проверки, что только V2-only вещи удалены. Не тестировать удаление shared resources.
+
+### §5.4 Шаг 3 — Continue Tasks 5-14 согласно plan
+
+После Task 4 corrected re-execution — Tasks 5-14 как в plan'е, но Task 5 (UI rip из form.html) и Task 9 (pipeline integration) должны учесть что:
+- Task 5: bucket-column writes в feature-rules-recompute endpoint остаются (Phase 1). Только Step 5/5b sections из form.html удаляются.
+- Task 9: `evaluate_listing` task wrapper уже отрефакторен в Шаге 2 — Task 9 ДОБАВЛЯЕТ price_signal + info_api вызовы в `analyze_listing_features` (или внутрь самого task body), плюс upsert_listing_features с kind/value.
+
+Plan file `DOCS/superpowers/plans/2026-05-13-unified-criteria-phase-2.1.md` имеет полные подробности по Tasks 5-14. Но **Task 2 + Task 4 секции плана требуют переписки** перед использованием (план не отражает audit findings — sections все еще описывают V2 rip без shared-resource карантина).
+
+### §5.5 Шаг 4 — Deploy на VPS (после всех 14 tasks ✅)
+
+Critical sequence:
+1. `pg_dump $DATABASE_URL -F c -f /opt/avito-system/data/pre-phase-2.1-backup-$(date +%Y%m%d-%H%M).dump` на VPS.
+2. **Pre-migration:** запустить `migrate_v2_to_defect_rules.py --all --apply` в running container (V2 таблицы ещё существуют).
+3. tar+ssh sync source.
+4. `alembic upgrade head` через `docker compose run --rm avito-monitor`.
+5. `docker compose build avito-monitor && docker compose up -d --force-recreate avito-monitor`.
+6. backfill для iPhone 12 PM: `python -m scripts.backfill_features --profile <uuid>` — ~120 лотов, +price_signal +info_api populated.
+7. Manual smoke per plan §Task 14 checklist.
 
 ---
 
-## §5. Backlog (за пределами defect-checklist)
+## §6. Что НЕ работает / избежать повторений (актуально)
 
-### §5.1 Seller-dialog (Phase B уже shipped, остальные фазы):
+- ❌ **Postgres НЕ каскадирует FK при UPDATE/DROP** — нужны explicit drop constraints. Task 2 fix (`3254093`) разобрался с FK блокером.
+- ❌ **`op.drop_table` НЕ эквивалентно `DROP TABLE ... CASCADE`** — оставшиеся FK ломают drop. Inspector.get_foreign_keys + explicit drop_constraint.
+- ❌ **Docker container НЕ видит изменений в host filesystem** — для миграций `docker compose build avito-monitor` после правки. `docker compose run --rm avito-monitor alembic upgrade head`.
+- ❌ **Никогда не пересобирай только один service** через `docker compose build avito-monitor` — shared image. **EXCEPT** для Phase 2.x где Phase 2.0 / 2.1 затрагивает ТОЛЬКО UI/templates — там per-service rebuild OK. Но при изменении `app/services/*` shared code → `docker compose build` без аргументов + `up -d --force-recreate` всех потребителей.
+- ❌ **`<script>` теги в HTML, инжектируемом через `innerHTML`, НЕ выполняются**. Delegated handlers в parent template.
+- ❌ **`templates.TemplateResponse` новая сигнатура**: `(request, name, context)` позиционно.
+- ❌ **JWT-сессии могут стать server-side-зомби** — manual refresh launch Avito-app 60 сек.
+- ❌ **TaskIQ-task'и регистрировать в `app/tasks/broker.py::_register_tasks()`** через import.
+- ❌ **Не deploy'ить через rsync с Windows** — нет в системе. `tar + scp + ssh tar -xf`.
+- ❌ **PowerShell не имеет grep** — либо grep внутри ssh, либо PowerShell `Select-String`, либо Grep tool (Claude).
+- ❌ **SQLite не поддерживает JSONB + `pg_insert.on_conflict_do_update`** — для тестов в `tests/defect_features/conftest.py` dialect-aware UPSERT (`_is_postgres(session)` check).
 
-- **Phase C** (drawer вместо modal для setup) — частично перекрывается Phase 2 defect-checklist (там и будет drawer).
-- **Phase D**: stages 4-9 (`price_negotiation` → ... → `closed`). Включает «Согласование цены» (operator-driven), polling `items/{id}.price` watch, Avito-delivery tracking.
-- **Phase E**: SLA worker `dialog_silence_tick` + 4 оставшихся TG-пинга + sortings/filters в kanban + Phase 2 smart auto-tick.
+### §6.1 Новое в Phase 2.0 / 2.1
 
-### §5.2 Известные мелочи (V1.5)
-
-- **AVITO_OWN_USER_ID env** не сконфигурирован → SSE direction грязный.
-- **SSE durability / catch-up** — теряет события при reconnect (нет resume-token). Pull-based fallback по active dialog'ам.
-- **«Евгений: » prefix в SSE text** — нормализовать.
-- **accept→reject race** — worker создаёт dialog даже если operator уже reject'нул.
-- **accept→reject→accept resurrection** — второй accept не реанимирует closed dialog (idempotency).
-- **`RELIABILITY_DISABLED_SCENARIOS=G`** — scenario G в health-checker раньше скипалась, теперь messenger-bot задеплоен — пора включить probe.
-- **docker-compose.yml не в git** — `/opt/avito-system/docker-compose.yml` редактируется напрямую на VPS.
-- **V2 reliability whitelist bug** — `whitelist_own_listings_only=True` не отсёк чужой канал в ship-blocker инциденте Phase A. Разобрать при возврате к V2.
-
----
-
-## §6. Команды для проверки состояния
-
-### §6.1 БД — feature rows + rules + бакеты
-
-```powershell
-ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 python -c "
-import asyncio, asyncpg, os
-async def m():
-    url = os.environ[\"DATABASE_URL\"].replace(\"postgresql+asyncpg://\", \"postgresql://\")
-    c = await asyncpg.connect(url, statement_cache_size=0)
-    print(\"alembic:\", await c.fetchval(\"SELECT version_num FROM alembic_version\"))
-    print(\"listing_features:\", await c.fetchval(\"SELECT count(*) FROM listing_features\"))
-    print(\"profile_feature_rules:\", await c.fetchval(\"SELECT count(*) FROM profile_feature_rules\"))
-    by_bucket = await c.fetch(\"SELECT bucket, count(*) FROM profile_listings GROUP BY bucket\")
-    print(\"buckets:\", [dict(r) for r in by_bucket])
-    auto_rej = await c.fetchval(\"SELECT count(*) FROM profile_listings WHERE rejected_reason LIKE \x27auto:%\x27\")
-    print(\"auto-rejected:\", auto_rej)
-    by_rule = await c.fetch(\"SELECT rule, count(*) FROM profile_feature_rules GROUP BY rule\")
-    print(\"rules:\", [dict(r) for r in by_rule])
-    await c.close()
-asyncio.run(m())"'
-```
-
-### §6.2 Worker логи на feature-pipeline
-
-```powershell
-ssh root@81.200.119.132 "cd /opt/avito-system && docker compose logs --tail=200 worker 2>&1 | grep -iE 'parse_section|analyze_listing_features|compute_bucket|defect|ERROR' | tail -30"
-```
-
-### §6.3 Health check + smoke
-
-```powershell
-curl.exe -sS -o NUL -w "kanban -> %{http_code}`n" "https://avitosystem.duckdns.org/listings?tab=in_progress"
-curl.exe -sS -o NUL -w "new    -> %{http_code}`n" "https://avitosystem.duckdns.org/listings?tab=new"
-ssh root@81.200.119.132 "cd /opt/avito-system && docker compose ps --format 'table {{.Service}}\t{{.Status}}'"
-```
-
-### §6.4 Backfill вручную (одного профиля)
-
-```powershell
-ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-monitor python -m scripts.backfill_features --profile <profile_uuid>'
-```
-
-`--dry-run` чтоб только посчитать сколько лотов будут обработаны.
+- ❌ **Spec § «V2 удаляется целиком» — НЕ значит drop любого V2-era resource.** Проверять каждый ресурс через grep по `app/` на актуальное использование. Phase 2.1 audit (§4) — единственный source of truth для shared-vs-V2 классификации.
+- ❌ **При V2 rip — task wrapper в `tasks/analysis.py:evaluate_listing` НЕ удалять.** Polling.py:832 импортирует. Рефакторить body, оставить декоратор + сигнатуру.
+- ❌ **`llm_analyses` таблица — KEEP**: `/llm-budget` Telegram + `llm_budget.py` + Price Intelligence cache.
+- ❌ **`profile_listings.bucket` колонка — KEEP**: Phase 1 defect-features активно использует.
+- ❌ **`LLMAnalyzer.compare_to_reference` — KEEP**: Price Intelligence Block 7.
+- ❌ **При нескольких реверт'нутых коммитах** — repo нормально работает, но Phase 2.1 в half-state: Task 2 migration ещё имеет drop'ы которые нельзя катить (см. §5.2).
+- ❌ **Tailwind версия — v3.4.17** (CDN). `aria-selected:` variants работают.
 
 ---
 
@@ -306,44 +289,79 @@ ssh root@81.200.119.132 'cd /opt/avito-system && docker compose run --rm avito-m
 ```
 Проект: c:/Projects/Sync/AvitoSystem/
 
-Прочитай CONTINUE.md, DOCS/REFERENCE/README.md (особенно top entry про
-2026-05-12 defect-checklist), и DOCS/superpowers/specs/2026-05-12-defect-
-checklist-design.md.
+Прочитай CONTINUE.md целиком, потом DOCS/REFERENCE/README.md (общая карта state'а),
+DOCS/superpowers/specs/2026-05-12-unified-criteria-design.md (spec на Phase 2.0+2.1).
 
-Phase 1 defect-checklist зашиплен в prod 2026-05-12. Pipeline работает,
-но profile_feature_rules пуст — пока operator не выставит правила через
-UI и не запустит backfill, реальных feature-данных нет. Текущая задача —
-soak: проверить точность LLM-парсера на свежих лотах, мониторить
-auto-reject rate, ловить regressions. Phase 2 (category-batched survey +
-opener + двойной LLM-per-inbound) — после соак.
+Состояние:
+- Phase 2.0 (UI placement) shipped 2026-05-13. Branch phase-2.0-tabs deployed
+  на VPS, public URL https://avitosystem.duckdns.org. Ветка НЕ замержена в main.
+- Phase 2.1 (schema unification + V2 rip) paused mid-execution. Branch
+  phase-2.1-unification (5 commits). Tasks 1-3 done. Task 4 реверт'нут после
+  audit показал shared-resource blunder. Tasks 5-14 не стартовали.
 
-Production: VPS 81.200.119.132 + Cloud Supabase Frankfurt.
-UI https://avitosystem.duckdns.org. HEAD = 79f8aef.
-V2 reliability bot выключен (MESSENGER_BOT_ENABLED=false).
+ГЛАВНАЯ ЗАДАЧА: довести Phase 2.1 до конца БЕЗ повторения over-rip ошибок.
+
+Read first:
+1. CONTINUE.md §4 (audit table) — кто V2-only, кто shared.
+2. DOCS/superpowers/plans/2026-05-13-unified-criteria-phase-2.1.md — план, но
+   секции Task 2 + Task 4 устарели (план не отражает audit findings).
+3. CONTINUE.md §5 — точные next-step инструкции.
+
+V1 + V1.5 production:
+- VPS 81.200.119.132 + Cloud Supabase Frankfurt.
+- ssh root@81.200.119.132 (key auth).
+- Deploy: tar+ssh sync на /opt/avito-system/repo/avito-monitor + docker compose
+  build + up -d --force-recreate.
+- На prod alembic head = 0015_defect_checklist (0016 НЕ применён, Phase 2.1 не deployed).
+- V2 reliability bot выключен (MESSENGER_BOT_ENABLED=false).
 ```
 
 ---
 
-## §8. Что НЕ работает / избежать повторений
-
-- ❌ **Postgres НЕ каскадирует FK при UPDATE по умолчанию.** Если мигрируешь rename ключа в parent table — сначала drop FK, потом UPDATE child + parent, потом recreate FK. Hotfix `79f8aef` в миграции 0015 это исправил.
-- ❌ **Docker container НЕ видит изменений в host filesystem** (avito-monitor не монтирует repo как volume) — для миграций нужен `docker compose build avito-monitor` после правки migration file. Затем `docker compose run --rm avito-monitor alembic upgrade head`.
-- ❌ **Никогда не пересобирай только один service** через `docker compose build avito-monitor` — shared image. Когда меняешь общий код (`app/services/*`), используй `docker compose build` (без аргументов) + `docker compose up -d --force-recreate <все потребители>`.
-- ❌ **`<script>` теги в HTML, инжектируемом через `innerHTML`, НЕ выполняются**. Delegated handlers в parent template.
-- ❌ **`templates.TemplateResponse` новая сигнатура**: `(request, name, context)` позиционно.
-- ❌ **JWT-сессии могут стать server-side-зомби**: TTL валиден, но Avito ревокнул раньше → 401. Recovery: запустить Avito-app на телефоне на 60 сек.
-- ❌ **Avito createItemChannel хочет itemId как int**, не string.
-- ❌ **TaskIQ-task'и регистрировать в `app/tasks/broker.py::_register_tasks()`** через import — иначе worker не подхватит.
-- ❌ **Card partials НЕ должны линковать на `/listings/{id}`** — этот route не существует.
-- ❌ **Не deploy'ить через rsync с Windows** — нет в системе. Использовать `tar + scp + ssh tar -xf`.
-- ❌ **PowerShell не имеет grep** — либо grep внутри ssh, либо PowerShell `Select-String`.
-- ❌ **SQLite не поддерживает JSONB + `pg_insert.on_conflict_do_update`** — для тестов с in-memory SQLite в `tests/defect_features/conftest.py` используется hand-written CREATE TABLE + dialect-aware UPSERT (`_is_postgres(session)` check в `repository.py`).
-- ❌ **Pythonside UUID default + server_default** — на моделях `ListingFeature` и `ProfileFeatureRule` стоит и `default=uuid.uuid4`, и `server_default=text("gen_random_uuid()")`. Это для SQLite test compatibility (SQLite не знает `gen_random_uuid()`). В Postgres prod SQLAlchemy использует Python-side default — функционально эквивалентно.
-
----
-
-## §9. Где секреты
+## §8. Где секреты
 
 - **Глобальные:** `c:/Projects/Sync/CLAUDE.md`
 - **VPS** `/opt/avito-system/.env`
 - **Auto-memory:** `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/`
+
+---
+
+## §9. Ссылки на актуальные документы
+
+- `DOCS/superpowers/specs/2026-05-12-unified-criteria-design.md` — spec на Phase 2.0+2.1 (rev 1).
+- `DOCS/superpowers/plans/2026-05-12-unified-criteria-phase-2.0.md` — план Phase 2.0 (executed, 6 tasks).
+- `DOCS/superpowers/plans/2026-05-13-unified-criteria-phase-2.1.md` — план Phase 2.1 (Tasks 1-3 done, Task 4 нужно переписать per §4 audit, Tasks 5-14 pending).
+- `DOCS/superpowers/specs/2026-05-12-defect-checklist-design.md` — spec на Phase 1 (executed, базис для Phase 2).
+- `DOCS/REFERENCE/README.md` — общая карта production state.
+- `DOCS/DECISIONS.md` — ADR-001..011.
+
+---
+
+## §10. Recap Phase 2.0 changelog (deployed)
+
+5 commits на ветке `phase-2.0-tabs` (от `main`):
+
+```
+922e963  docs(phase-2.0): plan + spec for unified-criteria UI placement
+ed99f4e  feat(profile-form): wire tabs JS + ?tab= deep-link + localStorage persistence
+92938b0  feat(profile-form): restructure edit form into 3-tab layout
+48d776a  refactor(sidebar): drop hardcoded «Настройки модели» nav item
+10686ea  refactor(feature-rules): extract editor markup into reusable partial
+```
+
+Net: 6 files changed.
+- `app/web/templates/_partials/feature_rules_section.html` (new partial, ~105 lines)
+- `app/web/templates/profiles/feature_rules.html` (thin wrapper, 7 lines)
+- `app/web/templates/profiles/form.html` (3-tabs restructure)
+- `app/web/templates/_layout.html` (sidebar nav item removed)
+- `app/web/routers.py` (5 routes touched: `_layout_context`, `profile_new`, `profile_create`, `profile_edit_form`, `feature_rules_page`)
+- `tests/web/test_profile_edit_tabs.py` (13 new tests, all passing)
+
+Plus 1 docs commit добавляющий plan + spec в репо.
+
+Deployed 2026-05-13 на VPS 81.200.119.132:
+- tar+ssh sync source → `/opt/avito-system/repo/avito-monitor/`
+- `docker compose build avito-monitor && docker compose up -d --force-recreate avito-monitor`
+- Public URL `https://avitosystem.duckdns.org` → HTTP 200, app boots clean, 66 routes.
+
+**Smoke test пройден пользователем 2026-05-13** — tabs работают, deep-link `?tab=` работает, persistence через localStorage активна. Один UX-нит: tab «Поиск» всё ещё содержит V2 LLM-criteria + V2 pipeline UI (это будет удалено в Phase 2.1 Task 5 — by design).

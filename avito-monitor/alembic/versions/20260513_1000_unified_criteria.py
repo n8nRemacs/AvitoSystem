@@ -59,9 +59,11 @@ def upgrade() -> None:
         if col in pl_cols:
             op.drop_column("profile_listings", col)
 
-    # 3b) Drop profile_listings.bucket (V2 cache column added by 0006).
-    if "bucket" in pl_cols:
-        op.drop_column("profile_listings", "bucket")
+    # NOTE: profile_listings.bucket is KEPT — Phase 1 defect-features pipeline
+    # actively writes it (web/routers.py:569 after recompute_buckets_for_profile)
+    # and reads it (listings_view.py kanban filter + chip counts, tasks/analytics
+    # clean-price filter). The bucket column originally added by 0006 (V2) is now
+    # SHARED with Phase 1; semantics changed from V2-cache to defect-features-result.
 
     # 3c) Drop profile_listings.latest_evaluation_id FK + column.
     #     MUST happen before op.drop_table("profile_listing_evaluations") —
@@ -105,9 +107,11 @@ def upgrade() -> None:
             )
         )
     }
+    # NOTE: llm_analyses is KEPT — used by Telegram /llm-budget cost report,
+    # llm_budget.py service, and LLMAnalyzer.compare_to_reference (Price
+    # Intelligence cache). Originally added in 0002_search_profiles, not V2-only.
     for tbl in (
         "profile_listing_evaluations",
-        "llm_analyses",
         "profile_criteria",
         "criteria_templates",
     ):
@@ -124,7 +128,9 @@ def downgrade() -> None:
     Tables are re-created with their original schemas from:
     - criteria_templates, profile_criteria, profile_listing_evaluations →
         0006_v2_llm_pipeline (20260505_1000_v2_llm_pipeline_schema.py)
-    - llm_analyses → 0002_search_profiles (20260425_1300_search_profiles_and_co.py)
+
+    NOTE: llm_analyses + profile_listings.bucket are NOT re-added — they were
+    never dropped by upgrade (kept as shared resources, see upgrade comments).
     """
 
     # 1) Re-create V2 tables in dependency order (parents first).
@@ -158,45 +164,8 @@ def downgrade() -> None:
         sa.UniqueConstraint("key", name="uq_criteria_templates_key"),
     )
 
-    # llm_analyses — LLM cache (0002_search_profiles)
-    op.create_table(
-        "llm_analyses",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("listing_id", postgresql.UUID(as_uuid=True)),
-        sa.Column("type", sa.String(16), nullable=False),
-        sa.Column("reference_id", postgresql.UUID(as_uuid=True)),
-        sa.Column("model", sa.String(128), nullable=False),
-        sa.Column("prompt_version", sa.String(32)),
-        sa.Column("cache_key", sa.String(128), nullable=False),
-        sa.Column("input_tokens", sa.Integer()),
-        sa.Column("output_tokens", sa.Integer()),
-        sa.Column("cost_usd", sa.Numeric(10, 6)),
-        sa.Column("latency_ms", sa.Integer()),
-        sa.Column("result", postgresql.JSONB(), nullable=False),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_llm_analyses")),
-        sa.ForeignKeyConstraint(
-            ["listing_id"],
-            ["listings.id"],
-            ondelete="CASCADE",
-            name=op.f("fk_llm_analyses_listing_id_listings"),
-        ),
-    )
-    op.create_index("ix_llm_analyses_cache_key", "llm_analyses", ["cache_key"])
-    op.create_index(
-        "ix_llm_analyses_listing_type", "llm_analyses", ["listing_id", "type"]
-    )
+    # NOTE: llm_analyses is NOT re-created here — upgrade does not drop it
+    # (shared resource: Telegram /llm-budget + llm_budget.py + Price Intelligence cache).
 
     # profile_criteria — per-profile criterion selection (0006_v2_llm_pipeline)
     op.create_table(
@@ -342,11 +311,7 @@ def downgrade() -> None:
         sa.Column("bucket_routing", postgresql.JSONB(), nullable=True),
     )
 
-    # profile_listings — bucket (no server_default in 0006; nullable)
-    op.add_column(
-        "profile_listings",
-        sa.Column("bucket", sa.String(length=8), nullable=True),
-    )
+    # NOTE: profile_listings.bucket is NOT re-added — upgrade does not drop it.
     # latest_evaluation_id FK — profile_listing_evaluations was re-created above
     op.add_column(
         "profile_listings",
