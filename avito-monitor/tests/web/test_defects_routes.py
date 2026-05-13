@@ -257,3 +257,51 @@ def test_binding_row_uses_ru_labels(defects_client, monkeypatch):
     assert "← задано здесь" in resp.text
     # Override button translated
     assert "Задать здесь" in resp.text
+
+
+def test_get_feature_form_add_root(defects_client):
+    """GET /defects/catalog/new → 200, partial form has kind+prompt_hint inputs."""
+    resp = defects_client.get("/defects/catalog/new")
+    assert resp.status_code == 200
+    assert "node-form-inline" in resp.text
+    assert 'hx-post="/defects/catalog"' in resp.text
+    # Feature-specific fields present in add mode
+    assert 'name="kind"' in resp.text
+    assert 'name="prompt_hint"' in resp.text
+    assert 'name="parent_id"' not in resp.text
+
+
+def test_get_feature_form_add_child(defects_client):
+    parent_id = "33333333-3333-3333-3333-333333333333"
+    resp = defects_client.get(f"/defects/catalog/{parent_id}/new")
+    assert resp.status_code == 200
+    assert f'name="parent_id" value="{parent_id}"' in resp.text
+
+
+def test_get_feature_form_edit(defects_client, monkeypatch):
+    """GET /defects/catalog/{id}/edit → 200, prefill including prompt_hint."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import FeatureNodeRow
+    from app.web import defects as defects_mod
+
+    nid = _uuid.UUID("44444444-4444-4444-4444-444444444444")
+    fake_feat = FeatureNodeRow(
+        id=nid, parent_id=None, kind="section", slug="display",
+        title="Дисплей", sort_order=0, prompt_hint="Дисплей телефона",
+    )
+
+    async def _fake_get(session, _nid):
+        return fake_feat
+
+    # get_feature_node is in repository — defects.py uses it indirectly via resolver path.
+    # For form-edit, we need defects.py to call get_feature_node(session, node_id).
+    # Patch on defects module — same import path pattern as device case.
+    monkeypatch.setattr(defects_mod, "get_feature_node", _fake_get)
+
+    resp = defects_client.get(f"/defects/catalog/{nid}/edit")
+    assert resp.status_code == 200
+    assert "node-form-inline" in resp.text
+    assert f'hx-patch="/defects/catalog/{nid}/edit"' in resp.text
+    assert 'value="display"' in resp.text
+    assert 'value="Дисплей"' in resp.text
+    assert 'value="Дисплей телефона"' in resp.text

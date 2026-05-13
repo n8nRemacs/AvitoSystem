@@ -21,6 +21,7 @@ from app.services.defect_catalog.repository import (
     delete_feature_node,
     get_binding,
     get_device_node,
+    get_feature_node,
     list_device_children,
     list_feature_children,
     update_binding,
@@ -118,6 +119,60 @@ async def catalog_tree(
     tree = await _build_feature_tree(session, parent_id=None)
     return templates.TemplateResponse(
         request, "defects/_partials/feature_tree.html", {"tree": tree},
+    )
+
+
+@router.get("/catalog/new", response_class=HTMLResponse)
+async def feature_form_add_root(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "defects/_partials/node_form.html",
+        {"mode": "add", "kind": "feature", "parent_id": None, "prefill": None},
+    )
+
+
+@router.get("/catalog/cancel-form", response_class=HTMLResponse)
+async def feature_form_cancel(
+    user: Annotated[User, Depends(require_user)],
+) -> HTMLResponse:
+    return HTMLResponse("")
+
+
+@router.get("/catalog/{parent_id}/new", response_class=HTMLResponse)
+async def feature_form_add_child(
+    parent_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "defects/_partials/node_form.html",
+        {"mode": "add", "kind": "feature", "parent_id": str(parent_id), "prefill": None},
+    )
+
+
+@router.get("/catalog/{node_id}/edit", response_class=HTMLResponse)
+async def feature_form_edit(
+    node_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    feat = await get_feature_node(session, node_id)
+    if feat is None:
+        return HTMLResponse("Признак не найден", status_code=404)
+    return templates.TemplateResponse(
+        request, "defects/_partials/node_form.html",
+        {
+            "mode": "edit", "kind": "feature", "node_id": str(node_id),
+            "prefill": {
+                "slug": feat.slug, "title": feat.title,
+                "prompt_hint": feat.prompt_hint or "",
+            },
+        },
     )
 
 
