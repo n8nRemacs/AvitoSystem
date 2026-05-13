@@ -31,13 +31,11 @@ from app.db.models import (
     SearchProfile,
 )
 from app.db.models.enums import (
-    ConditionClass,
     NotificationStatus,
     NotificationType,
     ProcessingStatus,
 )
 from app.integrations.avito_mcp_client.client import AvitoMcpClient
-from app.integrations.openrouter import OpenRouterClient
 from app.services.defect_features.pipeline import analyze_listing_features
 from app.services.llm_budget import LLMBudgetExceeded, assert_budget
 from app.tasks.broker import broker
