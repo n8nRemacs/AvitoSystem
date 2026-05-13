@@ -147,6 +147,21 @@ async def update_feature_node(
     prompt_hint: object = _UNSET,
     kind: str | None = None,
 ) -> None:
+    if parent_id is not _UNSET and parent_id is not None:
+        if str(parent_id) == str(nid):
+            raise ValueError("cycle: node cannot be its own parent")
+        cursor = parent_id
+        while cursor is not None:
+            row = (await session.execute(
+                text("SELECT parent_id FROM feature_nodes WHERE id = :id"),
+                {"id": str(cursor)},
+            )).first()
+            if row is None:
+                break
+            if row.parent_id is not None and str(row.parent_id) == str(nid):
+                raise ValueError("cycle: parent would create a loop")
+            cursor = uuid.UUID(str(row.parent_id)) if row.parent_id else None
+
     sets: list[str] = []
     params: dict = {"id": str(nid)}
 

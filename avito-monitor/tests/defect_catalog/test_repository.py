@@ -111,3 +111,31 @@ async def test_now_expr_sqlite(db_session):
     """SQLite session should pick datetime('now')."""
     from app.services.defect_catalog.repository import _now_expr
     assert _now_expr(db_session) == "datetime('now')"
+
+
+# ---------------------------------------------------------------------------
+# Task 10: cycle detection for feature_node parent change
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_update_parent_to_self_rejected(db_session):
+    nid = await create_feature_node(
+        db_session, parent_id=None, kind="node", slug="case", title="x",
+    )
+    with pytest.raises(ValueError, match="cycle"):
+        await update_feature_node(db_session, nid, parent_id=nid)
+
+
+@pytest.mark.asyncio
+async def test_update_parent_to_descendant_rejected(db_session):
+    root = await create_feature_node(
+        db_session, parent_id=None, kind="node", slug="root", title="r",
+    )
+    mid = await create_feature_node(
+        db_session, parent_id=root, kind="node", slug="mid", title="m",
+    )
+    leaf = await create_feature_node(
+        db_session, parent_id=mid, kind="defect", slug="leaf", title="l",
+    )
+    with pytest.raises(ValueError, match="cycle"):
+        await update_feature_node(db_session, root, parent_id=leaf)
