@@ -97,9 +97,9 @@ async def test_upsert_listing_features_price_signal_kind(db_session, sample_list
         sample_listing_id,
         [
             {"feature_key": "battery_health", "kind": "price_signal",
-             "value": {"percent": 91}},
+             "value": {"percent": 91}, "source": "llm"},
             {"feature_key": "repaired_components", "kind": "price_signal",
-             "value": None},
+             "value": None, "source": "llm"},
         ],
     )
     rows = await repository.load_listing_features(db_session, sample_listing_id)
@@ -121,10 +121,12 @@ async def test_upsert_listing_features_info_api_kind(db_session, sample_listing_
         db_session,
         sample_listing_id,
         [
-            {"feature_key": "memory_gb", "kind": "info_api", "value": {"gb": 256}},
-            {"feature_key": "color", "kind": "info_api", "value": {"text": "Space Gray"}},
+            {"feature_key": "memory_gb", "kind": "info_api",
+             "value": {"gb": 256}, "source": "avito_params"},
+            {"feature_key": "color", "kind": "info_api",
+             "value": {"text": "Space Gray"}, "source": "avito_params"},
             {"feature_key": "vendor_model", "kind": "info_api",
-             "value": {"text": "Apple iPhone 13 Pro"}},
+             "value": {"text": "Apple iPhone 13 Pro"}, "source": "avito_params"},
         ],
     )
     rows = await repository.load_listing_features(db_session, sample_listing_id)

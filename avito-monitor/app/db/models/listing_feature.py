@@ -59,8 +59,10 @@ class ListingFeature(Base):
     # SQLite tests use TEXT (JSONB is Postgres-only; conftest uses hand-written DDL).
     value: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # source ∈ {'avito_parameters', 'llm', 'description_kw', 'seller_dialog'}
+    # source ∈ {'avito_parameters', 'llm', 'avito_params', 'description_kw', 'seller_dialog'}
+    # NOT NULL in DB (0015 added) — all writers must set this. Phase 2.1
+    # price_signal → 'llm', info_api → 'avito_params'.
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
     evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
     parsed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False,

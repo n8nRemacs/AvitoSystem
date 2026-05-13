@@ -104,7 +104,7 @@ _DDL = [
         state       TEXT,
         value       TEXT,
         confidence  REAL,
-        source      TEXT,
+        source      TEXT NOT NULL,
         evidence    TEXT,
         parsed_at   TEXT NOT NULL DEFAULT (datetime('now')),
         CONSTRAINT uq_listing_features_listing_key UNIQUE (listing_id, feature_key)

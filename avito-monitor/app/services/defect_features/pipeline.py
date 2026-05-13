@@ -80,12 +80,14 @@ async def analyze_listing_features(
             "feature_key": key,
             "kind": "price_signal",
             "value": value,
+            "source": "llm",
         })
     for key, value in info_api.items():
         feature_rows.append({
             "feature_key": key,
             "kind": "info_api",
             "value": value,
+            "source": "avito_params",
         })
 
     await repository.upsert_listing_features(session, listing_id, feature_rows)
