@@ -1,0 +1,64 @@
+{# Inline form for add/edit device or feature node.
+
+   Context:
+     mode       : 'add' or 'edit'
+     kind       : 'device' or 'feature' — chooses endpoint prefix /devices vs /catalog
+     parent_id  : UUID str (for mode=add) or None (root)
+     node_id    : UUID str (for mode=edit)
+     prefill    : dict with slug/title/[feature_kind]/[prompt_hint] for edit prefill
+#}
+{% set endpoint_prefix = '/defects/devices' if kind == 'device' else '/defects/catalog' %}
+{% set tree_target    = '#device-tree'    if kind == 'device' else '#feature-tree' %}
+
+{% if mode == 'add' %}
+  {% set hx_method = 'hx-post' %}
+  {% set hx_url    = endpoint_prefix %}
+{% else %}
+  {% set hx_method = 'hx-patch' %}
+  {% set hx_url    = endpoint_prefix + '/' + node_id + '/edit' %}
+{% endif %}
+
+<form id="node-form-inline"
+      {{ hx_method }}="{{ hx_url }}"
+      hx-target="{{ tree_target }}"
+      hx-swap="innerHTML"
+      class="ml-4 my-1 p-2 bg-avito-elev rounded text-xs flex flex-wrap gap-2 items-center">
+  {% if mode == 'add' and parent_id %}
+    <input type="hidden" name="parent_id" value="{{ parent_id }}">
+  {% endif %}
+
+  {% if kind == 'feature' and mode == 'add' %}
+    <label>kind:
+      <select name="kind" class="border rounded px-1">
+        <option value="section">section</option>
+        <option value="defect" selected>defect</option>
+      </select>
+    </label>
+  {% endif %}
+
+  <label>slug:
+    <input type="text" name="slug" required pattern="[a-z][a-z0-9_]*"
+           value="{{ prefill.slug if prefill else '' }}"
+           class="border rounded px-1 w-32">
+  </label>
+  <label>title:
+    <input type="text" name="title" required
+           value="{{ prefill.title if prefill else '' }}"
+           class="border rounded px-1 w-48">
+  </label>
+
+  {% if kind == 'feature' %}
+    <label>prompt_hint:
+      <input type="text" name="prompt_hint"
+             value="{{ prefill.prompt_hint if prefill else '' }}"
+             class="border rounded px-1 w-48">
+    </label>
+  {% endif %}
+
+  <button type="submit"
+          class="px-2 py-0.5 bg-avito-brand text-white rounded">ОК</button>
+  <button type="button"
+          hx-get="{{ '/defects/devices/cancel-form' if kind == 'device' else '/defects/catalog/cancel-form' }}"
+          hx-target="this" hx-swap="outerHTML"
+          class="px-2 py-0.5 border rounded">Отмена</button>
+</form>
