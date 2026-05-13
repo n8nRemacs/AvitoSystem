@@ -1,0 +1,57 @@
+{# Context: b (ResolvedBinding-shaped), target_device_id (uuid str). #}
+<div class="flex items-start gap-3 py-2 border-b border-avito-border-soft text-sm"
+     id="binding-{{ b.binding_id }}">
+  <div class="flex-1">
+    <div class="font-medium">{{ b.feature_path | join(' / ') }}</div>
+
+    {% if b.inherited_from %}
+      <div class="mt-1 text-xs">
+        При находке: <strong>{{ b.defect_action }}</strong>
+        · Если неясно: <strong>{{ b.unknown_action }}</strong>
+      </div>
+      <div class="mt-1 text-xs text-avito-text-soft">← inherited from ancestor</div>
+    {% else %}
+      <div class="mt-1 flex gap-3 items-center text-xs">
+        <label>При находке:
+          <select hx-patch="/defects/bindings/{{ b.binding_id }}"
+                  hx-target="#binding-{{ b.binding_id }}"
+                  hx-swap="outerHTML"
+                  hx-vals='{"target_device_id": "{{ target_device_id }}"}'
+                  name="defect_action"
+                  class="border rounded px-1">
+            <option value="block" {% if b.defect_action == 'block' %}selected{% endif %}>block</option>
+            <option value="info"  {% if b.defect_action == 'info'  %}selected{% endif %}>info</option>
+          </select>
+        </label>
+        <label>Если неясно:
+          <select hx-patch="/defects/bindings/{{ b.binding_id }}"
+                  hx-target="#binding-{{ b.binding_id }}"
+                  hx-swap="outerHTML"
+                  hx-vals='{"target_device_id": "{{ target_device_id }}"}'
+                  name="unknown_action"
+                  class="border rounded px-1">
+            <option value="ask"  {% if b.unknown_action == 'ask'  %}selected{% endif %}>ask</option>
+            <option value="skip" {% if b.unknown_action == 'skip' %}selected{% endif %}>skip</option>
+          </select>
+        </label>
+      </div>
+      <div class="mt-1 text-xs text-avito-text-soft">← set here</div>
+    {% endif %}
+  </div>
+
+  {% if b.inherited_from %}
+    <form hx-post="/defects/bindings" hx-target="#binding-{{ b.binding_id }}" hx-swap="outerHTML">
+      <input type="hidden" name="device_node_id"  value="{{ target_device_id }}">
+      <input type="hidden" name="feature_node_id" value="{{ b.feature_node_id }}">
+      <input type="hidden" name="defect_action"   value="{{ b.defect_action }}">
+      <input type="hidden" name="unknown_action"  value="{{ b.unknown_action }}">
+      <button type="submit"
+              class="text-xs text-avito-text-soft hover:text-avito-green">Override</button>
+    </form>
+  {% else %}
+    <button hx-delete="/defects/bindings/{{ b.binding_id }}"
+            hx-target="#binding-{{ b.binding_id }}"
+            hx-swap="delete"
+            class="text-xs text-avito-text-soft hover:text-red-600">Удалить</button>
+  {% endif %}
+</div>
