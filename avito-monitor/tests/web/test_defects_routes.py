@@ -99,13 +99,19 @@ def test_defects_root_redirects(defects_client):
 def test_defects_devices_page_200(defects_client):
     resp = defects_client.get("/defects/devices")
     assert resp.status_code == 200
-    assert "Дефекты" in resp.text or "Настройки дефектов" in resp.text
+    assert "Настройки дефектов" in resp.text
+    assert "Загрузка" in resp.text  # Loading → Загрузка
+    assert 'hx-get="/defects/devices/new"' in resp.text  # root-add button
+    assert "Добавить корневое устройство" in resp.text
 
 
 def test_defects_catalog_page_200(defects_client):
     resp = defects_client.get("/defects/catalog")
     assert resp.status_code == 200
     assert "Каталог признаков" in resp.text
+    assert "Загрузка" in resp.text
+    assert 'hx-get="/defects/catalog/new"' in resp.text
+    assert "Добавить корневой признак" in resp.text
 
 
 def test_defects_devices_tree_empty_200(defects_client):
