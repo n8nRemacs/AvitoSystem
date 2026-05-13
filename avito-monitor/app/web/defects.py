@@ -24,6 +24,7 @@ from app.services.defect_catalog.repository import (
     get_feature_node,
     list_device_children,
     list_feature_children,
+    title_to_slug,
     update_binding,
     update_device_node,
     update_feature_node,
@@ -338,13 +339,19 @@ async def create_device_endpoint(
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
     parent_id: Annotated[str | None, Form()] = None,
-    slug: Annotated[str, Form()] = ...,
+    slug: Annotated[str, Form()] = "",
     title: Annotated[str, Form()] = ...,
     kind: Annotated[str | None, Form()] = None,
 ) -> HTMLResponse:
     pid = uuid.UUID(parent_id) if parent_id else None
+    effective_slug = slug.strip() or title_to_slug(title)
+    if not effective_slug:
+        return HTMLResponse(
+            '<div class="text-red-600 text-xs">Не удалось сгенерировать идентификатор из названия. Используйте латиницу или кириллицу.</div>',
+            status_code=400,
+        )
     try:
-        await create_device_node(session, parent_id=pid, slug=slug, title=title, kind=kind)
+        await create_device_node(session, parent_id=pid, slug=effective_slug, title=title, kind=kind)
     except ValueError as e:
         return HTMLResponse(f'<div class="text-red-600 text-xs">{e}</div>', status_code=400)
     tree = await _build_device_tree(session, parent_id=None)
@@ -360,14 +367,20 @@ async def create_feature_endpoint(
     session: Annotated[AsyncSession, Depends(db_session)],
     parent_id: Annotated[str | None, Form()] = None,
     kind: Annotated[str, Form()] = ...,
-    slug: Annotated[str, Form()] = ...,
+    slug: Annotated[str, Form()] = "",
     title: Annotated[str, Form()] = ...,
     prompt_hint: Annotated[str | None, Form()] = None,
 ) -> HTMLResponse:
     pid = uuid.UUID(parent_id) if parent_id else None
+    effective_slug = slug.strip() or title_to_slug(title)
+    if not effective_slug:
+        return HTMLResponse(
+            '<div class="text-red-600 text-xs">Не удалось сгенерировать идентификатор из названия. Используйте латиницу или кириллицу.</div>',
+            status_code=400,
+        )
     try:
         await create_feature_node(
-            session, parent_id=pid, kind=kind, slug=slug, title=title,
+            session, parent_id=pid, kind=kind, slug=effective_slug, title=title,
             prompt_hint=prompt_hint,
         )
     except ValueError as e:

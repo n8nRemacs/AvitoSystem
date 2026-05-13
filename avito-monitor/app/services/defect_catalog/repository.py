@@ -28,6 +28,42 @@ def validate_slug(slug: str) -> None:
         )
 
 
+_TRANSLIT_RU = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e',
+    'ё': 'yo', 'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k',
+    'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r',
+    'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts',
+    'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
+    'э': 'e', 'ю': 'yu', 'я': 'ya',
+}
+
+
+def title_to_slug(title: str) -> str:
+    """Derive a slug ([a-z][a-z0-9_]*) from a human title.
+
+    Russian letters are transliterated, other non-[a-z0-9_] chars become '_',
+    underscores collapsed, leading/trailing stripped. If the result starts
+    with a digit, prefix with 'n_'. Returns '' if no valid chars remain —
+    caller validates the result via validate_slug or treats empty as error.
+    """
+    s = title.strip().lower()
+    out: list[str] = []
+    for ch in s:
+        if ch in _TRANSLIT_RU:
+            out.append(_TRANSLIT_RU[ch])
+        elif ch.isascii() and (ch.isalnum() or ch == '_'):
+            out.append(ch)
+        else:
+            out.append('_')
+    s = ''.join(out)
+    while '__' in s:
+        s = s.replace('__', '_')
+    s = s.strip('_')
+    if s and s[0].isdigit():
+        s = 'n_' + s
+    return s
+
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------

@@ -30,6 +30,38 @@ def test_validate_slug_rejects_invalid(bad):
 
 
 # ---------------------------------------------------------------------------
+# title_to_slug — auto-derive slug from human title
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("title, expected", [
+    ("iPhone 13", "iphone_13"),
+    ("iPhone 13 Pro Max", "iphone_13_pro_max"),
+    ("Apple", "apple"),
+    ("Дисплей", "displey"),
+    ("Корпус", "korpus"),
+    ("  Padded  ", "padded"),
+    ("123 leading-digit", "n_123_leading_digit"),
+    ("a__b___c", "a_b_c"),
+    ("___trim___", "trim"),
+])
+def test_title_to_slug_derives_valid_slug(title, expected):
+    from app.services.defect_catalog.repository import title_to_slug, validate_slug
+    result = title_to_slug(title)
+    assert result == expected
+    # And the derived slug must pass validate_slug
+    validate_slug(result)
+
+
+def test_title_to_slug_returns_empty_for_unmappable():
+    """If title has no letters/digits and no Russian/ASCII alphanumerics,
+    return '' so caller can present a user error."""
+    from app.services.defect_catalog.repository import title_to_slug
+    assert title_to_slug("!@#$%^&*()") == ""
+    assert title_to_slug("   ") == ""
+    assert title_to_slug("") == ""
+
+
+# ---------------------------------------------------------------------------
 # Task 8: feature_node create / get / list_children
 # ---------------------------------------------------------------------------
 

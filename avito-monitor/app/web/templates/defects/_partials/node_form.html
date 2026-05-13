@@ -5,7 +5,10 @@
      kind       : 'device' or 'feature' — chooses endpoint prefix /devices vs /catalog
      parent_id  : UUID str (for mode=add) or None (root)
      node_id    : UUID str (for mode=edit)
-     prefill    : dict with slug/title/[feature_kind]/[prompt_hint] for edit prefill
+     prefill    : dict with slug/title/[prompt_hint] for edit prefill
+
+   В режиме add поле «Идентификатор» скрыто — backend выводит slug из «Название».
+   В режиме edit оно показано (для опытных правок).
 #}
 {% set endpoint_prefix = '/defects/devices' if kind == 'device' else '/defects/catalog' %}
 {% set tree_target    = '#device-tree'    if kind == 'device' else '#feature-tree' %}
@@ -28,27 +31,30 @@
   {% endif %}
 
   {% if kind == 'feature' and mode == 'add' %}
-    <label>kind:
+    <label>Тип:
       <select name="kind" class="border rounded px-1">
-        <option value="section">section</option>
-        <option value="defect" selected>defect</option>
+        <option value="section">Раздел</option>
+        <option value="defect" selected>Дефект</option>
       </select>
     </label>
   {% endif %}
 
-  <label>slug:
-    <input type="text" name="slug" required pattern="[a-z][a-z0-9_]*"
-           value="{{ prefill.slug if prefill else '' }}"
-           class="border rounded px-1 w-32">
-  </label>
-  <label>title:
+  {% if mode == 'edit' %}
+    <label>Идентификатор:
+      <input type="text" name="slug" required pattern="[a-z][a-z0-9_]*"
+             value="{{ prefill.slug if prefill else '' }}"
+             class="border rounded px-1 w-32">
+    </label>
+  {% endif %}
+
+  <label>Название:
     <input type="text" name="title" required
            value="{{ prefill.title if prefill else '' }}"
            class="border rounded px-1 w-48">
   </label>
 
   {% if kind == 'feature' %}
-    <label>prompt_hint:
+    <label>Подсказка:
       <input type="text" name="prompt_hint"
              value="{{ prefill.prompt_hint if prefill else '' }}"
              class="border rounded px-1 w-48">

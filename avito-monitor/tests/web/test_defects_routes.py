@@ -313,6 +313,91 @@ def test_get_feature_form_edit(defects_client, monkeypatch):
     assert 'value="Дисплей телефона"' in resp.text
 
 
+def test_post_device_derives_slug_from_title(defects_client, monkeypatch):
+    """POST /defects/devices with empty slug auto-derives from title via title_to_slug."""
+    captured: dict = {}
+
+    async def _fake_create(session, *, parent_id, slug, title, kind=None, sort_order=0):
+        captured["slug"] = slug
+        captured["title"] = title
+        return uuid.uuid4()
+
+    async def _fake_list_children(session, parent_id):
+        return []
+
+    from app.web import defects as defects_mod
+    monkeypatch.setattr(defects_mod, "create_device_node", _fake_create)
+    monkeypatch.setattr(defects_mod, "list_device_children", _fake_list_children)
+
+    resp = defects_client.post("/defects/devices", data={"title": "iPhone 13", "slug": ""})
+    assert resp.status_code == 200, resp.text[:300]
+    assert captured["slug"] == "iphone_13"
+    assert captured["title"] == "iPhone 13"
+
+
+def test_post_device_uses_explicit_slug_when_provided(defects_client, monkeypatch):
+    """If slug is provided explicitly, backend uses it as-is (does not override)."""
+    captured: dict = {}
+
+    async def _fake_create(session, *, parent_id, slug, title, kind=None, sort_order=0):
+        captured["slug"] = slug
+        return uuid.uuid4()
+
+    async def _fake_list_children(session, parent_id):
+        return []
+
+    from app.web import defects as defects_mod
+    monkeypatch.setattr(defects_mod, "create_device_node", _fake_create)
+    monkeypatch.setattr(defects_mod, "list_device_children", _fake_list_children)
+
+    resp = defects_client.post(
+        "/defects/devices",
+        data={"title": "iPhone 13", "slug": "custom_alias"},
+    )
+    assert resp.status_code == 200
+    assert captured["slug"] == "custom_alias"
+
+
+def test_post_device_rejects_unmappable_title(defects_client):
+    """If title contains only special chars, derivation yields '' → 400 with Russian error."""
+    resp = defects_client.post("/defects/devices", data={"title": "!@#$%", "slug": ""})
+    assert resp.status_code == 400
+    assert "идентификатор" in resp.text.lower()
+
+
+def test_device_add_form_hides_slug_input(defects_client):
+    """Add-mode form should NOT contain a slug input (it's auto-derived).
+    The user only enters Название."""
+    resp = defects_client.get("/defects/devices/new")
+    assert resp.status_code == 200
+    assert 'name="slug"' not in resp.text
+    assert "Название" in resp.text
+
+
+def test_device_edit_form_shows_slug_input(defects_client, monkeypatch):
+    """Edit-mode form should show slug input as 'Идентификатор' for power-user rename."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import DeviceNodeRow
+    from app.web import defects as defects_mod
+
+    nid = _uuid.UUID("77777777-7777-7777-7777-777777777777")
+    fake_device = DeviceNodeRow(
+        id=nid, parent_id=None, slug="apple", title="Apple",
+        kind=None, sort_order=0,
+    )
+
+    async def _fake_get(session, _nid):
+        return fake_device
+
+    monkeypatch.setattr(defects_mod, "get_device_node", _fake_get)
+
+    resp = defects_client.get(f"/defects/devices/{nid}/edit")
+    assert resp.status_code == 200
+    assert 'name="slug"' in resp.text
+    assert "Идентификатор" in resp.text
+    assert "Название" in resp.text
+
+
 def test_device_tree_renders_action_icons(defects_client, monkeypatch):
     """GET /defects/devices/tree renders [+][✏][🗑] icons per node + hx-confirm для delete."""
     import uuid as _uuid
