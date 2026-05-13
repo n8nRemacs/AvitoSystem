@@ -1,15 +1,16 @@
-"""LLM stages of the worker pipeline (Block 4.2) — V2 pipeline only.
+"""LLM stages of the worker pipeline — Phase 1 defect-features only.
 
 Single task:
 
-* :func:`evaluate_listing` — V2 flag-based evaluator. Runs on every
-  new listing; assigns a green/grey/red bucket via per-profile criteria
-  flags, writes ``condition_class`` (legacy compatibility) and
-  ``profile_listings.processing_status``.
+* :func:`evaluate_listing` — Phase 1 defect-features evaluation. Runs on
+  every new listing; assigns a green/grey/red bucket via per-profile
+  feature rules (parse → upsert → compute_bucket), writes
+  ``profile_listings.processing_status`` and ``profile_listings.bucket``.
 
-The legacy ADR-010 two-stage pipeline (analyze_listing + match_listing)
-was removed in Phase C (migration 0009_drop_legacy_v2_artifacts). All
-profiles must use profile_criteria rows instead of custom_criteria text.
+The V2 flag-based criteria pipeline (analyze_listing_features driven by
+profile_criteria rows) was removed in Phase 2.1 (migration 0016).
+The defect-features pipeline is now the single source of bucket assignment.
+Phase 2.1 will extend it with price_signal + info_api kinds.
 """
 from __future__ import annotations
 
@@ -19,24 +20,18 @@ import uuid
 from random import uniform
 from typing import Any
 
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 
 from app.config import get_settings
 from app.db.base import get_sessionmaker
 from app.db.models import (
-    CriteriaTemplate,
     Listing,
     Notification,
-    ProfileCriterion,
     ProfileListing,
-    ProfileListingEvaluation,
     SearchProfile,
 )
 from app.db.models.enums import (
     ConditionClass,
-    CriteriaTemplateKind,
-    EvaluateStrategy,
-    EvaluationBucket,
     NotificationStatus,
     NotificationType,
     ProcessingStatus,
@@ -44,138 +39,11 @@ from app.db.models.enums import (
 from app.integrations.avito_mcp_client.client import AvitoMcpClient
 from app.integrations.openrouter import OpenRouterClient
 from app.services.defect_features.pipeline import analyze_listing_features
-from app.services.llm_analyzer import (
-    CriterionSpec,
-    InfoFieldSpec,
-    LLMAnalyzer,
-)
 from app.services.llm_budget import LLMBudgetExceeded, assert_budget
-from app.services.llm_cache import DBLLMCache
 from app.tasks.broker import broker
 from shared.models.avito import ListingDetail
 
 log = logging.getLogger(__name__)
-
-
-# ----------------------------------------------------------------------
-# API killer rules — pure-Python verdicts straight from listing.parameters.
-# Avito-side structured fields ("Работа устройства" = "Не включается", etc.)
-# are ground truth — no need to spend an LLM call to confirm. When any rule
-# matches we skip the LLM entirely and write a red evaluation outright.
-# ----------------------------------------------------------------------
-
-# Sensors that are NOT a deal-breaker. Anything else listed under
-# "Не работают датчики" is treated as red:
-#   Wi-Fi / Bluetooth / Compass — motherboard-level, kills resale value
-#   Face ID / Touch ID         — affects everyday use, kills resale value
-# The proximity sensor ("Приближения к уху") is the lone exception per
-# user feedback 2026-05-10 — most buyers don't notice it.
-_API_SAFE_SENSORS = {
-    "приближения к уху",
-    "приближение к уху",
-}
-
-
-def _normalise_sensor_token(s: str) -> str:
-    return s.strip().lower()
-
-
-def check_api_killers(parameters: dict | None) -> list[tuple[str, str]]:
-    """Inspect Avito-side parameters for unambiguous deal-breakers.
-
-    Returns a list of ``(criterion_key, reasoning)`` tuples. An empty list
-    means no killer fired and the LLM should run as usual.
-
-    Rules (per user feedback 2026-05-10):
-      Работа устройства  ∋ "Не включается" or "Не работает сенсор"  → red
-      Аккумулятор        ∋ "Не заряжается"                          → red
-      Не работают функции ≠ ""                                       → red
-      Не работают датчики has any non-safe sensor                   → red
-        (safe = только "Приближения к уху")
-    """
-    if not parameters:
-        return []
-
-    matches: list[tuple[str, str]] = []
-
-    work_state = str(parameters.get("Работа устройства") or "")
-    work_low = work_state.lower()
-    if "не включается" in work_low:
-        matches.append((
-            "api:device_not_starting",
-            f"Avito-параметр «Работа устройства» = «{work_state}» (не включается)",
-        ))
-    elif "не работает сенсор" in work_low:
-        matches.append((
-            "api:motherboard_sensor_dead",
-            f"Avito-параметр «Работа устройства» = «{work_state}» (датчик платы)",
-        ))
-    elif "не звонит" in work_low or "не видит сим" in work_low or "нет сети" in work_low:
-        matches.append((
-            "api:modem_broken",
-            f"Avito-параметр «Работа устройства» = «{work_state}» (модем/связь)",
-        ))
-
-    battery_state = str(parameters.get("Аккумулятор") or "")
-    if "не заряжается" in battery_state.lower():
-        matches.append((
-            "api:battery_dead",
-            f"Avito-параметр «Аккумулятор» = «{battery_state}»",
-        ))
-
-    broken_functions = str(parameters.get("Не работают функции") or "").strip()
-    if broken_functions:
-        matches.append((
-            "api:functions_broken",
-            f"Avito-параметр «Не работают функции» = «{broken_functions}»",
-        ))
-
-    broken_sensors = str(parameters.get("Не работают датчики") or "").strip()
-    if broken_sensors:
-        # CSV-like: split on common separators and check each token.
-        tokens = [t for t in broken_sensors.replace(";", ",").split(",") if t.strip()]
-        unsafe = [t.strip() for t in tokens if _normalise_sensor_token(t) not in _API_SAFE_SENSORS]
-        if unsafe:
-            matches.append((
-                "api:critical_sensors_broken",
-                f"Avito-параметр «Не работают датчики» включает критичные: {', '.join(unsafe)}",
-            ))
-
-    # Камера: red ТОЛЬКО если явно "Не работает <что-то>". Визуальные
-    # дефекты (потёртости/пятна/трещины линзы) сами по себе НЕ киллер —
-    # их LLM посмотрит как часть общей картины.
-    camera_state = str(parameters.get("Камера") or "").strip()
-    if camera_state and "не работает" in camera_state.lower():
-        matches.append((
-            "api:camera_broken",
-            f"Avito-параметр «Камера» = «{camera_state}» (не работает)",
-        ))
-
-    return matches
-
-
-# ----------------------------------------------------------------------
-# Wiring
-# ----------------------------------------------------------------------
-
-def _build_analyzer() -> LLMAnalyzer:
-    settings = get_settings()
-    if not settings.openrouter_api_key:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is empty — cannot run LLM analysis"
-        )
-    openrouter = OpenRouterClient(
-        api_key=settings.openrouter_api_key,
-        app_base_url=settings.app_base_url,
-        app_title="Avito Monitor",
-    )
-    cache = DBLLMCache(get_sessionmaker())
-    return LLMAnalyzer(
-        openrouter=openrouter,
-        cache=cache,
-        default_text_model=settings.openrouter_default_text_model,
-        default_vision_model=settings.openrouter_default_vision_model,
-    )
 
 
 def _listing_to_detail(listing: Listing) -> ListingDetail:
@@ -207,133 +75,14 @@ def _listing_to_detail(listing: Listing) -> ListingDetail:
     )
 
 
-# ----------------------------------------------------------------------
-# evaluate_listing — V2 single-stage flag-based pipeline
-# ----------------------------------------------------------------------
-
-# Map a red-flagged criterion key back to a legacy ConditionClass enum
-# value, so listings.condition_class stays populated for the legacy
-# clean-metrics filter (compute_market_stats) until Phase C drops it.
-_CRITERION_TO_CONDITION = {
-    "icloud_locked": ConditionClass.BLOCKED_ICLOUD,
-    "account_blocked": ConditionClass.BLOCKED_ACCOUNT,
-    "not_starting": ConditionClass.NOT_STARTING,
-    "screen_broken": ConditionClass.BROKEN_SCREEN,
-    "parts_only": ConditionClass.PARTS_ONLY,
-}
-
-
-async def _load_profile_specs(
-    sessionmaker, profile_id: uuid.UUID
-) -> tuple[list[CriterionSpec], list[InfoFieldSpec], list[tuple[str, str]]]:
-    """Build (criterion specs, info_llm specs, info_api[(key, path)]) for a profile.
-
-    Reads profile_criteria + criteria_templates with one round-trip per
-    profile (small table, single user, fine without ORM relationships).
-    """
-    async with sessionmaker() as session:
-        rows = (
-            await session.execute(
-                select(ProfileCriterion, CriteriaTemplate)
-                .join(
-                    CriteriaTemplate,
-                    ProfileCriterion.template_id == CriteriaTemplate.id,
-                    isouter=True,
-                )
-                .where(ProfileCriterion.profile_id == profile_id)
-                .order_by(ProfileCriterion.sort_order)
-            )
-        ).all()
-
-    criteria: list[CriterionSpec] = []
-    info_llm: list[InfoFieldSpec] = []
-    info_api: list[tuple[str, str]] = []
-
-    for pc, tpl in rows:
-        if tpl is not None:
-            kind = tpl.kind
-            key = tpl.key
-            title = tpl.title_ru
-            fragment = tpl.prompt_fragment or ""
-            version = tpl.version or 1
-            api_path = tpl.api_path
-        else:
-            kind = pc.custom_kind or "criterion"
-            key = pc.custom_key or "custom"
-            title = pc.custom_title_ru or key
-            fragment = pc.custom_prompt_fragment or ""
-            version = 1
-            api_path = None
-
-        if kind == CriteriaTemplateKind.CRITERION.value:
-            criteria.append(
-                CriterionSpec(
-                    key=key,
-                    title_ru=title,
-                    prompt_fragment=fragment,
-                    version=version,
-                    params=pc.params,
-                )
-            )
-        elif kind == CriteriaTemplateKind.INFO_LLM.value:
-            info_llm.append(
-                InfoFieldSpec(
-                    key=key,
-                    title_ru=title,
-                    prompt_fragment=fragment,
-                    version=version,
-                )
-            )
-        elif kind == CriteriaTemplateKind.INFO_API.value and api_path:
-            info_api.append((key, api_path))
-
-    return criteria, info_llm, info_api
-
-
-def _resolve_info_api(
-    parameters: dict[str, Any] | None, paths: list[tuple[str, str]]
-) -> dict[str, Any]:
-    """Pull info_api values out of listing.parameters with no LLM cost.
-
-    ``api_path`` is a flat key into the parameters dict for now —
-    Avito's mobile API exposes the relevant fields as a single-level
-    map (``Встроенная память``, ``Цвет``, etc.). Nested path support
-    can be added later if a future template needs it.
-    """
-    if not parameters:
-        return {}
-    out: dict[str, Any] = {}
-    for key, path in paths:
-        val = parameters.get(path)
-        if val is not None:
-            out[key] = val
-    return out
-
-
-def _derive_condition_class(
-    bucket: str, criteria_flags: dict[str, dict[str, Any]]
-) -> str:
-    """Map a v2 evaluation back to a legacy ConditionClass enum value.
-
-    Keeps ``listings.condition_class`` meaningful for compute_market_stats
-    on profiles that haven't migrated yet (Phase B). Once Phase C drops
-    the column, this helper goes away.
-    """
-    for key, cls in _CRITERION_TO_CONDITION.items():
-        flag = criteria_flags.get(key) or {}
-        if flag.get("flag") == "red":
-            return cls.value
-    if bucket == "green":
-        return ConditionClass.WORKING.value
-    if bucket == "red":
-        # red but not from a mappable enum — likely FRP / custom — call it broken_other.
-        return ConditionClass.BROKEN_OTHER.value
-    return ConditionClass.UNKNOWN.value
-
-
 @broker.task(task_name="app.tasks.analysis.evaluate_listing")
 async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
-    """V2 single-stage evaluation. Replaces analyze_listing + match_listing."""
+    """Phase 1 defect-features evaluation.
+
+    V2 LLM grader was removed in Phase 2.1 (migration 0016). The defect-features
+    pipeline (parse → upsert → compute_bucket) is now the single source of bucket
+    assignment. Phase 2.1 will extend pipeline with price_signal + info_api kinds.
+    """
     sessionmaker = get_sessionmaker()
     settings = get_settings()
     lid = uuid.UUID(listing_id)
@@ -349,12 +98,13 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
             exc.spent_usd, exc.limit_usd,
         )
         async with sessionmaker() as session:
+            profile = await session.get(SearchProfile, pid)
             session.add(_make_error_notification(
                 profile_id=pid,
                 listing_id=lid,
                 code="llm_budget_exceeded",
                 message=str(exc),
-                profile=await session.get(SearchProfile, pid),
+                profile=profile,
             ))
             await session.commit()
         return {"status": "skipped", "reason": "budget_exhausted"}
@@ -370,18 +120,12 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
             return {"status": "skipped", "reason": "row missing"}
         link = await session.get(ProfileListing, (pid, lid))
         in_alert = bool(link and link.in_alert_zone)
-        threshold = float(profile.confidence_threshold or 0.7)
-        strategy = profile.evaluate_strategy or EvaluateStrategy.PER_LISTING.value
 
     detail = _listing_to_detail(listing)
 
-    # Fetch the full listing detail on first sight (same lazy strategy
-    # as analyze_listing) so descriptions / parameters are available.
+    # Lazy detail fetch on first sight (same strategy as before — descriptions
+    # / parameters needed for the LLM feature parser).
     if not (detail.description or "").strip():
-        # Humanization: pace detail fetches like a buyer who scans the
-        # search page, then opens an interesting card every few seconds.
-        # Combined with serial-ish task scheduling this keeps Avito from
-        # spotting the analysis fan-out as a burst of ~500 detail hits.
         await asyncio.sleep(uniform(5.0, 15.0))
         try:
             async with AvitoMcpClient() as mcp:
@@ -400,9 +144,6 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
                     .values(
                         description=fresh.description,
                         parameters=fresh.parameters or {},
-                        # Detail endpoint returns the full gallery (search
-                        # feed only carries the cover image). Persist all
-                        # so the lightbox can show every photo.
                         images=[
                             img.model_dump(mode="json")
                             for img in (fresh.images or [])
@@ -411,168 +152,13 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
                 )
                 await session.commit()
 
-    criteria_specs, info_llm_specs, info_api_paths = await _load_profile_specs(
-        sessionmaker, pid
+    params_for_features = (
+        detail.parameters
+        if (detail and getattr(detail, "parameters", None))
+        else (listing.parameters or {})
     )
-    info_api_values = _resolve_info_api(detail.parameters, info_api_paths)
-
-    # ── API killer pre-check ─────────────────────────────────────────────
-    # Before paying the LLM round-trip, see if Avito's structured params
-    # already make this listing a clear red. If yes, skip the analyzer and
-    # write a synthetic evaluation right here. Saves cost + time, and the
-    # api criterion shows up in the UI with the rule that fired.
-    api_killers = check_api_killers(detail.parameters)
-    if api_killers:
-        log.info(
-            "analysis.evaluate.api_killer listing=%s killers=%s",
-            listing_id, [k[0] for k in api_killers],
-        )
-        criteria_dump = {
-            ckey: {"flag": "red", "confidence": 1.0, "reasoning": reasoning}
-            for ckey, reasoning in api_killers
-        }
-        red_keys = [ckey for ckey, _ in api_killers]
-
-        async with sessionmaker() as session:
-            evaluation = ProfileListingEvaluation(
-                profile_id=pid,
-                listing_id=lid,
-                bucket=EvaluationBucket.RED.value,
-                confidence_threshold=threshold,
-                criteria_flags=criteria_dump,
-                info_fields={},
-                red_criterion_keys=red_keys,
-                # Same hash as a normal LLM evaluation so a profile criteria
-                # change still triggers re-evaluation. The api: prefix on
-                # criteria_flags keys is the distinguisher — column is
-                # VARCHAR(64), no room for a custom suffix.
-                criteria_set_hash=profile.criteria_set_hash or "",
-            )
-            session.add(evaluation)
-            await session.flush()
-            # Map api_killer to a condition_class for legacy UI badges.
-            # Pick the most specific one — fall back to BROKEN_OTHER.
-            killer_to_condition = {
-                "api:device_not_starting":      ConditionClass.NOT_STARTING.value,
-                "api:motherboard_sensor_dead":  ConditionClass.NOT_STARTING.value,
-                "api:battery_dead":             ConditionClass.BROKEN_OTHER.value,
-                "api:functions_broken":         ConditionClass.BROKEN_OTHER.value,
-                "api:critical_sensors_broken":  ConditionClass.BROKEN_OTHER.value,
-                "api:camera_broken":            ConditionClass.BROKEN_OTHER.value,
-            }
-            cond = next(
-                (killer_to_condition[k] for k in red_keys if k in killer_to_condition),
-                ConditionClass.BROKEN_OTHER.value,
-            )
-            await session.execute(
-                update(Listing)
-                .where(Listing.id == lid)
-                .values(condition_class=cond)
-            )
-            await session.execute(
-                update(ProfileListing)
-                .where(
-                    ProfileListing.profile_id == pid,
-                    ProfileListing.listing_id == lid,
-                )
-                .values(
-                    processing_status=ProcessingStatus.EVALUATED.value,
-                    bucket=EvaluationBucket.RED.value,
-                    latest_evaluation_id=evaluation.id,
-                )
-            )
-            # NB: NO auto_red blacklist insert here. Red bucket is just a
-            # ranking signal — the user must see red lots in the UI to
-            # confirm/override. Only manual "✗ Отклонить" inserts a
-            # blacklist row (with reason='rejected'), and that one really
-            # hides the lot. See feedback_no_qrator_excuse and
-            # project_filter_change_reeval memory notes.
-            await session.commit()
-
-        # Still run the feature pipeline so listing_features rows are written
-        # uniformly even when the LLM branch is skipped.  The API-killer
-        # condition overlaps with defect taxonomy (locks.icloud_linked,
-        # operability.no_boot, etc.), and the UI checklist + later analytics
-        # need those rows regardless of how the red verdict was reached.
-        try:
-            params_to_use = (
-                detail.parameters
-                if (detail and getattr(detail, "parameters", None))
-                else (listing.parameters or {})
-            )
-            async with sessionmaker() as session:
-                feat_bucket, feat_reason = await analyze_listing_features(
-                    session=session,
-                    listing_id=lid,
-                    profile_id=pid,
-                    title=listing.title or "",
-                    description=listing.description or "",
-                    parameters=params_to_use,
-                )
-            log.info(
-                "analysis.evaluate.api_killer.feat_bucket listing=%s feat_bucket=%s reason=%s",
-                listing_id, feat_bucket, feat_reason,
-            )
-        except Exception:
-            log.exception(
-                "analysis.evaluate.api_killer.feat_pipeline_failed listing=%s",
-                listing_id,
-            )
-            # Feature pipeline failure must not regress the API-killer return.
-
-        return {
-            "status": "success",
-            "skipped_llm": True,
-            "killers": red_keys,
-            "bucket": "red",
-        }
-
-    analyzer = _build_analyzer()
-    eval_result = await analyzer.evaluate_listing(
-        detail,
-        criteria=criteria_specs,
-        info_llm_fields=info_llm_specs,
-        info_api_values=info_api_values,
-        strategy=strategy,
-        confidence_threshold=threshold,
-    )
-
-    # Persist evaluation row + denormalised bucket on profile_listings,
-    # plus a derived condition_class on listings (legacy compatibility).
-    criteria_dump = {
-        k: v.model_dump(mode="json") for k, v in eval_result.criteria.items()
-    }
-    info_dump = {
-        k: v.model_dump(mode="json") for k, v in eval_result.info.items()
-    }
-    derived_condition = _derive_condition_class(eval_result.bucket, criteria_dump)
 
     async with sessionmaker() as session:
-        evaluation = ProfileListingEvaluation(
-            profile_id=pid,
-            listing_id=lid,
-            bucket=eval_result.bucket,
-            confidence_threshold=threshold,
-            criteria_flags=criteria_dump,
-            info_fields=info_dump,
-            red_criterion_keys=list(eval_result.red_criterion_keys),
-            criteria_set_hash=profile.criteria_set_hash or "",
-        )
-        session.add(evaluation)
-        await session.flush()
-
-        # ── Defect-feature pipeline (replaces V2 confidence-based bucket) ──
-        # The old bucket from eval_result.bucket was derived from LLM criteria
-        # flags. We now run the feature-based pipeline (parser → upsert →
-        # compute_bucket) which returns a deterministic bucket from per-profile
-        # feature rules. This overrides the LLM bucket for all downstream writes.
-        # Prefer detail.parameters (fresh MCP fetch) over listing.parameters
-        # (the ORM object loaded before the detail fetch, potentially stale).
-        params_for_features = (
-            detail.parameters
-            if (detail and getattr(detail, "parameters", None))
-            else (listing.parameters or {})
-        )
         feat_bucket, feat_reason = await analyze_listing_features(
             session=session,
             listing_id=lid,
@@ -581,20 +167,8 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
             description=listing.description or "",
             parameters=params_for_features,
         )
-        # feat_bucket is "green"/"grey"/"red"; use it as the final bucket.
-        final_bucket = feat_bucket
-        log.info(
-            "analysis.evaluate.feat_bucket listing=%s llm_bucket=%s feat_bucket=%s reason=%s",
-            listing_id, eval_result.bucket, final_bucket, feat_reason,
-        )
 
-        await session.execute(
-            update(Listing)
-            .where(Listing.id == lid)
-            .values(condition_class=derived_condition)
-        )
-
-        # Auto-reject on red from feature pipeline (only if user hasn't acted yet).
+        # Auto-reject on red if user hasn't acted.
         pl_action_result = await session.execute(
             select(ProfileListing.user_action)
             .where(
@@ -604,19 +178,18 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
         )
         current_user_action = pl_action_result.scalar_one_or_none()
         auto_reject = (
-            final_bucket == "red"
+            feat_bucket == "red"
             and current_user_action in (None, "pending", "viewed")
         )
 
         new_status = (
             ProcessingStatus.NOTIFIED.value
-            if final_bucket == "green" and in_alert
+            if feat_bucket == "green" and in_alert
             else ProcessingStatus.EVALUATED.value
         )
-        pl_updates: dict = dict(
+        pl_updates: dict[str, Any] = dict(
             processing_status=new_status,
-            bucket=final_bucket,
-            latest_evaluation_id=evaluation.id,
+            bucket=feat_bucket,
         )
         if auto_reject:
             pl_updates["user_action"] = "rejected"
@@ -632,11 +205,7 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
         )
 
         notif_count = 0
-        if final_bucket == EvaluationBucket.RED.value:
-            # Red is a ranking signal (plus auto-reject above if rules matched).
-            # No TG notification for red. See memory: project_filter_change_reeval.
-            pass
-        elif final_bucket == EvaluationBucket.GREEN.value and in_alert:
+        if feat_bucket == "green" and in_alert:
             channels = profile.notification_channels or ["telegram"]
             raw_imgs = listing.images or []
             images: list[str] = []
@@ -656,10 +225,8 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
                 "title": listing.title,
                 "price": float(listing.price) if listing.price is not None else None,
                 "url": listing.url,
-                "bucket": final_bucket,
-                "criteria_flags": criteria_dump,
-                "info_fields": info_dump,
-                "condition_class": derived_condition,
+                "bucket": feat_bucket,
+                "feat_reason": feat_reason,
                 "images": images,
             }
             for channel in channels:
@@ -679,14 +246,13 @@ async def evaluate_listing(listing_id: str, profile_id: str) -> dict[str, Any]:
         await session.commit()
 
     log.info(
-        "analysis.evaluate.success listing=%s bucket=%s strategy=%s reds=%s notifs=%d",
-        listing_id, final_bucket, strategy,
-        eval_result.red_criterion_keys, notif_count,
+        "analysis.evaluate.success listing=%s bucket=%s reason=%s notifs=%d",
+        listing_id, feat_bucket, feat_reason, notif_count,
     )
     return {
         "status": "success",
-        "bucket": final_bucket,
-        "red_criterion_keys": list(eval_result.red_criterion_keys),
+        "bucket": feat_bucket,
+        "feat_reason": feat_reason,
         "in_alert_zone": in_alert,
         "notifications_created": notif_count,
     }

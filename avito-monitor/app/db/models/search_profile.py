@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,18 +46,6 @@ class SearchProfile(Base, TimestampMixin):
     llm_classify_model: Mapped[str | None] = mapped_column(String(128))
     llm_match_model: Mapped[str | None] = mapped_column(String(128))
     analyze_photos: Mapped[bool] = mapped_column(Boolean, default=False)
-
-    # V2 LLM pipeline (flag-based evaluation, hot-switchable strategy)
-    evaluate_strategy: Mapped[str] = mapped_column(
-        String(16), default="per_criterion"
-    )
-    confidence_threshold: Mapped[float] = mapped_column(
-        Numeric(4, 3), default=0.7
-    )
-    # sha256 of (sorted criteria keys + versions + params + prompt version);
-    # cheap to compare during polling to know if cached evaluations are stale.
-    criteria_set_hash: Mapped[str | None] = mapped_column(String(64))
-    bucket_routing: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     # schedule
     poll_interval_minutes: Mapped[int] = mapped_column(Integer, default=15)

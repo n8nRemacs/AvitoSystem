@@ -35,7 +35,6 @@ from app.db.base import get_sessionmaker
 from app.db.models import (
     Listing,
     Notification,
-    ProfileCriterion,
     ProfileListing,
     ProfileMarketStats,
     SearchProfile,
@@ -245,42 +244,22 @@ async def compute_market_stats(
             if r.price is not None
         ]
 
-        # Clean filter: v2 (flag-based) profiles use bucket='green';
-        # legacy profiles still use condition_class IN allowed_conditions.
-        # Detect v2 by presence of any profile_criteria row — this also
-        # naturally turns off the legacy branch once Phase C drops the
-        # legacy columns.
-        has_v2_criteria = bool(
-            await session.scalar(
-                select(func.count())
-                .select_from(ProfileCriterion)
-                .where(ProfileCriterion.profile_id == pid)
+        # Clean filter: Phase 1 defect-features pipeline writes bucket='green'
+        # on ProfileListing rows. Use bucket='green' as the clean-price filter.
+        bucket_rows = (
+            await session.execute(
+                select(ProfileListing.listing_id, ProfileListing.bucket)
+                .where(ProfileListing.profile_id == pid)
             )
-        )
-        if has_v2_criteria:
-            bucket_rows = (
-                await session.execute(
-                    select(ProfileListing.listing_id, ProfileListing.bucket)
-                    .where(ProfileListing.profile_id == pid)
-                )
-            ).all()
-            listing_bucket: dict[uuid.UUID, str | None] = {
-                lid: bucket for lid, bucket in bucket_rows
-            }
-            prices_clean = [
-                float(r.price)
-                for r in rows
-                if r.price is not None and listing_bucket.get(r.id) == "green"
-            ]
-        else:
-            allowed = set(
-                profile.allowed_conditions or [ConditionClass.WORKING.value]
-            )
-            prices_clean = [
-                float(r.price)
-                for r in rows
-                if r.price is not None and r.condition_class in allowed
-            ]
+        ).all()
+        listing_bucket: dict[uuid.UUID, str | None] = {
+            lid: bucket for lid, bucket in bucket_rows
+        }
+        prices_clean = [
+            float(r.price)
+            for r in rows
+            if r.price is not None and listing_bucket.get(r.id) == "green"
+        ]
 
         median_raw = round(statistics.median(prices_raw), 2) if prices_raw else None
         median_clean = (

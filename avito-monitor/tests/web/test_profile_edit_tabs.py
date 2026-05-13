@@ -79,16 +79,8 @@ def client(monkeypatch):
     async def _fake_load_rules(session, profile_id):
         return {}  # no rules set
 
-    async def _fake_load_lib(session):
-        return []  # empty V2 library
-
-    async def _fake_load_state(session, profile_id):
-        return {}
-
     monkeypatch.setattr(svc, "get_profile", _fake_get_profile)
     monkeypatch.setattr(routers.feat_repo, "load_profile_rules", _fake_load_rules)
-    monkeypatch.setattr(routers, "_load_criteria_library", _fake_load_lib)
-    monkeypatch.setattr(routers, "_load_profile_criteria_state", _fake_load_state)
     monkeypatch.setattr(routers, "_load_regions", lambda: [])
 
     app = create_app()

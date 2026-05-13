@@ -1,20 +1,17 @@
 """SearchProfile CRUD + business logic (URL parse, dual range, overlay)."""
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import CriteriaTemplate, ProfileCriterion, ProfileRun, SearchProfile
+from app.db.models import ProfileRun, SearchProfile
 from app.db.models.enums import ProfileRunStatus
 from app.schemas.search_profile import (
     ParsedUrlPreview,
-    ProfileCriterionSpec,
     SearchProfileCreate,
     SearchProfileUpdate,
 )
@@ -23,11 +20,6 @@ from app.services.url_parser import (
     compute_search_range,
     parse_avito_url,
 )
-
-# Bumped together with prompts/evaluate_*.md when the wire-level
-# evaluation contract changes. Folded into criteria_set_hash so a
-# prompt-version change forces re-grading via cache-key mismatch.
-_PROMPT_VERSION = 1
 
 
 def preview_url(url: str) -> ParsedUrlPreview:
@@ -130,9 +122,6 @@ async def create_profile(
     session: AsyncSession, user_id: uuid.UUID, data: SearchProfileCreate
 ) -> SearchProfile:
     payload = data.model_dump()
-    # criteria_specs is a separate-table concern — pop before constructing
-    # the SearchProfile row.
-    criteria_specs = payload.pop("criteria_specs", None)
     profile = SearchProfile(
         user_id=user_id,
         **payload,
@@ -140,10 +129,6 @@ async def create_profile(
     _fill_from_url(profile, only_when_empty=True)
     session.add(profile)
     await session.flush()
-    if criteria_specs is not None:
-        await set_profile_criteria(
-            session, profile, [ProfileCriterionSpec(**c) for c in criteria_specs]
-        )
     return profile
 
 
@@ -153,11 +138,8 @@ async def update_profile(
     data: SearchProfileUpdate,
 ) -> SearchProfile:
     payload = data.model_dump(exclude_unset=True)
-    # criteria_specs flows through profile_criteria, not search_profiles.
-    criteria_specs = payload.pop("criteria_specs", None)
     # Merge notification_settings instead of replacing — the form only
-    # carries the v2 toggle, so a plain setattr would wipe other keys
-    # (e.g. min_confidence_threshold for the legacy match flow).
+    # carries individual keys, so a plain setattr would wipe other keys.
     if (
         "notification_settings" in payload
         and isinstance(payload["notification_settings"], dict)
@@ -172,146 +154,7 @@ async def update_profile(
         # Only refresh denormalisation if URL changed; don't override user-edits
         _fill_from_url(profile, only_when_empty=False)
     await session.flush()
-    if criteria_specs is not None:
-        await set_profile_criteria(
-            session, profile, [ProfileCriterionSpec(**c) for c in criteria_specs]
-        )
     return profile
-
-
-# ---------------------------------------------------------------------------
-# V2 criteria editor (Phase B): UI calls this whenever the user edits the
-# library checkboxes / params / custom rows. Replaces ALL profile_criteria
-# rows for the profile with the supplied specs and recomputes
-# criteria_set_hash so cached evaluations bound to the previous set
-# become stale automatically.
-# ---------------------------------------------------------------------------
-
-async def set_profile_criteria(
-    session: AsyncSession,
-    profile: SearchProfile,
-    specs: Sequence[ProfileCriterionSpec],
-) -> None:
-    """Replace ``profile_criteria`` rows for ``profile`` and refresh the hash.
-
-    Empty ``specs`` is valid — clears all per-profile criteria. The
-    function is DELETE+INSERT (not diff-merge) because the table is tiny
-    (≤ 30 rows per profile) and this avoids fiddly ordering/params diffs.
-    """
-    # Resolve all needed templates in one query — for params + version.
-    template_keys = [s.template_key for s in specs if s.template_key]
-    templates_by_key: dict[str, CriteriaTemplate] = {}
-    if template_keys:
-        rows = (
-            await session.execute(
-                select(CriteriaTemplate).where(CriteriaTemplate.key.in_(template_keys))
-            )
-        ).scalars().all()
-        templates_by_key = {t.key: t for t in rows}
-
-    # Wipe & rebuild.
-    await session.execute(
-        delete(ProfileCriterion).where(ProfileCriterion.profile_id == profile.id)
-    )
-
-    for sort_order, spec in enumerate(specs):
-        if spec.template_key:
-            tpl = templates_by_key.get(spec.template_key)
-            if tpl is None:
-                # Silent skip — UI shouldn't let this happen, but a stale
-                # form reference shouldn't 500 the save either.
-                continue
-            session.add(
-                ProfileCriterion(
-                    profile_id=profile.id,
-                    template_id=tpl.id,
-                    params=spec.params or None,
-                    is_hard=True,
-                    sort_order=sort_order * 10,
-                )
-            )
-        else:
-            # Custom row — must have a kind (criterion / info_llm) and
-            # at least a title or prompt. Skip blanks silently.
-            kind = (spec.custom_kind or "").strip() or "criterion"
-            title = (spec.custom_title or "").strip()
-            prompt = (spec.custom_prompt or "").strip()
-            if not title and not prompt:
-                continue
-            session.add(
-                ProfileCriterion(
-                    profile_id=profile.id,
-                    template_id=None,
-                    custom_key=_slugify_key(title) or "custom",
-                    custom_title_ru=title or "Без названия",
-                    custom_kind=kind,
-                    custom_prompt_fragment=prompt or None,
-                    is_hard=True,
-                    sort_order=sort_order * 10,
-                )
-            )
-    await session.flush()
-    profile.criteria_set_hash = _compute_criteria_set_hash(specs, templates_by_key)
-    await session.flush()
-
-
-def _slugify_key(value: str) -> str:
-    """Fold a Russian title into an ASCII-ish key for ``custom_key``.
-
-    The key column is informational (debug logs, cache breakdowns); we
-    keep it short and stable but don't need a perfect bijection.
-    """
-    if not value:
-        return ""
-    out: list[str] = []
-    for ch in value.lower():
-        if ch.isalnum() and ord(ch) < 128:
-            out.append(ch)
-        elif ch in (" ", "_", "-"):
-            out.append("_")
-        else:
-            # Use ord hex so two distinct cyrillic phrases stay distinct.
-            out.append(f"x{ord(ch):x}")
-    slug = "".join(out)[:48].strip("_")
-    return slug
-
-
-def _compute_criteria_set_hash(
-    specs: Sequence[ProfileCriterionSpec],
-    templates_by_key: dict[str, CriteriaTemplate],
-) -> str:
-    """SHA-256 over (sorted criteria keys + versions + params + prompt_version).
-
-    Stable across reorders (we sort) but sensitive to params or template
-    version changes — exactly the cache-invalidation surface the V2
-    pipeline expects (see ``ProfileListingEvaluation.criteria_set_hash``).
-    """
-    parts: list[dict[str, Any]] = []
-    for s in specs:
-        if s.template_key:
-            tpl = templates_by_key.get(s.template_key)
-            version = tpl.version if tpl is not None else 0
-            parts.append({
-                "kind": "library",
-                "key": s.template_key,
-                "version": version,
-                "params": s.params or {},
-            })
-        else:
-            title = (s.custom_title or "").strip()
-            prompt = (s.custom_prompt or "").strip()
-            if not title and not prompt:
-                continue
-            parts.append({
-                "kind": "custom",
-                "title": title,
-                "k": (s.custom_kind or "criterion").strip(),
-                "prompt": prompt,
-            })
-    parts.sort(key=lambda p: json.dumps(p, sort_keys=True, ensure_ascii=False))
-    payload = {"prompt_version": _PROMPT_VERSION, "items": parts}
-    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256(blob).hexdigest()
 
 
 async def delete_profile(

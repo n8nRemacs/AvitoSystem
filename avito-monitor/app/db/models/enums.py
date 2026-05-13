@@ -63,35 +63,6 @@ class LLMAnalysisType(StrEnum):
     INFO_LLM_EXTRACT = "info_llm_extract"
 
 
-class CriteriaTemplateKind(StrEnum):
-    """How a CriteriaTemplate participates in evaluation.
-
-    - ``criterion`` — LLM grades red/green/unknown with a confidence.
-    - ``info_llm`` — LLM extracts a value (no grading).
-    - ``info_api`` — value pulled directly from ``listing.parameters``;
-      never goes to the LLM.
-    """
-
-    CRITERION = "criterion"
-    INFO_LLM = "info_llm"
-    INFO_API = "info_api"
-
-
-class EvaluateStrategy(StrEnum):
-    """Per-profile selector for the LLM call shape (hot-switchable)."""
-
-    PER_LISTING = "per_listing"
-    PER_CRITERION = "per_criterion"
-
-
-class EvaluationBucket(StrEnum):
-    """Final bucket assignment computed in Python from criterion flags."""
-
-    GREEN = "green"
-    GREY = "grey"
-    RED = "red"
-
-
 class NotificationType(StrEnum):
     NEW_LISTING = "new_listing"
     PRICE_DROP_LISTING = "price_drop_listing"
