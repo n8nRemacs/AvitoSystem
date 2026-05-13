@@ -177,6 +177,8 @@ async def profile_new(
         "regions": _load_regions(),
         "criteria_library": await _load_criteria_library(session),
         "criteria_state": {"selected": {}, "custom": []},
+        "rules": {},
+        "active_tab": "search",
     })
     return templates.TemplateResponse(request, "profiles/form.html", ctx)
 
@@ -317,6 +319,8 @@ async def profile_create(
             "criteria_library": await _load_criteria_library(session),
             "criteria_state": {"selected": {}, "custom": []},
             "error": f"Не удалось сохранить профиль: {e}",
+            "rules": {},
+            "active_tab": "search",
         })
         return templates.TemplateResponse(
             request, "profiles/form.html", ctx,
@@ -358,6 +362,7 @@ async def profile_edit_form(
     if profile is None:
         raise HTTPException(404, "Profile not found")
     ctx = await _layout_context(user, session, active="profiles")
+    rules = await feat_repo.load_profile_rules(session, profile.id)
     ctx.update({
         "title": "Редактирование профиля",
         "form_action": f"/search-profiles/{profile.id}",
@@ -366,6 +371,8 @@ async def profile_edit_form(
         "regions": _load_regions(),
         "criteria_library": await _load_criteria_library(session),
         "criteria_state": await _load_profile_criteria_state(session, profile.id),
+        "rules": rules,
+        "active_tab": "search",
     })
     return templates.TemplateResponse(request, "profiles/form.html", ctx)
 

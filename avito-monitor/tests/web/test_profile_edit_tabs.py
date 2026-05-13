@@ -175,3 +175,84 @@ def test_sidebar_no_longer_has_model_settings_nav(client):
     import re
     assert not re.search(r'href="/profiles/[^"]*/feature-rules"', body), \
         "sidebar still has hardcoded /profiles/<id>/feature-rules href — should be removed"
+
+
+def test_form_edit_renders_three_tabs(client):
+    """Phase 2.0 Task 3: profiles/form.html has 3 tabs nav: Поиск / Признаки / Уведомления."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'role="tablist"' in body
+    assert 'data-tab="search"' in body
+    assert 'data-tab="features"' in body
+    assert 'data-tab="notifications"' in body
+    assert 'Поиск' in body
+    assert 'Признаки' in body
+    assert 'Уведомления' in body
+
+
+def test_form_edit_includes_feature_rules_partial(client):
+    """Phase 2.0 Task 3: tab «Признаки» content includes _partials/feature_rules_section.html markup."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'data-rules-root' in body
+    assert f'data-profile-id="{PROFILE_ID}"' in body
+    assert 'rule-seg' in body
+
+
+def test_form_edit_has_three_tabpanels(client):
+    """Phase 2.0 Task 3: form has 3 <section role='tabpanel'> with right data-panel attrs."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}")
+    body = resp.text
+    assert 'data-panel="search"' in body
+    assert 'data-panel="features"' in body
+    assert 'data-panel="notifications"' in body
+
+
+def test_notifications_tab_moved_existing_fields(client):
+    """Phase 2.0 spec §7.1: Step 7 Notifications fields move INTO tab «Уведомления»."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}")
+    body = resp.text
+    panel_start = body.index('data-panel="notifications"')
+    panel_chunk = body[panel_start:panel_start + 2000]
+    assert 'name="notification_channels"' in panel_chunk
+    assert 'value="telegram"' in panel_chunk
+    assert 'value="max"' in panel_chunk
+    assert 'переедут сюда в следующих итерациях' not in body
+    search_start = body.index('data-panel="search"')
+    search_end = body.index('data-panel="features"')
+    search_chunk = body[search_start:search_end]
+    assert 'name="notification_channels"' not in search_chunk
+
+
+def test_form_edit_search_form_action_and_key_fields_preserved(client):
+    """Phase 2.0 Task 3: outer <form> action/method/avito_search_url не теряются после restructure."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}")
+    body = resp.text
+    assert f'action="/search-profiles/{PROFILE_ID}"' in body
+    assert 'method="post"' in body
+    assert 'name="avito_search_url"' in body
+    assert 'name="name"' in body
+    assert 'type="submit"' in body
+
+
+def test_create_form_renders_without_partial(client):
+    """Phase 2.0 Task 3: GET /search-profiles/new (profile=None) рендерится без TemplateError.
+
+    Tab «Признаки» показывает placeholder вместо partial (нет profile.id для PATCH).
+    """
+    resp = client.get("/search-profiles/new")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'data-tab="search"' in body
+    assert 'data-tab="features"' in body
+    assert 'data-tab="notifications"' in body
+    search_btn_idx = body.index('id="tab-search"')
+    snippet = body[max(0, search_btn_idx - 200):search_btn_idx + 200]
+    assert 'aria-selected="true"' in snippet
+    features_idx = body.index('data-panel="features"')
+    features_chunk = body[features_idx:features_idx + 1500]
+    assert 'data-rules-root' not in features_chunk
+    assert 'rule-seg' not in features_chunk
+    assert 'Сначала создайте профиль' in features_chunk or 'после создания профиля' in features_chunk

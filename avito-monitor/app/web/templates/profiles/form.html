@@ -4,6 +4,9 @@
 {% block title %}{{ title }} — Avito Monitor{% endblock %}
 
 {% block page_content %}
+{# Defensive default: если какой-то route забыл передать active_tab — рисуем search. #}
+{% set active_tab = active_tab|default('search') %}
+{% set rules = rules|default({}) %}
 <div class="max-w-3xl mx-auto">
   <div class="flex items-center gap-3 mb-6">
     <a href="/search-profiles" class="text-sm text-avito-text-soft hover:text-avito-text">← К списку</a>
@@ -16,430 +19,489 @@
   </div>
   {% endif %}
 
+  {# Outer form wraps tabs nav + all 3 panels + submit. Partial in tab «Признаки»
+     uses PATCH via fetch, not form-submit — no conflict with outer form. #}
   <form method="post" action="{{ form_action }}" class="space-y-5">
-    <!-- Step 1: URL / Source -->
-    {% if profile and profile.import_source == 'autosearch_sync' %}
-    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
-      <h2 class="text-sm font-semibold text-avito-text mb-1">🔗 Источник — autosearch Avito</h2>
-      <p class="text-xs text-avito-text-soft mb-3">
-        Этот профиль синхронизирован с сохранённым поиском Avito.
-        Параметры фильтра (категория, бренд, модель, цена, регион) читаются с Avito автоматически и обновляются при «🔄 Синхронизировать с Avito».
-      </p>
-      <div class="bg-avito-elev rounded-md p-3 text-xs text-avito-text-soft space-y-1">
-        <div>🆔 filterId: <strong class="text-avito-text font-mono">{{ profile.avito_autosearch_id }}</strong></div>
-        {% if profile.last_synced_at %}<div>🕒 Последний sync: <strong class="text-avito-text"><time data-utc="{{ profile.last_synced_at.isoformat() }}">{{ profile.last_synced_at.strftime('%Y-%m-%d %H:%M') }}</time></strong></div>{% endif %}
-        {% if profile.search_params %}
-          {% if profile.search_params.get('categoryId') %}<div>📂 categoryId: <strong class="text-avito-text font-mono">{{ profile.search_params['categoryId'] }}</strong></div>{% endif %}
-          {% if profile.search_params.get('locationId') %}<div>🌍 locationId: <strong class="text-avito-text font-mono">{{ profile.search_params['locationId'] }}</strong></div>{% endif %}
-          {% if profile.search_params.get('priceMin') or profile.search_params.get('priceMax') %}<div>💰 Цена: <strong class="text-avito-text">{{ profile.search_params.get('priceMin', '–') }} — {{ profile.search_params.get('priceMax', '–') }} ₽</strong></div>{% endif %}
-        {% endif %}
-      </div>
-      <input type="hidden" name="avito_search_url" value="{{ profile.avito_search_url }}">
-    </section>
-    {% else %}
-    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
-      <h2 class="text-sm font-semibold text-avito-text mb-1">URL поиска Avito <span class="text-red-500">*</span></h2>
-      <p class="text-xs text-avito-text-soft mb-3">
-        Открой Avito, настрой фильтр (категория, бренд, модель, цена, регион) и скопируй URL из адресной строки.
-      </p>
-      <div class="flex gap-2">
-        <input type="url"
-               name="avito_search_url"
-               id="avito_search_url"
-               placeholder="https://www.avito.ru/moskva/telefony/..."
-               value="{{ profile.avito_search_url if profile else '' }}"
-               required
-               class="flex-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm focus:border-avito-brand focus:outline-none focus:ring-2 focus:ring-avito-brand-soft">
-        <button type="button"
-                hx-post="/search-profiles/parse-url-fragment"
-                hx-include="#avito_search_url"
-                hx-target="#parser-preview"
-                hx-swap="innerHTML"
-                hx-trigger="click"
-                class="px-4 py-2 rounded-md border border-avito-border text-sm hover:bg-avito-elev">
-          Парсить
+
+    {# ---------- Tab navigation ---------- #}
+    <nav role="tablist" aria-label="Разделы профиля"
+         class="flex border-b border-avito-border -mx-0 gap-1">
+      {% set _tabs = [
+          ('search',        'Поиск',        '🔎'),
+          ('features',      'Признаки',     '🧩'),
+          ('notifications', 'Уведомления',  '🔔'),
+      ] %}
+      {% for slug, label, icon in _tabs %}
+        <button type="button" role="tab"
+                data-tab="{{ slug }}"
+                aria-selected="{{ 'true' if slug == active_tab else 'false' }}"
+                aria-controls="tabpanel-{{ slug }}"
+                id="tab-{{ slug }}"
+                class="profile-tab px-4 py-2 text-sm font-medium text-avito-text-soft
+                       hover:text-avito-text border-b-2 border-transparent
+                       aria-selected:text-avito-text aria-selected:border-avito-brand
+                       transition-colors">
+          <span class="mr-1">{{ icon }}</span>{{ label }}
         </button>
-      </div>
-      <div id="parser-preview" class="mt-3">
-        {% if profile %}
+      {% endfor %}
+    </nav>
+
+    {# ---------- Tab panel: Поиск ---------- #}
+    <section role="tabpanel" data-panel="search" id="tabpanel-search"
+             aria-labelledby="tab-search"
+             class="space-y-5"
+             {% if active_tab != 'search' %}hidden{% endif %}>
+
+      <!-- Step 1: URL / Source -->
+      {% if profile and profile.import_source == 'autosearch_sync' %}
+      <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+        <h2 class="text-sm font-semibold text-avito-text mb-1">🔗 Источник — autosearch Avito</h2>
+        <p class="text-xs text-avito-text-soft mb-3">
+          Этот профиль синхронизирован с сохранённым поиском Avito.
+          Параметры фильтра (категория, бренд, модель, цена, регион) читаются с Avito автоматически и обновляются при «🔄 Синхронизировать с Avito».
+        </p>
         <div class="bg-avito-elev rounded-md p-3 text-xs text-avito-text-soft space-y-1">
-          {% if profile.parsed_brand %}<div>🏷️ Бренд: <strong class="text-avito-text">{{ profile.parsed_brand }}</strong></div>{% endif %}
-          {% if profile.parsed_model %}<div>📱 Модель: <strong class="text-avito-text">{{ profile.parsed_model }}</strong></div>{% endif %}
-          {% if profile.parsed_category %}<div>📂 Категория: <strong class="text-avito-text">{{ profile.parsed_category }}</strong></div>{% endif %}
-          {% if profile.region_slug %}<div>🌍 Регион: <strong class="text-avito-text">{{ profile.region_slug }}</strong></div>{% endif %}
+          <div>🆔 filterId: <strong class="text-avito-text font-mono">{{ profile.avito_autosearch_id }}</strong></div>
+          {% if profile.last_synced_at %}<div>🕒 Последний sync: <strong class="text-avito-text"><time data-utc="{{ profile.last_synced_at.isoformat() }}">{{ profile.last_synced_at.strftime('%Y-%m-%d %H:%M') }}</time></strong></div>{% endif %}
+          {% if profile.search_params %}
+            {% if profile.search_params.get('categoryId') %}<div>📂 categoryId: <strong class="text-avito-text font-mono">{{ profile.search_params['categoryId'] }}</strong></div>{% endif %}
+            {% if profile.search_params.get('locationId') %}<div>🌍 locationId: <strong class="text-avito-text font-mono">{{ profile.search_params['locationId'] }}</strong></div>{% endif %}
+            {% if profile.search_params.get('priceMin') or profile.search_params.get('priceMax') %}<div>💰 Цена: <strong class="text-avito-text">{{ profile.search_params.get('priceMin', '–') }} — {{ profile.search_params.get('priceMax', '–') }} ₽</strong></div>{% endif %}
+          {% endif %}
+        </div>
+        <input type="hidden" name="avito_search_url" value="{{ profile.avito_search_url }}">
+      </section>
+      {% else %}
+      <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+        <h2 class="text-sm font-semibold text-avito-text mb-1">URL поиска Avito <span class="text-red-500">*</span></h2>
+        <p class="text-xs text-avito-text-soft mb-3">
+          Открой Avito, настрой фильтр (категория, бренд, модель, цена, регион) и скопируй URL из адресной строки.
+        </p>
+        <div class="flex gap-2">
+          <input type="url"
+                 name="avito_search_url"
+                 id="avito_search_url"
+                 placeholder="https://www.avito.ru/moskva/telefony/..."
+                 value="{{ profile.avito_search_url if profile else '' }}"
+                 required
+                 class="flex-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm focus:border-avito-brand focus:outline-none focus:ring-2 focus:ring-avito-brand-soft">
+          <button type="button"
+                  hx-post="/search-profiles/parse-url-fragment"
+                  hx-include="#avito_search_url"
+                  hx-target="#parser-preview"
+                  hx-swap="innerHTML"
+                  hx-trigger="click"
+                  class="px-4 py-2 rounded-md border border-avito-border text-sm hover:bg-avito-elev">
+            Парсить
+          </button>
+        </div>
+        <div id="parser-preview" class="mt-3">
+          {% if profile %}
+          <div class="bg-avito-elev rounded-md p-3 text-xs text-avito-text-soft space-y-1">
+            {% if profile.parsed_brand %}<div>🏷️ Бренд: <strong class="text-avito-text">{{ profile.parsed_brand }}</strong></div>{% endif %}
+            {% if profile.parsed_model %}<div>📱 Модель: <strong class="text-avito-text">{{ profile.parsed_model }}</strong></div>{% endif %}
+            {% if profile.parsed_category %}<div>📂 Категория: <strong class="text-avito-text">{{ profile.parsed_category }}</strong></div>{% endif %}
+            {% if profile.region_slug %}<div>🌍 Регион: <strong class="text-avito-text">{{ profile.region_slug }}</strong></div>{% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
+      <!-- Step 2: Name -->
+      <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
+        <label class="block">
+          <span class="text-sm font-semibold text-avito-text mb-1 block">Имя профиля</span>
+          <input type="text" name="name" required
+                 value="{{ profile.name if profile else '' }}"
+                 placeholder="Например: iPhone 12 Pro Max до 13.5K"
+                 class="w-full px-3 py-2 rounded-md border border-avito-border bg-white text-sm focus:border-avito-brand focus:outline-none focus:ring-2 focus:ring-avito-brand-soft">
+        </label>
+      </section>
+
+      <!-- Step 3: Dual price range -->
+      <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-4">
+        <div>
+          <h2 class="text-sm font-semibold text-avito-text">Двойная вилка цен</h2>
+          <p class="text-xs text-avito-text-soft">
+            Alert — что показывать в мессенджере. Search — что грузить в БД для статистики (рекомендуется ±25% от alert).
+          </p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <label>
+            <span class="text-xs text-avito-text-soft">Alert min, ₽</span>
+            <input type="number" name="alert_min_price" min="0"
+                   value="{{ profile.alert_min_price if profile and profile.alert_min_price else '' }}"
+                   class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+          </label>
+          <label>
+            <span class="text-xs text-avito-text-soft">Alert max, ₽</span>
+            <input type="number" name="alert_max_price" min="0"
+                   value="{{ profile.alert_max_price if profile and profile.alert_max_price else '' }}"
+                   class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+          </label>
+          <label>
+            <span class="text-xs text-avito-text-soft">Search min, ₽ <span class="text-avito-text-muted">(auto = alert × 0.75)</span></span>
+            <input type="number" name="search_min_price" min="0"
+                   value="{{ profile.search_min_price if profile and profile.search_min_price else '' }}"
+                   class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+          </label>
+          <label>
+            <span class="text-xs text-avito-text-soft">Search max, ₽ <span class="text-avito-text-muted">(auto = alert × 1.25)</span></span>
+            <input type="number" name="search_max_price" min="0"
+                   value="{{ profile.search_max_price if profile and profile.search_max_price else '' }}"
+                   class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+          </label>
+        </div>
+
+        {% if profile and profile.alert_min_price and profile.alert_max_price %}
+        <div>
+          {{ dual_price_range(
+              profile.search_min_price, profile.search_max_price,
+              profile.alert_min_price,  profile.alert_max_price
+            ) }}
         </div>
         {% endif %}
-      </div>
+      </section>
+
+      <!-- Step 4: Overlay (collapsible) -->
+      <details class="bg-avito-surface rounded-lg border border-avito-border p-5">
+        <summary class="text-sm font-semibold text-avito-text cursor-pointer">Переопределения URL (overlay)</summary>
+        <div class="mt-3 space-y-3">
+          <p class="text-xs text-avito-text-soft">
+            Параметры, которые накладываются на исходный URL перед каждым прогоном (ADR-002).
+          </p>
+          <div class="grid grid-cols-2 gap-3">
+            <label>
+              <span class="text-xs text-avito-text-soft">Регион (slug)</span>
+              <input type="text" name="region_slug" list="regions"
+                     value="{{ profile.region_slug if profile else '' }}"
+                     placeholder="moskva"
+                     class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
+              <datalist id="regions">
+                {% for r in regions %}<option value="{{ r.slug }}">{{ r.name }}</option>{% endfor %}
+              </datalist>
+            </label>
+            <label>
+              <span class="text-xs text-avito-text-soft">Сортировка (s=)</span>
+              <select name="sort"
+                      class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
+                <option value="">Не задана</option>
+                <option value="104" {% if profile and profile.sort == 104 %}selected{% endif %}>По дате (новые сначала)</option>
+                <option value="1"   {% if profile and profile.sort == 1   %}selected{% endif %}>По цене ↑</option>
+                <option value="2"   {% if profile and profile.sort == 2   %}selected{% endif %}>По цене ↓</option>
+              </select>
+            </label>
+          </div>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="only_with_delivery" value="true"
+                   {% if profile and profile.only_with_delivery %}checked{% endif %}
+                   class="rounded">
+            <span>Только с Авито-доставкой</span>
+          </label>
+        </div>
+      </details>
+
+      <!-- Step 5: LLM criteria -->
+      <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-4">
+        <h2 class="text-sm font-semibold text-avito-text">LLM-критерии и фильтр состояния</h2>
+
+        <div>
+          <span class="text-xs text-avito-text-soft mb-2 block">Допустимые состояния (попадают в alert):</span>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+            {% for code, label in [
+                ('working', 'Рабочий'),
+                ('blocked_icloud', 'iCloud-блок'),
+                ('blocked_account', 'Блок аккаунт'),
+                ('not_starting', 'Не включается'),
+                ('broken_screen', 'Разбит экран'),
+                ('broken_other', 'Поломка'),
+                ('parts_only', 'На запчасти'),
+                ('unknown', 'Неизвестно'),
+              ] %}
+            <label class="flex items-center gap-2">
+              <input type="checkbox" name="allowed_conditions" value="{{ code }}"
+                     {% if (profile and code in (profile.allowed_conditions or [])) or (not profile and code == 'working') %}checked{% endif %}
+                     class="rounded">
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <label>
+          <span class="text-xs text-avito-text-soft mb-1 block">Произвольные критерии (естественный язык)</span>
+          <textarea name="custom_criteria" rows="3"
+                    placeholder="Аккумулятор не ниже 85%, без серьёзных царапин, не реплика..."
+                    class="w-full px-3 py-2 rounded-md border border-avito-border bg-white text-sm">{{ profile.custom_criteria if profile else '' }}</textarea>
+        </label>
+
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="analyze_photos" value="true"
+                 {% if profile and profile.analyze_photos %}checked{% endif %}
+                 class="rounded">
+          <span>Анализировать фото объявления (visual LLM)</span>
+        </label>
+      </section>
+
+      <!-- Step 5b: V2 pipeline toggle (flag-based eval) -->
+      <details class="bg-avito-surface rounded-lg border border-avito-border p-5"
+               {% if profile and profile.notification_settings and profile.notification_settings.get('llm_pipeline_v2') %}open{% endif %}>
+        <summary class="text-sm font-semibold cursor-pointer text-avito-text">
+          V2 пайплайн (флаг-based, экспериментальный)
+        </summary>
+        <div class="mt-4 space-y-4 text-sm">
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="enable_v2" value="true"
+                   {% if profile and profile.notification_settings and profile.notification_settings.get('llm_pipeline_v2') %}checked{% endif %}
+                   class="rounded">
+            <span>Использовать V2 пайплайн вместо ADR-010 двухступенчатого</span>
+          </label>
+
+          <label class="block">
+            <span class="text-xs text-avito-text-soft mb-1 block">Стратегия LLM-вызовов</span>
+            <select name="evaluate_strategy"
+                    class="px-3 py-2 rounded-md border border-avito-border bg-white">
+              <option value="per_criterion"
+                {% if not profile or profile.evaluate_strategy in (none, 'per_criterion') %}selected{% endif %}>
+                per_criterion — N вызовов (default, точнее, гранулярный кеш)
+              </option>
+              <option value="per_listing"
+                {% if profile and profile.evaluate_strategy == 'per_listing' %}selected{% endif %}>
+                per_listing — 1 batch вызов на лот (дёшево, но грубее)
+              </option>
+            </select>
+          </label>
+
+          <label class="block">
+            <span class="text-xs text-avito-text-soft mb-1 block">
+              Порог уверенности (0.50–0.99):
+              <output name="confidence_threshold_value" class="font-mono">{{ '%.2f' | format(profile.confidence_threshold | float if profile and profile.confidence_threshold else 0.7) }}</output>
+            </span>
+            <input type="range" name="confidence_threshold"
+                   min="0.50" max="0.99" step="0.05"
+                   value="{{ profile.confidence_threshold | float if profile and profile.confidence_threshold else 0.7 }}"
+                   class="w-full"
+                   oninput="this.parentElement.querySelector('output').value = parseFloat(this.value).toFixed(2)">
+          </label>
+
+          {# ---------------------------------------------------------- #}
+          {# Library criteria — checkbox-grouped by kind                #}
+          {# ---------------------------------------------------------- #}
+          {% set selected_keys = criteria_state.selected if criteria_state else {} %}
+          {% for grp in criteria_library or [] %}
+          <div class="border-t border-avito-border-soft pt-4 mt-4">
+            <h3 class="text-sm font-semibold text-avito-text mb-2">
+              {% if grp.kind == 'criterion' %}Жёсткие критерии{% endif %}
+              {% if grp.kind == 'info_llm' %}Info-поля (LLM-извлечение){% endif %}
+              {% if grp.kind == 'info_api' %}Info-поля (из параметров объявления){% endif %}
+            </h3>
+            <p class="text-xs text-avito-text-soft mb-3">
+              {% if grp.kind == 'criterion' %}Если критерий «срабатывает» (red) — лот уходит в авто-blacklist и в alert не попадает.{% endif %}
+              {% if grp.kind == 'info_llm' %}LLM извлекает значение из описания, без оценки.{% endif %}
+              {% if grp.kind == 'info_api' %}Берутся прямо из параметров объявления, без LLM.{% endif %}
+            </p>
+            <div class="space-y-3">
+              {% for item in grp['items'] %}
+              {% set is_checked = item.key in selected_keys %}
+              <div class="bg-avito-elev rounded-md p-3 border border-avito-border-soft">
+                <label class="flex items-start gap-2">
+                  <input type="checkbox"
+                         name="criteria_template_keys"
+                         value="{{ item.key }}"
+                         {% if is_checked %}checked{% endif %}
+                         class="rounded mt-0.5">
+                  <span class="flex-1">
+                    <span class="font-medium text-avito-text">{{ item.title_ru }}</span>
+                    {% if item.description_ru %}
+                    <span class="block text-xs text-avito-text-soft mt-0.5">{{ item.description_ru }}</span>
+                    {% endif %}
+                  </span>
+                </label>
+
+                {# Inline params for parametrised templates #}
+                {% if item.key == 'memory_gte' %}
+                <div class="mt-2 pl-6">
+                  <label class="block">
+                    <span class="text-xs text-avito-text-soft">Память не ниже, ГБ</span>
+                    <input type="number" min="8" max="4096" step="1"
+                           name="crit_param_memory_gte_gb"
+                           value="{{ selected_keys.get('memory_gte', {}).get('gb', '') }}"
+                           placeholder="например, 128"
+                           class="mt-1 w-32 px-2 py-1 rounded-md border border-avito-border bg-white text-sm tabular-nums">
+                  </label>
+                </div>
+                {% elif item.key == 'title_matches_model' %}
+                <div class="mt-2 pl-6">
+                  <label class="block">
+                    <span class="text-xs text-avito-text-soft">Допустимые модели (одна на строку)</span>
+                    <textarea rows="3"
+                              name="crit_param_title_matches_model_allowed"
+                              placeholder="iPhone 12 Pro Max&#10;iPhone 13 Pro Max"
+                              class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">{{ selected_keys.get('title_matches_model', {}).get('allowed', []) | join('\n') }}</textarea>
+                  </label>
+                </div>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+
+          {# ---------------------------------------------------------- #}
+          {# Custom rows — repeating block                              #}
+          {# ---------------------------------------------------------- #}
+          <div class="border-t border-avito-border-soft pt-4 mt-4">
+            <h3 class="text-sm font-semibold text-avito-text mb-2">Произвольные критерии</h3>
+            <p class="text-xs text-avito-text-soft mb-3">
+              Свои criterion / info_llm с собственным prompt-фрагментом. Для info_api используй библиотеку.
+            </p>
+            <div id="custom-criteria-rows" class="space-y-3">
+              {% for row in (criteria_state.custom if criteria_state else []) %}
+              <div class="custom-criterion-row bg-avito-elev rounded-md p-3 border border-avito-border-soft">
+                <div class="grid grid-cols-3 gap-2 mb-2">
+                  <label class="col-span-2">
+                    <span class="text-xs text-avito-text-soft">Название</span>
+                    <input type="text" name="custom_crit_title[]"
+                           value="{{ row.title }}"
+                           class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
+                  </label>
+                  <label>
+                    <span class="text-xs text-avito-text-soft">Тип</span>
+                    <select name="custom_crit_kind[]"
+                            class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
+                      <option value="criterion" {% if row.kind == 'criterion' %}selected{% endif %}>criterion</option>
+                      <option value="info_llm" {% if row.kind == 'info_llm' %}selected{% endif %}>info_llm</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="block">
+                  <span class="text-xs text-avito-text-soft">Prompt-фрагмент</span>
+                  <textarea name="custom_crit_prompt[]" rows="2"
+                            class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">{{ row.prompt }}</textarea>
+                </label>
+                <div class="text-right mt-2">
+                  <button type="button"
+                          onclick="this.closest('.custom-criterion-row').remove()"
+                          class="text-xs text-avito-negative hover:underline">
+                    Удалить
+                  </button>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+
+            {# Hidden template — cloned by JS when user clicks "Добавить свой" #}
+            <template id="custom-criterion-template">
+              <div class="custom-criterion-row bg-avito-elev rounded-md p-3 border border-avito-border-soft">
+                <div class="grid grid-cols-3 gap-2 mb-2">
+                  <label class="col-span-2">
+                    <span class="text-xs text-avito-text-soft">Название</span>
+                    <input type="text" name="custom_crit_title[]"
+                           class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
+                  </label>
+                  <label>
+                    <span class="text-xs text-avito-text-soft">Тип</span>
+                    <select name="custom_crit_kind[]"
+                            class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
+                      <option value="criterion" selected>criterion</option>
+                      <option value="info_llm">info_llm</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="block">
+                  <span class="text-xs text-avito-text-soft">Prompt-фрагмент</span>
+                  <textarea name="custom_crit_prompt[]" rows="2"
+                            class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm"></textarea>
+                </label>
+                <div class="text-right mt-2">
+                  <button type="button"
+                          onclick="this.closest('.custom-criterion-row').remove()"
+                          class="text-xs text-avito-negative hover:underline">
+                    Удалить
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <button type="button"
+                    onclick="(function(){ var t=document.getElementById('custom-criterion-template'); var c=t.content.cloneNode(true); document.getElementById('custom-criteria-rows').appendChild(c); })()"
+                    class="mt-3 px-3 py-1.5 rounded-md border border-avito-border text-xs hover:bg-avito-elev">
+              + Добавить свой
+            </button>
+          </div>
+        </div>
+      </details>
+
+      <!-- Step 6: Schedule -->
+      <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-3">
+        <h2 class="text-sm font-semibold text-avito-text">Расписание</h2>
+        <label>
+          <span class="text-xs text-avito-text-soft mb-1 block">Интервал опроса</span>
+          <select name="poll_interval_minutes"
+                  class="px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
+            {% for v in [2, 5, 10, 15, 30, 60] %}
+            <option value="{{ v }}" {% if profile and profile.poll_interval_minutes == v %}selected{% elif not profile and v == 15 %}selected{% endif %}>
+              {{ v }} мин
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_active" value="true"
+                 {% if not profile or profile.is_active %}checked{% endif %}
+                 class="rounded">
+          <span>Активен (опрашивать по расписанию)</span>
+        </label>
+      </section>
+
     </section>
-    {% endif %}
 
-    <!-- Step 2: Name -->
-    <section class="bg-avito-surface rounded-lg border border-avito-border p-5">
-      <label class="block">
-        <span class="text-sm font-semibold text-avito-text mb-1 block">Имя профиля</span>
-        <input type="text" name="name" required
-               value="{{ profile.name if profile else '' }}"
-               placeholder="Например: iPhone 12 Pro Max до 13.5K"
-               class="w-full px-3 py-2 rounded-md border border-avito-border bg-white text-sm focus:border-avito-brand focus:outline-none focus:ring-2 focus:ring-avito-brand-soft">
-      </label>
-    </section>
-
-    <!-- Step 3: Dual price range -->
-    <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-4">
-      <div>
-        <h2 class="text-sm font-semibold text-avito-text">Двойная вилка цен</h2>
-        <p class="text-xs text-avito-text-soft">
-          Alert — что показывать в мессенджере. Search — что грузить в БД для статистики (рекомендуется ±25% от alert).
-        </p>
-      </div>
-
-      <div class="grid grid-cols-2 gap-3">
-        <label>
-          <span class="text-xs text-avito-text-soft">Alert min, ₽</span>
-          <input type="number" name="alert_min_price" min="0"
-                 value="{{ profile.alert_min_price if profile and profile.alert_min_price else '' }}"
-                 class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
-        </label>
-        <label>
-          <span class="text-xs text-avito-text-soft">Alert max, ₽</span>
-          <input type="number" name="alert_max_price" min="0"
-                 value="{{ profile.alert_max_price if profile and profile.alert_max_price else '' }}"
-                 class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
-        </label>
-        <label>
-          <span class="text-xs text-avito-text-soft">Search min, ₽ <span class="text-avito-text-muted">(auto = alert × 0.75)</span></span>
-          <input type="number" name="search_min_price" min="0"
-                 value="{{ profile.search_min_price if profile and profile.search_min_price else '' }}"
-                 class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
-        </label>
-        <label>
-          <span class="text-xs text-avito-text-soft">Search max, ₽ <span class="text-avito-text-muted">(auto = alert × 1.25)</span></span>
-          <input type="number" name="search_max_price" min="0"
-                 value="{{ profile.search_max_price if profile and profile.search_max_price else '' }}"
-                 class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm tabular-nums">
-        </label>
-      </div>
-
-      {% if profile and profile.alert_min_price and profile.alert_max_price %}
-      <div>
-        {{ dual_price_range(
-            profile.search_min_price, profile.search_max_price,
-            profile.alert_min_price,  profile.alert_max_price
-          ) }}
-      </div>
+    {# ---------- Tab panel: Признаки ----------
+       Partial требует profile.id (для PATCH endpoint). На create-page (profile=None)
+       вместо partial рисуем placeholder — оператор сохранит профиль, потом вернётся. #}
+    <section role="tabpanel" data-panel="features" id="tabpanel-features"
+             aria-labelledby="tab-features"
+             {% if active_tab != 'features' %}hidden{% endif %}>
+      {% if profile and profile.id %}
+        {% include "_partials/feature_rules_section.html" %}
+      {% else %}
+        <div class="bg-avito-surface rounded-lg border border-avito-border p-5 text-sm text-avito-text-soft">
+          <p>
+            Сначала создайте профиль (сохраните настройки в табе «Поиск»). После
+            создания вернитесь сюда — здесь будет редактор per-feature правил.
+          </p>
+        </div>
       {% endif %}
     </section>
 
-    <!-- Step 4: Overlay (collapsible) -->
-    <details class="bg-avito-surface rounded-lg border border-avito-border p-5">
-      <summary class="text-sm font-semibold text-avito-text cursor-pointer">Переопределения URL (overlay)</summary>
-      <div class="mt-3 space-y-3">
-        <p class="text-xs text-avito-text-soft">
-          Параметры, которые накладываются на исходный URL перед каждым прогоном (ADR-002).
-        </p>
-        <div class="grid grid-cols-2 gap-3">
-          <label>
-            <span class="text-xs text-avito-text-soft">Регион (slug)</span>
-            <input type="text" name="region_slug" list="regions"
-                   value="{{ profile.region_slug if profile else '' }}"
-                   placeholder="moskva"
-                   class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
-            <datalist id="regions">
-              {% for r in regions %}<option value="{{ r.slug }}">{{ r.name }}</option>{% endfor %}
-            </datalist>
-          </label>
-          <label>
-            <span class="text-xs text-avito-text-soft">Сортировка (s=)</span>
-            <select name="sort"
-                    class="w-full mt-1 px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
-              <option value="">Не задана</option>
-              <option value="104" {% if profile and profile.sort == 104 %}selected{% endif %}>По дате (новые сначала)</option>
-              <option value="1"   {% if profile and profile.sort == 1   %}selected{% endif %}>По цене ↑</option>
-              <option value="2"   {% if profile and profile.sort == 2   %}selected{% endif %}>По цене ↓</option>
-            </select>
-          </label>
-        </div>
-        <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" name="only_with_delivery" value="true"
-                 {% if profile and profile.only_with_delivery %}checked{% endif %}
-                 class="rounded">
-          <span>Только с Авито-доставкой</span>
-        </label>
-      </div>
-    </details>
-
-    <!-- Step 5: LLM criteria -->
-    <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-4">
-      <h2 class="text-sm font-semibold text-avito-text">LLM-критерии и фильтр состояния</h2>
-
-      <div>
-        <span class="text-xs text-avito-text-soft mb-2 block">Допустимые состояния (попадают в alert):</span>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
-          {% for code, label in [
-              ('working', 'Рабочий'),
-              ('blocked_icloud', 'iCloud-блок'),
-              ('blocked_account', 'Блок аккаунт'),
-              ('not_starting', 'Не включается'),
-              ('broken_screen', 'Разбит экран'),
-              ('broken_other', 'Поломка'),
-              ('parts_only', 'На запчасти'),
-              ('unknown', 'Неизвестно'),
-            ] %}
+    {# ---------- Tab panel: Уведомления ----------
+       Перенесённый Step 7 markup (был form.html lines 424-441). Per spec §7.1 — пере­
+       мещаются существующие поля, не placeholder. #}
+    <section role="tabpanel" data-panel="notifications" id="tabpanel-notifications"
+             aria-labelledby="tab-notifications"
+             {% if active_tab != 'notifications' %}hidden{% endif %}>
+      <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-3">
+        <h2 class="text-sm font-semibold text-avito-text">Каналы уведомлений</h2>
+        <div class="flex gap-4 text-sm">
           <label class="flex items-center gap-2">
-            <input type="checkbox" name="allowed_conditions" value="{{ code }}"
-                   {% if (profile and code in (profile.allowed_conditions or [])) or (not profile and code == 'working') %}checked{% endif %}
+            <input type="checkbox" name="notification_channels" value="telegram"
+                   {% if not profile or 'telegram' in (profile.notification_channels or []) %}checked{% endif %}
                    class="rounded">
-            <span>{{ label }}</span>
+            <span>Telegram</span>
           </label>
-          {% endfor %}
+          <label class="flex items-center gap-2 opacity-60">
+            <input type="checkbox" name="notification_channels" value="max"
+                   {% if profile and 'max' in (profile.notification_channels or []) %}checked{% endif %}
+                   class="rounded">
+            <span>Max <span class="text-xs text-avito-text-muted">(скоро)</span></span>
+          </label>
         </div>
-      </div>
-
-      <label>
-        <span class="text-xs text-avito-text-soft mb-1 block">Произвольные критерии (естественный язык)</span>
-        <textarea name="custom_criteria" rows="3"
-                  placeholder="Аккумулятор не ниже 85%, без серьёзных царапин, не реплика..."
-                  class="w-full px-3 py-2 rounded-md border border-avito-border bg-white text-sm">{{ profile.custom_criteria if profile else '' }}</textarea>
-      </label>
-
-      <label class="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="analyze_photos" value="true"
-               {% if profile and profile.analyze_photos %}checked{% endif %}
-               class="rounded">
-        <span>Анализировать фото объявления (visual LLM)</span>
-      </label>
+      </section>
     </section>
 
-    <!-- Step 5b: V2 pipeline toggle (flag-based eval) -->
-    <details class="bg-avito-surface rounded-lg border border-avito-border p-5"
-             {% if profile and profile.notification_settings and profile.notification_settings.get('llm_pipeline_v2') %}open{% endif %}>
-      <summary class="text-sm font-semibold cursor-pointer text-avito-text">
-        V2 пайплайн (флаг-based, экспериментальный)
-      </summary>
-      <div class="mt-4 space-y-4 text-sm">
-        <label class="flex items-center gap-2">
-          <input type="checkbox" name="enable_v2" value="true"
-                 {% if profile and profile.notification_settings and profile.notification_settings.get('llm_pipeline_v2') %}checked{% endif %}
-                 class="rounded">
-          <span>Использовать V2 пайплайн вместо ADR-010 двухступенчатого</span>
-        </label>
-
-        <label class="block">
-          <span class="text-xs text-avito-text-soft mb-1 block">Стратегия LLM-вызовов</span>
-          <select name="evaluate_strategy"
-                  class="px-3 py-2 rounded-md border border-avito-border bg-white">
-            <option value="per_criterion"
-              {% if not profile or profile.evaluate_strategy in (none, 'per_criterion') %}selected{% endif %}>
-              per_criterion — N вызовов (default, точнее, гранулярный кеш)
-            </option>
-            <option value="per_listing"
-              {% if profile and profile.evaluate_strategy == 'per_listing' %}selected{% endif %}>
-              per_listing — 1 batch вызов на лот (дёшево, но грубее)
-            </option>
-          </select>
-        </label>
-
-        <label class="block">
-          <span class="text-xs text-avito-text-soft mb-1 block">
-            Порог уверенности (0.50–0.99):
-            <output name="confidence_threshold_value" class="font-mono">{{ '%.2f' | format(profile.confidence_threshold | float if profile and profile.confidence_threshold else 0.7) }}</output>
-          </span>
-          <input type="range" name="confidence_threshold"
-                 min="0.50" max="0.99" step="0.05"
-                 value="{{ profile.confidence_threshold | float if profile and profile.confidence_threshold else 0.7 }}"
-                 class="w-full"
-                 oninput="this.parentElement.querySelector('output').value = parseFloat(this.value).toFixed(2)">
-        </label>
-
-        {# ---------------------------------------------------------- #}
-        {# Library criteria — checkbox-grouped by kind                #}
-        {# ---------------------------------------------------------- #}
-        {% set selected_keys = criteria_state.selected if criteria_state else {} %}
-        {% for grp in criteria_library or [] %}
-        <div class="border-t border-avito-border-soft pt-4 mt-4">
-          <h3 class="text-sm font-semibold text-avito-text mb-2">
-            {% if grp.kind == 'criterion' %}Жёсткие критерии{% endif %}
-            {% if grp.kind == 'info_llm' %}Info-поля (LLM-извлечение){% endif %}
-            {% if grp.kind == 'info_api' %}Info-поля (из параметров объявления){% endif %}
-          </h3>
-          <p class="text-xs text-avito-text-soft mb-3">
-            {% if grp.kind == 'criterion' %}Если критерий «срабатывает» (red) — лот уходит в авто-blacklist и в alert не попадает.{% endif %}
-            {% if grp.kind == 'info_llm' %}LLM извлекает значение из описания, без оценки.{% endif %}
-            {% if grp.kind == 'info_api' %}Берутся прямо из параметров объявления, без LLM.{% endif %}
-          </p>
-          <div class="space-y-3">
-            {% for item in grp['items'] %}
-            {% set is_checked = item.key in selected_keys %}
-            <div class="bg-avito-elev rounded-md p-3 border border-avito-border-soft">
-              <label class="flex items-start gap-2">
-                <input type="checkbox"
-                       name="criteria_template_keys"
-                       value="{{ item.key }}"
-                       {% if is_checked %}checked{% endif %}
-                       class="rounded mt-0.5">
-                <span class="flex-1">
-                  <span class="font-medium text-avito-text">{{ item.title_ru }}</span>
-                  {% if item.description_ru %}
-                  <span class="block text-xs text-avito-text-soft mt-0.5">{{ item.description_ru }}</span>
-                  {% endif %}
-                </span>
-              </label>
-
-              {# Inline params for parametrised templates #}
-              {% if item.key == 'memory_gte' %}
-              <div class="mt-2 pl-6">
-                <label class="block">
-                  <span class="text-xs text-avito-text-soft">Память не ниже, ГБ</span>
-                  <input type="number" min="8" max="4096" step="1"
-                         name="crit_param_memory_gte_gb"
-                         value="{{ selected_keys.get('memory_gte', {}).get('gb', '') }}"
-                         placeholder="например, 128"
-                         class="mt-1 w-32 px-2 py-1 rounded-md border border-avito-border bg-white text-sm tabular-nums">
-                </label>
-              </div>
-              {% elif item.key == 'title_matches_model' %}
-              <div class="mt-2 pl-6">
-                <label class="block">
-                  <span class="text-xs text-avito-text-soft">Допустимые модели (одна на строку)</span>
-                  <textarea rows="3"
-                            name="crit_param_title_matches_model_allowed"
-                            placeholder="iPhone 12 Pro Max&#10;iPhone 13 Pro Max"
-                            class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">{{ selected_keys.get('title_matches_model', {}).get('allowed', []) | join('\n') }}</textarea>
-                </label>
-              </div>
-              {% endif %}
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-        {% endfor %}
-
-        {# ---------------------------------------------------------- #}
-        {# Custom rows — repeating block                              #}
-        {# ---------------------------------------------------------- #}
-        <div class="border-t border-avito-border-soft pt-4 mt-4">
-          <h3 class="text-sm font-semibold text-avito-text mb-2">Произвольные критерии</h3>
-          <p class="text-xs text-avito-text-soft mb-3">
-            Свои criterion / info_llm с собственным prompt-фрагментом. Для info_api используй библиотеку.
-          </p>
-          <div id="custom-criteria-rows" class="space-y-3">
-            {% for row in (criteria_state.custom if criteria_state else []) %}
-            <div class="custom-criterion-row bg-avito-elev rounded-md p-3 border border-avito-border-soft">
-              <div class="grid grid-cols-3 gap-2 mb-2">
-                <label class="col-span-2">
-                  <span class="text-xs text-avito-text-soft">Название</span>
-                  <input type="text" name="custom_crit_title[]"
-                         value="{{ row.title }}"
-                         class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
-                </label>
-                <label>
-                  <span class="text-xs text-avito-text-soft">Тип</span>
-                  <select name="custom_crit_kind[]"
-                          class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
-                    <option value="criterion" {% if row.kind == 'criterion' %}selected{% endif %}>criterion</option>
-                    <option value="info_llm" {% if row.kind == 'info_llm' %}selected{% endif %}>info_llm</option>
-                  </select>
-                </label>
-              </div>
-              <label class="block">
-                <span class="text-xs text-avito-text-soft">Prompt-фрагмент</span>
-                <textarea name="custom_crit_prompt[]" rows="2"
-                          class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">{{ row.prompt }}</textarea>
-              </label>
-              <div class="text-right mt-2">
-                <button type="button"
-                        onclick="this.closest('.custom-criterion-row').remove()"
-                        class="text-xs text-avito-negative hover:underline">
-                  Удалить
-                </button>
-              </div>
-            </div>
-            {% endfor %}
-          </div>
-
-          {# Hidden template — cloned by JS when user clicks "Добавить свой" #}
-          <template id="custom-criterion-template">
-            <div class="custom-criterion-row bg-avito-elev rounded-md p-3 border border-avito-border-soft">
-              <div class="grid grid-cols-3 gap-2 mb-2">
-                <label class="col-span-2">
-                  <span class="text-xs text-avito-text-soft">Название</span>
-                  <input type="text" name="custom_crit_title[]"
-                         class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
-                </label>
-                <label>
-                  <span class="text-xs text-avito-text-soft">Тип</span>
-                  <select name="custom_crit_kind[]"
-                          class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm">
-                    <option value="criterion" selected>criterion</option>
-                    <option value="info_llm">info_llm</option>
-                  </select>
-                </label>
-              </div>
-              <label class="block">
-                <span class="text-xs text-avito-text-soft">Prompt-фрагмент</span>
-                <textarea name="custom_crit_prompt[]" rows="2"
-                          class="mt-1 w-full px-2 py-1 rounded-md border border-avito-border bg-white text-sm"></textarea>
-              </label>
-              <div class="text-right mt-2">
-                <button type="button"
-                        onclick="this.closest('.custom-criterion-row').remove()"
-                        class="text-xs text-avito-negative hover:underline">
-                  Удалить
-                </button>
-              </div>
-            </div>
-          </template>
-
-          <button type="button"
-                  onclick="(function(){ var t=document.getElementById('custom-criterion-template'); var c=t.content.cloneNode(true); document.getElementById('custom-criteria-rows').appendChild(c); })()"
-                  class="mt-3 px-3 py-1.5 rounded-md border border-avito-border text-xs hover:bg-avito-elev">
-            + Добавить свой
-          </button>
-        </div>
-      </div>
-    </details>
-
-    <!-- Step 6: Schedule -->
-    <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-3">
-      <h2 class="text-sm font-semibold text-avito-text">Расписание</h2>
-      <label>
-        <span class="text-xs text-avito-text-soft mb-1 block">Интервал опроса</span>
-        <select name="poll_interval_minutes"
-                class="px-3 py-2 rounded-md border border-avito-border bg-white text-sm">
-          {% for v in [2, 5, 10, 15, 30, 60] %}
-          <option value="{{ v }}" {% if profile and profile.poll_interval_minutes == v %}selected{% elif not profile and v == 15 %}selected{% endif %}>
-            {{ v }} мин
-          </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label class="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="is_active" value="true"
-               {% if not profile or profile.is_active %}checked{% endif %}
-               class="rounded">
-        <span>Активен (опрашивать по расписанию)</span>
-      </label>
-    </section>
-
-    <!-- Step 7: Notifications -->
-    <section class="bg-avito-surface rounded-lg border border-avito-border p-5 space-y-3">
-      <h2 class="text-sm font-semibold text-avito-text">Уведомления</h2>
-      <div class="flex gap-4 text-sm">
-        <label class="flex items-center gap-2">
-          <input type="checkbox" name="notification_channels" value="telegram"
-                 {% if not profile or 'telegram' in (profile.notification_channels or []) %}checked{% endif %}
-                 class="rounded">
-          <span>Telegram</span>
-        </label>
-        <label class="flex items-center gap-2 opacity-60">
-          <input type="checkbox" name="notification_channels" value="max"
-                 {% if profile and 'max' in (profile.notification_channels or []) %}checked{% endif %}
-                 class="rounded">
-          <span>Max <span class="text-xs text-avito-text-muted">(скоро)</span></span>
-        </label>
-      </div>
-    </section>
-
+    {# ---------- Submit row (visible across all tabs) ---------- #}
     <div class="flex justify-between items-center pt-2">
       <a href="/search-profiles" class="px-4 py-2 rounded-md text-sm text-avito-text-soft hover:text-avito-text">
         Отмена
@@ -451,6 +513,7 @@
     </div>
   </form>
 
+  {# ---------- Danger zone (OUTSIDE outer form) ---------- #}
   {% if profile %}
   <div class="mt-8 pt-6 border-t border-avito-border-soft">
     <h3 class="text-sm font-semibold text-avito-negative mb-2">Опасная зона</h3>
