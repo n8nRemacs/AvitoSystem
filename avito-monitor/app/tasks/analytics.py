@@ -35,6 +35,7 @@ from app.db.base import get_sessionmaker
 from app.db.models import (
     Listing,
     Notification,
+    ProfileCriterion,
     ProfileListing,
     ProfileMarketStats,
     SearchProfile,
@@ -244,16 +245,42 @@ async def compute_market_stats(
             if r.price is not None
         ]
 
-        # Clean filter: use condition_class IN allowed_conditions.
-        # V2 bucket-based filtering removed in Phase 2.1 Task 4.
-        allowed = set(
-            profile.allowed_conditions or [ConditionClass.WORKING.value]
+        # Clean filter: v2 (flag-based) profiles use bucket='green';
+        # legacy profiles still use condition_class IN allowed_conditions.
+        # Detect v2 by presence of any profile_criteria row — this also
+        # naturally turns off the legacy branch once Phase C drops the
+        # legacy columns.
+        has_v2_criteria = bool(
+            await session.scalar(
+                select(func.count())
+                .select_from(ProfileCriterion)
+                .where(ProfileCriterion.profile_id == pid)
+            )
         )
-        prices_clean = [
-            float(r.price)
-            for r in rows
-            if r.price is not None and r.condition_class in allowed
-        ]
+        if has_v2_criteria:
+            bucket_rows = (
+                await session.execute(
+                    select(ProfileListing.listing_id, ProfileListing.bucket)
+                    .where(ProfileListing.profile_id == pid)
+                )
+            ).all()
+            listing_bucket: dict[uuid.UUID, str | None] = {
+                lid: bucket for lid, bucket in bucket_rows
+            }
+            prices_clean = [
+                float(r.price)
+                for r in rows
+                if r.price is not None and listing_bucket.get(r.id) == "green"
+            ]
+        else:
+            allowed = set(
+                profile.allowed_conditions or [ConditionClass.WORKING.value]
+            )
+            prices_clean = [
+                float(r.price)
+                for r in rows
+                if r.price is not None and r.condition_class in allowed
+            ]
 
         median_raw = round(statistics.median(prices_raw), 2) if prices_raw else None
         median_clean = (
