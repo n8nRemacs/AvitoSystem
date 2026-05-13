@@ -42,20 +42,18 @@ V2_TO_DEFECT_MAP: dict[str, list[str]] = {
 async def fetch_v2_rules(
     conn: asyncpg.Connection, profile_id: str | None
 ) -> list[dict[str, Any]]:
+    base_sql = """
+        SELECT pc.profile_id::text AS profile_id,
+               COALESCE(t.key, pc.custom_key) AS criterion_key,
+               pc.is_hard
+        FROM profile_criteria pc
+        LEFT JOIN criteria_templates t ON t.id = pc.template_id
+        WHERE pc.is_hard = true
+    """
     if profile_id:
-        sql = (
-            "SELECT profile_id::text AS profile_id, criterion_key, enabled "
-            "FROM profile_criteria "
-            "WHERE enabled = true AND profile_id = $1::uuid "
-            "ORDER BY profile_id, criterion_key"
-        )
+        sql = base_sql + " AND pc.profile_id = $1::uuid ORDER BY pc.profile_id, criterion_key"
         return await conn.fetch(sql, profile_id)
-    sql = (
-        "SELECT profile_id::text AS profile_id, criterion_key, enabled "
-        "FROM profile_criteria "
-        "WHERE enabled = true "
-        "ORDER BY profile_id, criterion_key"
-    )
+    sql = base_sql + " ORDER BY pc.profile_id, criterion_key"
     return await conn.fetch(sql)
 
 
@@ -74,6 +72,16 @@ async def main(args: argparse.Namespace) -> int:
     dsn = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(dsn, statement_cache_size=0)
     try:
+        exists = await conn.fetchval(
+            "SELECT to_regclass('public.profile_criteria') IS NOT NULL"
+        )
+        if not exists:
+            print(
+                "profile_criteria table not found — migration 0016 has already been "
+                "applied. Nothing to migrate."
+            )
+            return 0
+
         v2_rows = await fetch_v2_rules(
             conn, args.profile if not args.all else None
         )
