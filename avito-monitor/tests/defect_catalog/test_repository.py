@@ -8,6 +8,8 @@ from app.services.defect_catalog.repository import (
     create_feature_node,
     get_feature_node,
     list_feature_children,
+    update_feature_node,
+    delete_feature_node,
 )
 
 
@@ -60,4 +62,45 @@ async def test_create_rejects_invalid_slug(db_session):
     with pytest.raises(ValueError, match="slug"):
         await create_feature_node(
             db_session, parent_id=None, kind="node", slug="Bad Slug", title="x",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task 9: feature_node update / delete + duplicate-slug guard
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_update_feature_node_title(db_session):
+    nid = await create_feature_node(
+        db_session, parent_id=None, kind="node", slug="case", title="Корпус",
+    )
+    await update_feature_node(db_session, nid, title="Корпус (обновлено)")
+    fn = await get_feature_node(db_session, nid)
+    assert fn.title == "Корпус (обновлено)"
+
+
+@pytest.mark.asyncio
+async def test_delete_cascade(db_session):
+    case_id = await create_feature_node(
+        db_session, parent_id=None, kind="node", slug="case", title="Корпус",
+    )
+    leaf_id = await create_feature_node(
+        db_session, parent_id=case_id, kind="defect",
+        slug="back_broken", title="x",
+    )
+    await delete_feature_node(db_session, case_id)
+    assert await get_feature_node(db_session, leaf_id) is None
+
+
+@pytest.mark.asyncio
+async def test_duplicate_slug_in_parent_rejected(db_session):
+    pid = await create_feature_node(
+        db_session, parent_id=None, kind="node", slug="case", title="Корпус",
+    )
+    await create_feature_node(
+        db_session, parent_id=pid, kind="defect", slug="back_broken", title="A",
+    )
+    with pytest.raises(Exception):  # IntegrityError
+        await create_feature_node(
+            db_session, parent_id=pid, kind="defect", slug="back_broken", title="B",
         )

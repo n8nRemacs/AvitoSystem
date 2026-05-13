@@ -305,6 +305,10 @@ Plan-стадия покажет точную декомпозицию.
 
 ## 8. Что НЕ закрыто и пойдёт в V1.5+
 
+- **Detection «снято с публикации»** — **сигнал уже доступен:** existing `listings.status='closed'`. Когда продавец снимает лот, он пропадает из Avito search results; polling.py `_close_disappeared` (full-pagination runs, раз в час) помечает `listings.status='closed'`. Empirically verified 2026-05-11: lot 8079097477 (web показывает «снято») имеет `listings.status='closed', last_seen_at=2026-05-10 19:29`. Avito mobile `/items/{id}` endpoint при этом продолжает отдавать full normal payload — поэтому tylko search-based detection надёжный. Два триггера:
+  - **Periodic** (`dialog_check_unpublished_tick` worker, раз в 2-3ч) — JOIN `seller_dialogs` + `listings` где `seller_dialogs.closed_at IS NULL AND seller_dialogs.stage IN ('contact','questions_setup','questions','price_negotiation','price_changed','purchased') AND listings.status='closed'` → закрыть в Отказы. Никаких xapi-вызовов, чистый SQL.
+  - **Pre-flight** — перед каждым исходящим сообщением бота (greeting, формулировка вопроса, recap, follow-up) read `listings.status`; если `closed` → закрыть диалог в Отказы и не отправлять. Нет смысла слать в снятый лот.
+  - **При detection** → `seller_dialogs.closed_at=now()`, `closed_reason='unpublished'`. На этапах 7+ (после «Отправка совершена») снятие лота — норма (продавец снимает после продажи нам), не проверяем.
 - **Avito-delivery tracking endpoint** — нужен новый xapi-метод для real-time tracking (этапы 7 и 8). MVP полагается на manual confirm от оператора + heuristic на messages keywords.
 - **Phase 2 smart auto-tick тем + per-model severity** — когда наберётся статистика по диалогам и шаблоны вопросов, для каждого профиля (= per-model) появится:
   - **Severity per topic**: одна и та же тема (например «замена дисплея») для модели A — критичная (red-flag, suggest reject если seller подтверждает), для модели B — info-only (просто записать в extracted_data)

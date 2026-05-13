@@ -122,3 +122,62 @@ async def list_feature_children(
             )
         ).all()
     return [_row_to_fn(r) for r in rows]
+
+
+# Sentinel for "not provided" (distinguishes None from "not passed")
+_UNSET = object()
+
+
+async def update_feature_node(
+    session: AsyncSession,
+    nid: uuid.UUID,
+    *,
+    title: str | None = None,
+    slug: str | None = None,
+    parent_id: object = _UNSET,
+    sort_order: int | None = None,
+    prompt_hint: object = _UNSET,
+    kind: str | None = None,
+) -> None:
+    sets: list[str] = []
+    params: dict = {"id": str(nid)}
+
+    if title is not None:
+        sets.append("title = :title")
+        params["title"] = title
+    if slug is not None:
+        validate_slug(slug)
+        sets.append("slug = :slug")
+        params["slug"] = slug
+    if parent_id is not _UNSET:
+        sets.append("parent_id = :pid")
+        params["pid"] = str(parent_id) if parent_id else None
+    if sort_order is not None:
+        sets.append("sort_order = :sort")
+        params["sort"] = sort_order
+    if prompt_hint is not _UNSET:
+        sets.append("prompt_hint = :hint")
+        params["hint"] = prompt_hint
+    if kind is not None:
+        if kind not in ("node", "defect"):
+            raise ValueError(f"Invalid kind {kind!r}")
+        sets.append("kind = :kind")
+        params["kind"] = kind
+
+    if not sets:
+        return
+
+    sets.append("updated_at = datetime('now')")
+    await session.execute(
+        text(f"UPDATE feature_nodes SET {', '.join(sets)} WHERE id = :id"),
+        params,
+    )
+    await session.commit()
+
+
+async def delete_feature_node(session: AsyncSession, nid: uuid.UUID) -> None:
+    await session.execute(
+        text("DELETE FROM feature_nodes WHERE id = :id"),
+        {"id": str(nid)},
+    )
+    await session.commit()

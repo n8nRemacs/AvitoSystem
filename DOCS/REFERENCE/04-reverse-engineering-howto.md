@@ -414,11 +414,118 @@ Avito использует DoH/DoT. Домены Avito не разрезолвя
 
 ---
 
+## 11. DEX byte-grep + androguard low-level (когда jadx недоступен)
+
+**Когда применять:** jadx download/install не работает (как было 2026-05-07 — exit 28/56 трижды), но нужно extract endpoint URLs, Api class names, method signatures.
+
+**Принцип:** APK = ZIP, classes*.dex — бинарные файлы где UTF-8 strings хранятся в string table. Можно их извлекать regex'ами без full Java decompile.
+
+### 11.1 Setup
+
+```bash
+# Распаковать APK через Python (zipfile handles NTFS case duplicates с try/skip)
+python -c "
+import zipfile, os
+with zipfile.ZipFile('avito.apk') as zf:
+    for info in zf.infolist():
+        target = os.path.join('unpacked', info.filename.replace('/', os.sep))
+        if os.path.exists(target): continue
+        try: zf.extract(info, 'unpacked')
+        except Exception as e: print(f'skip: {e}')
+"
+
+# Установить androguard (pure Python, без java)
+pip install androguard
+```
+
+### 11.2 Что можно извлечь без jadx
+
+| Артефакт | Метод | Время |
+|---|---|---|
+| Все Retrofit URL templates | regex `[1-9][0-9]?/[a-z][a-zA-Z0-9_/{}\\-.]{3,150}` по DEX bytes | 5-10 сек |
+| Auto-generated API packages (`api_<v>_<path>`) | regex `/generated/api/(api_[0-9]+_[a-zA-Z0-9_]+)/` | 5 сек |
+| Все class signatures | regex `L[a-zA-Z0-9_/\\-]+(?:\\$[a-zA-Z0-9_]+)?;` | |
+| Api interface classes | filter signatures ending in `Api;` или `Api$X;` | |
+| Method signatures | через `androguard.core.dex.DEX(data).get_classes()` per-class iteration (~9 сек на 12МБ DEX) | 9-15 сек/DEX |
+| Hardcoded numeric IDs | regex `(?<![0-9])<id>(?![0-9])` для конкретных ID | |
+| Deeplinks | regex `ru\\.avito://[a-zA-Z0-9_/\\-{}.?&=:%]+` | |
+| Full URLs | regex `https?://[a-zA-Z0-9._\\-]+(?:/[a-zA-Z0-9_/\\-.{}?&=%:#~]*)?` | |
+
+### 11.3 Что НЕ извлечь без jadx
+
+| Что | Почему |
+|---|---|
+| Точная сигнатура метода (param names, default values) | DEX не хранит param names в release builds |
+| HTTP method (@GET vs @POST vs @PUT) аннотации | Avito obfuscates Retrofit annotations (`Lretrofit2/http/GET;` 0 hits в DEX) — нужен jadx чтобы decode obfuscated `@Mg1.f`/`@Mg1.o` |
+| Resolution URL → declaring class | DEX cross-references скрыты в encoded_value tables; полный resolve требует androguard `Analysis()` xref (зависает на 12МБ DEX) |
+| Java code logic | очевидно нужен decompile |
+
+### 11.4 Workflow примерами
+
+**Найти все Retrofit URL templates:**
+```python
+import re, glob
+all_urls = set()
+for dex in glob.glob('unpacked/classes*.dex'):
+    with open(dex, 'rb') as f: data = f.read()
+    for m in re.finditer(rb'[\x20-\x7e]{6,200}', data):
+        s = m.group(0).decode('ascii', errors='ignore')
+        if re.fullmatch(r'[1-9][0-9]?/[a-z][a-zA-Z0-9_/{}.\-]{3,150}', s):
+            all_urls.add(s)
+print(f'unique URLs: {len(all_urls)}')
+```
+
+**Найти все Api classes per DEX (быстрее full Analysis):**
+```python
+from androguard.core.dex import DEX
+with open('classes16.dex', 'rb') as f: data = f.read()
+d = DEX(data)
+for c in d.get_classes():
+    if 'Api;' in c.get_name() or 'Api$' in c.get_name():
+        print(c.get_name())
+        for m in c.get_methods():
+            print(f'  {m.get_name()}{m.get_descriptor()}')
+```
+
+**Найти URL → DEX mapping:**
+```python
+target = b'15/dicts/parameters'
+for dex in glob.glob('unpacked/classes*.dex'):
+    with open(dex, 'rb') as f: data = f.read()
+    if target in data:
+        print(f'{dex}: offset {data.find(target)}')
+```
+
+### 11.5 Limitations
+
+- ❌ R8 string pool merging — все strings из всех DEX могут быть в **одном** DEX (classes3 в нашем case) даже если using class в другом DEX → proximity-based heuristics не работают
+- ❌ androguard `Analysis()` для cross-DEX xrefs зависает на 12 МБ DEX (DAD decompiler bottleneck)
+- ❌ Retrofit annotations obfuscated — нельзя directly resolve URL → method без full Java decompile
+- ✅ Достаточно для **endpoint inventory** + **predicting method names** through naming convention (см. `07-retrofit-api-classes.md` § «Naming convention pattern»)
+
+### 11.6 Полная сессия 2026-05-07
+
+Полный example: 8 discovery passes + cross-validation для APK v222.5 в `Reverse Avito/findings/` (gitignored). Скрипты — `Reverse Avito/tools/discover_pass*.py`, `extract_*_apis.py`, `cross_validate.py`.
+
+Результаты:
+- 1904 unique Retrofit URL templates extracted
+- 207 auto-generated API packages catalogued
+- 263/268 Avito Api class method dumps (`Reverse Avito/findings/raw/all_api_methods.txt`, 1408 строк)
+- 40/43 endpoint URL strings cross-validated
+- 18/18 data class signatures verified
+- Critical missing: declaring class для `15/dicts/parameters` (likely manual interface)
+
+---
+
 ## Ссылки
 
-- `01-avito-api.md` — все известные endpoints, заголовки, структура JWT
+- `01-avito-api.md` — все известные endpoints, заголовки, структура JWT (включая §H после v222.5 reverse)
 - `02-auth-and-tokens.md` — lifecycle токенов, ban detection, multi-account
 - `03-android-setup.md` — физическая инфраструктура (OnePlus, Magisk, ADB)
+- `07-retrofit-api-classes.md` — все Retrofit Api interfaces + naming convention (после v222.5 reverse)
+- `08-data-models.md` — data classes (DictionaryEntity, SelectParameter, etc) после v222.5 reverse
+- `09-deeplinks-and-screens.md` — deeplink subtypes + Beduin server-driven UI
 - `DOCS/avito_api_snapshots/autosearches/README.md` — пример полного реверса (subscriptions v222.5)
+- `Reverse Avito/findings/` — raw scan outputs (gitignored): all_api_methods.txt, retrofit_urls.txt, test_results.txt
 - `avito-farm-agent/` — все Frida-скрипты (js) и Python-инструменты реверса
 - `AvitoAll/PROGRESS_REPORT.md` — дневник ранних экспериментов (2026-01)

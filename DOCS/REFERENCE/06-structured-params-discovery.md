@@ -1,11 +1,16 @@
 # Structured Params Discovery — как найти числовые ID для precise search
 
 **Создано:** 2026-05-07
+**Обновлено:** 2026-05-08 — после полного APK reverse engineering v222.5 добавлены §5-§7
+**Обновлено:** 2026-05-08 (вечер) — **live testing endpoints** добавлен §6.5 с empirical findings (POST! не GET!)
 **Назначение:** методология добычи параметр-ID и значений Avito mobile API, чтобы строить точные `params[brand_id][0]=brand_value&params[model_id][0]=model_value&...` запросы вместо fuzzy text + post-filter.
 
 **Связано:**
 - `05-search-query-formation.md` — TL;DR проблемы, 3 пути решения, эмпирика QRATOR
 - `01-avito-api.md` §B.1 — описание endpoint'а `/api/11/items`
+- `07-retrofit-api-classes.md` — Retrofit Api interfaces (включая candidate'ов для catalog endpoint)
+- `08-data-models.md` — `DictionaryEntity`, `SelectParameter`, `ParametersTree`
+- `09-deeplinks-and-screens.md` — Beduin server-driven UI (alternative path)
 - `DOCS/avito_api_snapshots/autosearches/README.md` — реверс `/2/subscriptions/{id}` с примером deeplink
 
 ---
@@ -227,12 +232,235 @@ Estimate Phase 1-3: **~3ч кодинга** для базового pipeline. Д
 
 ---
 
-## 7. Связанные документы
+## 5. APK v222.5 Reverse — Findings (2026-05-07/08)
+
+После полного reverse engineering Avito Android APK v222.5 (359 МБ, classes*.dex, 18320 файлов unpacked) — на основании 8 discovery passes + cross-validation — собрана полная картина:
+
+### 5.1 Что подтверждено
+
+- ✅ URL endpoints `15/dicts/parameters`, `16/dicts/parameters`, `2/dicts/parameters/filter`, `1/dicts/navigation` — **существуют как DEX strings** (classes3, 11, 18). Проверено cross-validation 40/43 endpoints PASS.
+- ✅ Data classes verified — `DictionaryEntity`, `CategoryParameters`, `SelectParameter` (10 inner forms), `ParametersTree`, `SimpleParametersTree`, `SearchParams` (33 fields) — все 18/18 PASS.
+- ✅ `SubscriptionListMobileApi` data class **точно совпадает** с `DOCS/avito_api_snapshots/autosearches/README.md` (поля `deepLink`, `id`=filterId, `ssid`, `title`, `hasNewItems`, `pushFrequency`, `editAction`, `openAction`, `description`, `sendEmail`).
+- ✅ `NewCarsMarkModelFilterApi` confirmed — методы `apiNewCarsFilterBrands()`, `apiNewCarsFilterModels(brandIds)`, `apiNewCarsFilterApply(brands, models)`. **Это blueprint для phone-equivalent catalog endpoint.**
+- ✅ Brand+model IDs (491590, 469735, 110617, 110618, 110680) **0 hits в DEX** — fully server-side (не hardcoded в APK).
+
+### 5.2 Что НЕ найдено в auto-generated Api classes
+
+**`15/dicts/parameters` declaring class — TBD.** В 263 auto-generated Avito Api classes (полный dump в `Reverse Avito/findings/raw/all_api_methods.txt`) метода `apiDictsParameters` / `getDictsParameters` / `dictsParameters` нет.
+
+**Hypothesis:**
+1. Endpoint declared в **manual/legacy** Retrofit interface (Avito имеет obfuscated annotation prefix `@Mg1.f("URL")` — см. `04-reverse-engineering-howto.md`)
+2. ИЛИ endpoint **deprecated** в v222.5 (string survives в R8 build, но больше не вызывается)
+3. ИЛИ filter taxonomy теперь serves through **Beduin server-driven UI** (`ru.avito://1/beduin/v2/universalPage`) — см. `09-deeplinks-and-screens.md`
+
+### 5.3 Top-5 candidate endpoints (ranked by confidence)
+
+| # | Endpoint | Retrofit method | Confidence | Notes |
+|---|---|---|---|---|
+| 1 | `GET /api/1/serp/pro/filters/init` | `UserAdvertsApi.proFiltersInitV1(String, String)` | ⭐⭐⭐ HIGH | Verified Retrofit method ✓. Two String args likely `(categoryId, contextOrToken)`. Risk: может требовать Pro-account. |
+| 2 | `GET /api/1/items/profile/search/inline-filters` | unknown (likely в legacy interface) | ⭐⭐ MEDIUM | URL ✓, naming directly matches "inline filters". Risk: "profile/search" prefix может ограничить use case. |
+| 3 | `GET /api/15/dicts/parameters?categoryId=84` | unknown (TBD) | ⭐⭐ MEDIUM | URL ✓, likely takes `categoryId` query. Возможно deprecated. |
+| 4 | `GET /api/16/dicts/parameters?categoryId=84` | unknown (TBD) | ⭐⭐ MEDIUM | URL ✓, newer version v16. Same hypothesis. |
+| 5 | `GET /api/2/params/suggest` | `PublishApi.suggestParamsApiV2(SuggestApiRequest)` | ⭐ LOW | Verified Retrofit method ✓, но в **PublishApi** (для posting, не для search). |
+
+**Backup candidate:** `FilterApi.subscriptionsMobileFilter(filterId: Long)` [classes4] — взять saved subscription и получить filter taxonomy для её категории. Pattern: создать 1 subscription для phones → дёрнуть filter endpoint → получить таксономию.
+
+---
+
+## 6. Test plan (когда будет fresh JWT)
+
+### ⚠ SAFETY WARNING
+
+Pool QRATOR-locked при первой попытке тестирования endpoints. Для fresh JWT юзер должен logout/login в Avito-app под `157920214` — токен должен быть born на ru-vpn IP (155.212.217.226). Каждый test request имеет ~5% risk триггера 403 captcha. **Тестировать в этом порядке** для максимума инфо-per-request.
+
+### Phase 1 — low-risk endpoints (можно отправлять первыми)
+
+Mimic Avito-app's normal startup behavior:
+
+```bash
+# 1. Subscription list (we know works)
+curl -X GET "https://app.avito.ru/api/5/subscriptions" \
+  -H "X-Auth: Bearer $TOKEN" \
+  -H "X-Geo-required: true" \
+  --proxy socks5h://172.18.0.1:1081
+
+# 2. Category tree (low risk)
+curl -X GET "https://app.avito.ru/api/1/category/tree" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+```
+
+### Phase 2 — catalog candidate testing (60s паузы между)
+
+```bash
+# 3. Test 15/dicts/parameters with categoryId=84
+curl -X GET "https://app.avito.ru/api/15/dicts/parameters?categoryId=84" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+
+# 4. Test 16/dicts/parameters with categoryId=84
+curl -X GET "https://app.avito.ru/api/16/dicts/parameters?categoryId=84" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+
+# 5. Test 16/dicts/parameters с paramId queries
+curl -X GET "https://app.avito.ru/api/16/dicts/parameters?categoryId=84&parameterIds=110617,110618" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+
+# 6. Test 16/dicts/parameters parent-aware (Apple's models)
+curl -X GET "https://app.avito.ru/api/16/dicts/parameters?categoryId=84&parameterId=110618&parentValue=491590" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+
+# 7. Test 2/dicts/parameters/filter
+curl -X GET "https://app.avito.ru/api/2/dicts/parameters/filter?categoryId=84" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+```
+
+### Phase 3 — backup catalog candidates
+
+```bash
+# 8. Inline filters для current SERP (URL имеет dashes, не slashes для last segment)
+curl -X GET "https://app.avito.ru/api/1/items/profile/search/inline-filters?categoryId=84" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+
+# 9. Pro filters init (может требовать Pro-account)
+curl -X GET "https://app.avito.ru/api/1/serp/pro/filters/init?categoryId=84" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+
+# 10. New cars (verified to work — get response shape)
+curl -X GET "https://app.avito.ru/api/1/new-cars/filter/brands" \
+  -H "X-Auth: Bearer $TOKEN" \
+  --proxy socks5h://172.18.0.1:1081
+```
+
+### Phase 4 — definitive validation
+
+Если что-то из выше returns brand+model list with IDs:
+1. Compare returned `iPhone 12 Pro Max → ID` against known `469735`
+2. Verify response schema matches `DictionaryEntity` shape `{id: Long, name: String, parent?: Long}`
+
+### Fallback plan
+
+Если всё выше returns 403/404/unexpected → **Variant A subscription mining** из §3:
+- User saves ~35 subscriptions в Avito-app (по 1 на iPhone модель)
+- `autosearch_sync` импортирует все → парсит `deepLink` → extracts `params[110617]` + `params[110618]`
+- Build `avito_param_catalog` from accumulated data
+
+**Time estimate:** 30 min user clicks + 1 hr coding (vs ~3-5 hrs для catalog endpoint test).
+
+---
+
+## 6.5 EMPIRICAL FINDINGS (live testing 2026-05-08) ⭐⭐⭐
+
+**Тестировано через xapi с fresh JWT (auto-431483569-61238c, TTL 23.9h, ru-vpn outbound):**
+
+### 6.5.1 GET tests результаты
+
+| # | Endpoint (GET) | Status | Conclusion |
+|---|---|---|---|
+| 1 | `/5/subscriptions` (sanity) | **200** | токен живой ✓ |
+| 2 | `/15/dicts/parameters?categoryId=84` | **405** Method Not Allowed | endpoint EXISTS, требуется POST |
+| 3 | `/16/dicts/parameters?categoryId=84` | **405** | endpoint EXISTS, требуется POST |
+| 4 | `/2/dicts/parameters/filter?categoryId=84` | **405** | endpoint EXISTS, требуется POST |
+| 5 | `/1/items/profile/search/inline-filters?categoryId=84` | 403 captcha | сжёг trust на этом URL — возможно тоже POST |
+| 6 | `/1/serp/pro/filters/init?categoryId=84` | **500** internal error | endpoint работает, но мои query params неправильные |
+
+### 6.5.2 POST attempt результаты
+
+```
+POST /16/dicts/parameters
+Content-Type: application/json
+Body: {"categoryId": 84}
+
+→ 400 "invalid content type"
+```
+
+```
+POST /16/dicts/parameters
+Content-Type: application/x-www-form-urlencoded
+Body: categoryId=84
+
+→ 403 captcha (токен уже зажат к этому моменту от 7+ предыдущих запросов)
+```
+
+### 6.5.3 КЛЮЧЕВЫЕ ВЫВОДЫ
+
+1. ✅ **Catalog endpoints `15/16/dicts/parameters` СУЩЕСТВУЮТ** и доступны нашему JWT
+2. ❌ Они **НЕ принимают `application/json`** — error "invalid content type"
+3. ❓ `application/x-www-form-urlencoded` не успели проверить (token burned)
+4. ⚠ **Trust score у QRATOR расходуется на ЛЮБОЙ unusual статус** (405, 400, 500), не только на 403. После ~5-7 запросов на endpoint'ы которые JWT не должен дёргать — токен помечается captcha-mode на all-IP
+5. ⚠ Lesson: **max 2-3 запроса на endpoint per JWT** — иначе сжигание
+
+### 6.5.4 План для NEXT session (с fresh JWT)
+
+ОЧЕНЬ ОСТОРОЖНО, max 2 запроса:
+
+```bash
+# Variant 1 — naked categoryId
+POST https://app.avito.ru/api/16/dicts/parameters
+Content-Type: application/x-www-form-urlencoded
+Body: categoryId=84
+```
+
+Возможные исходы:
+- `200 + JSON {"110617":[...], "110618":[...]}` → ⭐ **SUCCESS, у нас catalog**
+- `400 invalid content type` → попробовать `multipart/form-data`
+- `400 missing field X` → добавить X в body (например `parameterIds[0]=110617`)
+- `403 captcha` → токен зажат — STOP
+
+```bash
+# Variant 2 (only if Variant 1 returns 400 missing field)
+POST https://app.avito.ru/api/16/dicts/parameters
+Content-Type: application/x-www-form-urlencoded
+Body: categoryId=84&parameterIds[0]=110617&parameterIds[1]=110618
+```
+
+Если оба варианта 400 — значит endpoint требует знания которое из APK не достать без jadx. Fallback на Variant A subscription mining.
+
+### 6.5.5 Test script (готовый — копируй и запускай)
+
+В `CONTINUE.md` §6 — full bash command which: load fresh session by nickname → POST request → print response. Главное: change `NICK = "auto-FRESH-NICKNAME-HERE"` на актуальный после refresh.
+
+---
+
+## 6.6 Если catalog endpoint НЕ работает — Subscription mining как fallback
+
+См. §3.A "Subscription deeplink mining" выше — эталонный fallback. Кратко:
+- User saves 35 subscriptions в Avito-app (по 1 на iPhone модель + 3-5 для других параметров)
+- `autosearch_sync` импортирует → парсит `deepLink` → extracts `params[110617]/[110618]/[...]`
+- Build `avito_param_catalog` from accumulated data
+
+Time: ~30 мин user click + ~1ч кодинга `_extract_params_to_catalog()`.
+
+---
+
+## 7. Что НЕ работает (для справки)
+
+Подтверждено from APK reverse + 2026-05-07 empirical findings:
+- ❌ Querying `categoryId` alone on `/11/items` без full structured params → **QRATOR 403**
+- ❌ `/api/N/categories/{id}/parameters` — endpoints не existent (no URL strings в DEX)
+- ❌ Декодирование web URL `f=AS...` blob — opaque protobuf, no public schema
+- ❌ Hardcoded ID lookup table inside APK — IDs 100% server-side
+- ❌ `apiDictsParameters` / `getDictsParameters` / `dictsParameters` — methods НЕ в 263 auto-generated Api classes
+- ❌ `retrofit2/http/*` annotations — fully obfuscated в DEX (0 hits)
+
+---
+
+## 8. Связанные документы
 
 - `05-search-query-formation.md` § «3 пути исправления» — Variant B (subscription flow) — этот документ его развивает в практическую таксономию
+- `07-retrofit-api-classes.md` — все Retrofit Api interfaces (включая candidate'ов для catalog endpoint)
+- `08-data-models.md` — `DictionaryEntity`, `SelectParameter`, `ParametersTree`, `SearchParams`
+- `09-deeplinks-and-screens.md` — Beduin server-driven UI + deeplink subtypes
 - `DOCS/avito_api_snapshots/autosearches/README.md` — реверс subscriptions endpoint'ов
 - `DOCS/avito_api_snapshots/categories_tree.json` — категории (web slug+id)
 - `DOCS/avito_api_snapshots/phone_catalog.xml` — phone brand/model names (без ID)
-- `04-reverse-engineering-howto.md` — методика jadx + mitm
+- `04-reverse-engineering-howto.md` — методика jadx + mitm + DEX byte-grep
+- `Reverse Avito/findings/` — raw scan outputs APK v222.5 reverse (gitignored): all_api_methods.txt (1408 строк), retrofit_urls.txt (1904), test_results.txt
 - `avito-monitor/app/services/autosearch_sync.py` — где встроить _extract_params_to_catalog
 - `avito-monitor/avito_mcp/tools/search.py:_category_id_for()` — где встроить catalog lookup

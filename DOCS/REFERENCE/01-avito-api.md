@@ -408,10 +408,98 @@ Anti-tamper: RootBeer (root detection), Cyberity SDK (anti-Frida), APK signature
 | Метод | Статус | Что получили |
 |---|---|---|
 | Статический анализ DEX (jadx) | РАБОТАЕТ | Endpoint strings, Retrofit annotations, HTTP headers |
+| DEX byte-grep + androguard low-level | РАБОТАЕТ (2026-05-07) | URL templates, Api class names, method signatures без jadx |
 | ADB сбор данных | РАБОТАЕТ | Реальные значения device properties |
 | Frida runtime hooks | ЗАБЛОКИРОВАН | Anti-Frida: Cyberity SDK + RootBeer убивают процесс за 1-2 сек |
 | MITM (mitmproxy) | ЗАБЛОКИРОВАН | SSL pinning (OkHttp CertificatePinner) + encrypted DNS |
 | Frida Gadget в APK | ЧАСТИЧНО | APK запускается, но крашится (ClassNotFoundException) |
 | tcpdump | ЧАСТИЧНО | Видит трафик, но Avito использует DoH/DoT |
 
-Источник: `DOCS/REVERSE-GUIDE.md`
+Источник: `DOCS/REVERSE-GUIDE.md` + методика DEX byte-grep в `04-reverse-engineering-howto.md` § APK v222.5
+
+---
+
+## H. Дополнительные endpoints (APK v222.5 reverse, 2026-05-08)
+
+После полного reverse engineering Avito Android v222.5 (см. `07-retrofit-api-classes.md` для полного списка 263 Api classes, и `Reverse Avito/findings/raw/all_api_methods.txt` для полного method dump) — найдены следующие endpoints:
+
+### H.1 Search & filter endpoints (URL strings verified в classes3.dex string table)
+
+| URL | Verified method | Api class | Cross-validated |
+|---|---|---|---|
+| `GET /api/15/dicts/parameters` | TBD (likely manual interface) | TBD | URL ✓, declaring class TBD |
+| `GET /api/16/dicts/parameters` | TBD | TBD | URL ✓ classes3+11, ⭐ candidate для catalog discovery |
+| `GET /api/2/dicts/parameters/filter` | TBD | TBD | URL ✓, parent-aware filter mode |
+| `GET /api/1/dicts/navigation` | TBD | TBD | URL ✓ classes3+18, navigation menus |
+| `GET /api/1/items/count` | TBD | TBD | URL ✓ classes3+16, fast count w/o items |
+| `GET /api/11/long/items` | TBD | TBD | long-poll variant |
+| `GET /api/12/items/add/pretend` | TBD | TBD | test-mode publish? |
+| `GET /api/10/items/search/deeplink` | TBD | TBD | search by deeplink (vs direct query) |
+| `GET /api/5/items/search/header` | TBD | TBD | header for search (banners/info) |
+| `GET /api/1/items/blocks/log` | TBD | `AdvertDetailsApi` | logging blocks |
+| `GET /api/1/items/snippet/action` | TBD | TBD | snippet action (favorite/etc) |
+| `GET /api/1/items/profile/search/inline-filters` | TBD | TBD | ⭐ inline filters для current SERP — likely returns filter taxonomy |
+| `GET /api/1/items/inlineFilters/apply` | TBD | TBD | apply inline filter |
+| `GET /api/1/items/llm_recommendations` | TBD | TBD | LLM recommendations |
+
+### H.2 Category tree endpoints
+
+| URL | Method | Api class |
+|---|---|---|
+| `GET /api/1/category/tree` | TBD | TBD |
+| `GET /api/1/category/tree/items` | TBD | TBD |
+| `GET /api/1/promo/category/tree` | `api1PromoCategoryTree` | `CategoryItemsTreeApi` [classes13] |
+| `GET /api/1/promo/category/tree/items` | `api1PromoCategoryTreeItems` | `CategoryItemsTreeApi` [classes13] |
+| `GET /api/1/profile/category/tree` | TBD | TBD |
+| `GET /api/1/avitoBlackCategory/tree` | TBD | TBD |
+
+### H.3 Filter / param endpoints
+
+| URL | Method | Api class |
+|---|---|---|
+| `GET /api/1/serp/pro/filters/init` | `proFiltersInitV1(String, String)` | `UserAdvertsApi` [classes16] ⭐ |
+| `GET /api/1/serp/profile/items/filters` | TBD | TBD |
+| `GET /api/1/search/parameters/radius/values` | TBD (template `1/search/parameters/{paramKey}/values`) | TBD |
+| `GET /api/6/search/parameters` | TBD | TBD |
+| `GET /api/1/widget/filters/parameters` | TBD | TBD |
+| `GET /api/1/widget/filters/apply` | TBD | TBD |
+| `GET /api/2/params/suggest` | `suggestParamsApiV2(SuggestApiRequest)` | `PublishApi` [classes16] |
+| `GET /api/5/crm/getFilters` | TBD | TBD |
+
+### H.4 Cars catalog (proven blueprint)
+
+| URL | Method | Api class |
+|---|---|---|
+| `GET /api/1/new-cars/filter/brands` | `apiNewCarsFilterBrands()` | `NewCarsMarkModelFilterApi` [classes17] |
+| `GET /api/1/new-cars/filter/models` | `apiNewCarsFilterModels(brandIds)` | `NewCarsMarkModelFilterApi` [classes17] |
+| `POST /api/1/new-cars/filter/apply` | `apiNewCarsFilterApply(brands, models)` | `NewCarsMarkModelFilterApi` [classes17] |
+
+### H.5 Model card / publish
+
+| URL | Method | Api class |
+|---|---|---|
+| `GET /api/1/modelCard/detailedSpecsGroups` | TBD | TBD |
+| `GET /api/2/modelCard/getModel` | TBD | TBD |
+| `POST /api/5/publish/categories/suggest/by_params` | TBD | TBD |
+| `POST /api/6/publish/categories/suggest/by_params` | TBD | TBD |
+| `GET /api/2/dicts/suggest/reg_num/by_photo` | `apiDictsSuggestRegNumByPhoto` | `PublishApi` |
+| `GET /api/2/dicts/suggest/vin/by_reg_num` | `apiDictsSuggestVinByRegNum` | `PublishApi` |
+
+### H.6 Beduin (server-driven UI) — alternative path
+
+| URL deeplink | Notes |
+|---|---|
+| `ru.avito://1/beduin/v2/universalPage` | Server возвращает full UI tree. **Filter screens могут быть здесь** — см. `09-deeplinks-and-screens.md` |
+| `ru.avito://1/beduin/v2/universalPage/bottomSheet` | Beduin bottom sheet variant |
+
+`ReputationApi.reputationV1Beduin(...)` — confirmed Beduin endpoint в `UserAdvertsApi` namespace (см. `07-retrofit-api-classes.md`).
+
+### H.7 Cross-validation summary
+
+Полный test report: `Reverse Avito/findings/raw/test_results.txt`
+- **Endpoint URL strings:** 40/43 PASS
+- **Data class signatures:** 18/18 PASS
+- **Numeric IDs (491590, 469735, etc):** 0 hits в DEX as plain text → подтверждает server-side delivery
+- **Method names predicted:** 15/21 found (`apiNewCarsFilter*`, `subscription*`, `proFiltersInitV1`, `api3NdTrxSearchParamsGet`, `apiDictsSuggest*`, `suggestParamsApiV2`, `api1PromoCategoryTree*`, `userInfo`)
+
+См. `07-retrofit-api-classes.md` для full method dumps + naming convention.
