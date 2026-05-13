@@ -146,3 +146,15 @@ def test_defects_device_detail_renders_with_sidebar(defects_client, monkeypatch)
     assert "iPhone 12 Pro Max" in resp.text
     # Sidebar must be rendered (proves _layout_context was passed)
     assert "Avito Monitor" in resp.text
+
+
+def test_severity_ru_filter():
+    """Unit-test severity_ru filter — maps DB values to Russian display labels."""
+    from app.web.defects import severity_ru
+    assert severity_ru("block") == "блок"
+    assert severity_ru("info") == "инфо"
+    assert severity_ru("ask") == "уточнить"
+    assert severity_ru("skip") == "пропустить"
+    # Unknown values pass through unchanged (defensive)
+    assert severity_ru("unknown") == "unknown"
+    assert severity_ru("") == ""

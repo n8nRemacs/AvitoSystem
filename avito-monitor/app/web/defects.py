@@ -39,6 +39,22 @@ from app.web.routers import _layout_context
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
+_SEVERITY_RU = {
+    "block": "блок",
+    "info": "инфо",
+    "ask": "уточнить",
+    "skip": "пропустить",
+}
+
+
+def severity_ru(value: str) -> str:
+    """Translate DB severity values (block/info/ask/skip) to Russian UI labels.
+    Unknown values pass through unchanged for defensive rendering."""
+    return _SEVERITY_RU.get(value, value)
+
+
+templates.env.filters["severity_ru"] = severity_ru
+
 router = APIRouter(prefix="/defects", tags=["defects"])
 
 
