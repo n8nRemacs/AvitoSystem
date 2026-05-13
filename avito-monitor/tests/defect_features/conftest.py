@@ -100,9 +100,11 @@ _DDL = [
         id          TEXT PRIMARY KEY,
         listing_id  TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
         feature_key TEXT NOT NULL,
-        state       TEXT NOT NULL,
+        kind        TEXT NOT NULL DEFAULT 'defect',
+        state       TEXT,
+        value       TEXT,
         confidence  REAL,
-        source      TEXT NOT NULL,
+        source      TEXT,
         evidence    TEXT,
         parsed_at   TEXT NOT NULL DEFAULT (datetime('now')),
         CONSTRAINT uq_listing_features_listing_key UNIQUE (listing_id, feature_key)

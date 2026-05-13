@@ -2,13 +2,16 @@
 
 Dialect-aware UPSERT — uses postgresql.insert().on_conflict_do_update on Postgres
 and falls back to a 'select-then-insert-or-update' pattern on SQLite (for tests).
+
+Phase 2.1: upsert_listing_features now accepts list[dict] with per-feature
+kind/value fields in addition to the legacy defect-only {state, source, ...}.
 """
 from __future__ import annotations
 
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ListingFeature, ProfileFeatureRule
@@ -25,41 +28,57 @@ def _is_postgres(session: AsyncSession) -> bool:
 
 async def upsert_listing_features(
     session: AsyncSession,
-    *,
     listing_id: uuid.UUID,
-    features: dict[str, dict[str, Any]],
+    features: list[dict[str, Any]],
 ) -> None:
     """INSERT … ON CONFLICT UPDATE for each feature key (Postgres),
     or SELECT-then-INSERT/UPDATE on other dialects.
 
-    `features` values: {state, source, evidence, confidence}.
+    Phase 2.1: `features` is a list of dicts, each with:
+        feature_key: str  — required
+        kind: str         — 'defect' | 'price_signal' | 'info_api' (default 'defect')
+        state: str|None   — required for kind='defect', None for others
+        value: dict|None  — structured payload for price_signal/info_api kinds
+        confidence: float|None
+        source: str|None
+        evidence: str|None
     """
     if not features:
         return
 
     if _is_postgres(session):
         from sqlalchemy.dialects.postgresql import insert as pg_insert
-        for fkey, payload in features.items():
-            stmt = pg_insert(ListingFeature).values(
-                listing_id=listing_id,
-                feature_key=fkey,
-                state=payload["state"],
-                source=payload["source"],
-                evidence=payload.get("evidence"),
-                confidence=payload.get("confidence"),
-            ).on_conflict_do_update(
-                index_elements=["listing_id", "feature_key"],
-                set_={
-                    "state": payload["state"],
-                    "source": payload["source"],
-                    "evidence": payload.get("evidence"),
-                    "confidence": payload.get("confidence"),
-                },
-            )
-            await session.execute(stmt)
+        stmt = pg_insert(ListingFeature).values([
+            {
+                "listing_id": listing_id,
+                "feature_key": f["feature_key"],
+                "kind": f.get("kind", "defect"),
+                "state": f.get("state"),
+                "value": f.get("value"),
+                "confidence": f.get("confidence"),
+                "source": f.get("source"),
+                "evidence": f.get("evidence"),
+                "parsed_at": func.now(),
+            }
+            for f in features
+        ])
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["listing_id", "feature_key"],
+            set_={
+                "kind": stmt.excluded.kind,
+                "state": stmt.excluded.state,
+                "value": stmt.excluded.value,
+                "confidence": stmt.excluded.confidence,
+                "source": stmt.excluded.source,
+                "evidence": stmt.excluded.evidence,
+                "parsed_at": stmt.excluded.parsed_at,
+            },
+        )
+        await session.execute(stmt)
     else:
         # Generic fallback (SQLite-friendly for tests).
-        for fkey, payload in features.items():
+        for f in features:
+            fkey = f["feature_key"]
             existing = (await session.execute(
                 select(ListingFeature)
                 .where(ListingFeature.listing_id == listing_id,
@@ -67,16 +86,22 @@ async def upsert_listing_features(
             )).scalar_one_or_none()
             if existing is None:
                 session.add(ListingFeature(
-                    listing_id=listing_id, feature_key=fkey,
-                    state=payload["state"], source=payload["source"],
-                    evidence=payload.get("evidence"),
-                    confidence=payload.get("confidence"),
+                    listing_id=listing_id,
+                    feature_key=fkey,
+                    kind=f.get("kind", "defect"),
+                    state=f.get("state"),
+                    value=f.get("value"),
+                    confidence=f.get("confidence"),
+                    source=f.get("source"),
+                    evidence=f.get("evidence"),
                 ))
             else:
-                existing.state = payload["state"]
-                existing.source = payload["source"]
-                existing.evidence = payload.get("evidence")
-                existing.confidence = payload.get("confidence")
+                existing.kind = f.get("kind", "defect")
+                existing.state = f.get("state")
+                existing.value = f.get("value")
+                existing.confidence = f.get("confidence")
+                existing.source = f.get("source")
+                existing.evidence = f.get("evidence")
     await session.flush()
 
 
@@ -88,8 +113,12 @@ async def load_listing_features(
     )).scalars().all()
     return {
         r.feature_key: {
-            "state": r.state, "source": r.source,
-            "evidence": r.evidence, "confidence": r.confidence,
+            "kind": r.kind,
+            "state": r.state,
+            "value": r.value,
+            "source": r.source,
+            "evidence": r.evidence,
+            "confidence": r.confidence,
         }
         for r in rows
     }
