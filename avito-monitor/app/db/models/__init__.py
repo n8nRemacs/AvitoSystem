@@ -2,6 +2,8 @@ from app.db.models.activity_log import ActivityLog
 from app.db.models.audit_log import AuditLog
 from app.db.models.avito_param_catalog import AvitoParamCatalog
 from app.db.models.chat_dialog_state import ChatDialogState
+from app.db.models.device_feature_binding import DeviceFeatureBinding
+from app.db.models.device_node import DeviceNode
 from app.db.models.health_check import HealthCheck
 from app.db.models.listing import Listing
 from app.db.models.listing_feature import ListingFeature
@@ -18,6 +20,7 @@ from app.db.models.profile_market_stats import ProfileMarketStats
 from app.db.models.profile_run import ProfileRun
 from app.db.models.search_profile import SearchProfile
 from app.db.models.dialog_topic import DialogTopic
+from app.db.models.feature_node import FeatureNode
 from app.db.models.profile_dialog_topic import ProfileDialogTopic
 from app.db.models.seller_dialog import SellerDialog
 from app.db.models.seller_dialog_topic import SellerDialogTopic
@@ -30,6 +33,8 @@ __all__ = [
     "AuditLog",
     "AvitoParamCatalog",
     "ChatDialogState",
+    "DeviceFeatureBinding",
+    "DeviceNode",
     "HealthCheck",
     "Listing",
     "ListingFeature",
@@ -46,6 +51,7 @@ __all__ = [
     "ProfileRun",
     "SearchProfile",
     "DialogTopic",
+    "FeatureNode",
     "ProfileDialogTopic",
     "SellerDialog",
     "SellerDialogTopic",
