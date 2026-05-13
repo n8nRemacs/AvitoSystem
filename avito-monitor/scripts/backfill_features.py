@@ -1,13 +1,18 @@
-"""Backfill defect-feature rows for all active listings.
+"""Backfill listing_features rows for all active listings.
 
 For each (profile, listing) pair currently in user_action IN
 (NULL, 'pending', 'viewed', 'accepted'), run analyze_listing_features
 exactly once. Reports progress every 25 listings.
 
+Phase 2.1: analyze_listing_features now writes all three feature kinds
+(defect + price_signal + info_api), so this script populates the full
+unified taxonomy in one pass — no separate scripts needed.
+
 Usage:
     python -m scripts.backfill_features
     python -m scripts.backfill_features --profile <profile_id>
     python -m scripts.backfill_features --dry-run
+    python -m scripts.backfill_features --limit 10     # smoke run
 """
 from __future__ import annotations
 
@@ -30,7 +35,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 ACTIVE_USER_ACTIONS = ("pending", "viewed", "accepted")
 
 
-async def run(profile_filter: uuid.UUID | None, dry_run: bool) -> None:
+async def run(
+    profile_filter: uuid.UUID | None, dry_run: bool, limit: int | None
+) -> None:
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
         q = (
@@ -45,6 +52,8 @@ async def run(profile_filter: uuid.UUID | None, dry_run: bool) -> None:
         )
         if profile_filter is not None:
             q = q.where(ProfileListing.profile_id == profile_filter)
+        if limit is not None:
+            q = q.limit(limit)
         rows = (await session.execute(q)).all()
         logger.info("found %d pairs to backfill", len(rows))
 
@@ -90,9 +99,11 @@ def main() -> None:
                    help="restrict backfill to a single profile id")
     p.add_argument("--dry-run", action="store_true",
                    help="list listings without parsing")
+    p.add_argument("--limit", type=int, default=None,
+                   help="process at most N pairs (smoke runs)")
     a = p.parse_args()
     try:
-        asyncio.run(run(a.profile, a.dry_run))
+        asyncio.run(run(a.profile, a.dry_run, a.limit))
     finally:
         asyncio.run(dispose_engine())
 
