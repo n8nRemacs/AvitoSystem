@@ -121,6 +121,57 @@ async def catalog_tree(
     )
 
 
+@router.get("/devices/new", response_class=HTMLResponse)
+async def device_form_add_root(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "defects/_partials/node_form.html",
+        {"mode": "add", "kind": "device", "parent_id": None, "prefill": None},
+    )
+
+
+@router.get("/devices/cancel-form", response_class=HTMLResponse)
+async def device_form_cancel(
+    user: Annotated[User, Depends(require_user)],
+) -> HTMLResponse:
+    return HTMLResponse("")
+
+
+@router.get("/devices/{parent_id}/new", response_class=HTMLResponse)
+async def device_form_add_child(
+    parent_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "defects/_partials/node_form.html",
+        {"mode": "add", "kind": "device", "parent_id": str(parent_id), "prefill": None},
+    )
+
+
+@router.get("/devices/{node_id}/edit", response_class=HTMLResponse)
+async def device_form_edit(
+    node_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    device = await get_device_node(session, node_id)
+    if device is None:
+        return HTMLResponse("Устройство не найдено", status_code=404)
+    return templates.TemplateResponse(
+        request, "defects/_partials/node_form.html",
+        {
+            "mode": "edit", "kind": "device", "node_id": str(node_id),
+            "prefill": {"slug": device.slug, "title": device.title},
+        },
+    )
+
+
 @router.get("/devices/{device_id}", response_class=HTMLResponse)
 async def device_detail(
     device_id: uuid.UUID,

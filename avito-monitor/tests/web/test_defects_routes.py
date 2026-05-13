@@ -160,6 +160,51 @@ def test_severity_ru_filter():
     assert severity_ru("") == ""
 
 
+def test_get_device_form_add_root(defects_client):
+    """GET /defects/devices/new → 200, partial form, hx-post target /defects/devices."""
+    resp = defects_client.get("/defects/devices/new")
+    assert resp.status_code == 200
+    assert "node-form-inline" in resp.text
+    assert 'hx-post="/defects/devices"' in resp.text
+    # No parent_id hidden input for root
+    assert 'name="parent_id"' not in resp.text
+
+
+def test_get_device_form_add_child(defects_client):
+    """GET /defects/devices/{parent_id}/new → 200, parent_id hidden input present."""
+    parent_id = "11111111-1111-1111-1111-111111111111"
+    resp = defects_client.get(f"/defects/devices/{parent_id}/new")
+    assert resp.status_code == 200
+    assert "node-form-inline" in resp.text
+    assert 'hx-post="/defects/devices"' in resp.text
+    assert f'name="parent_id" value="{parent_id}"' in resp.text
+
+
+def test_get_device_form_edit(defects_client, monkeypatch):
+    """GET /defects/devices/{id}/edit → 200, prefill values + hx-patch target."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import DeviceNodeRow
+    from app.web import defects as defects_mod
+
+    nid = _uuid.UUID("22222222-2222-2222-2222-222222222222")
+    fake_device = DeviceNodeRow(
+        id=nid, parent_id=None, slug="apple", title="Apple",
+        kind=None, sort_order=0,
+    )
+
+    async def _fake_get_device_node(session, _nid):
+        return fake_device
+
+    monkeypatch.setattr(defects_mod, "get_device_node", _fake_get_device_node)
+
+    resp = defects_client.get(f"/defects/devices/{nid}/edit")
+    assert resp.status_code == 200
+    assert "node-form-inline" in resp.text
+    assert f'hx-patch="/defects/devices/{nid}/edit"' in resp.text
+    assert 'value="apple"' in resp.text
+    assert 'value="Apple"' in resp.text
+
+
 def test_binding_row_uses_ru_labels(defects_client, monkeypatch):
     """GET /defects/devices/{id} renders bindings with Russian severity labels
     + inherited/set-here/Override translations."""
