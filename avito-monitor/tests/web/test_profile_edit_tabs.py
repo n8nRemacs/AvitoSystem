@@ -237,6 +237,47 @@ def test_form_edit_search_form_action_and_key_fields_preserved(client):
     assert 'type="submit"' in body
 
 
+def test_form_edit_tab_query_param_marks_features_active(client):
+    """Phase 2.0 Task 4: ?tab=features renders features tab with aria-selected='true'."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}?tab=features")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'id="tab-features"' in body
+    features_btn_idx = body.index('id="tab-features"')
+    snippet = body[max(0, features_btn_idx - 200):features_btn_idx + 200]
+    assert 'aria-selected="true"' in snippet, "features tab must be aria-selected when ?tab=features"
+
+
+def test_form_edit_default_tab_is_search(client):
+    """Phase 2.0 Task 4: no ?tab= → search tab is default active."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}")
+    body = resp.text
+    search_btn_idx = body.index('id="tab-search"')
+    snippet = body[max(0, search_btn_idx - 200):search_btn_idx + 200]
+    assert 'aria-selected="true"' in snippet
+
+
+def test_form_edit_invalid_tab_falls_back_to_search(client):
+    """Phase 2.0 Task 4: ?tab=invalid → search tab still default."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}?tab=garbage")
+    body = resp.text
+    search_btn_idx = body.index('id="tab-search"')
+    snippet = body[max(0, search_btn_idx - 200):search_btn_idx + 200]
+    assert 'aria-selected="true"' in snippet
+
+
+def test_form_edit_features_panel_visible_when_tab_features(client):
+    """Phase 2.0 Task 4: ?tab=features → features panel НЕ имеет hidden, search ИМЕЕТ."""
+    resp = client.get(f"/search-profiles/{PROFILE_ID}?tab=features")
+    body = resp.text
+    features_idx = body.index('id="tabpanel-features"')
+    features_snippet = body[features_idx:features_idx + 300]
+    assert 'hidden' not in features_snippet, "features panel must NOT be hidden when ?tab=features"
+    search_idx = body.index('id="tabpanel-search"')
+    search_snippet = body[search_idx:search_idx + 300]
+    assert 'hidden' in search_snippet, "search panel must be hidden when ?tab=features"
+
+
 def test_create_form_renders_without_partial(client):
     """Phase 2.0 Task 3: GET /search-profiles/new (profile=None) рендерится без TemplateError.
 

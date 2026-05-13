@@ -535,4 +535,56 @@
   </div>
   {% endif %}
 </div>
+<script>
+(function () {
+  // Phase 2.0 — profile edit form tabs.
+  // Server already rendered correct initial state from ?tab= query param;
+  // this script just wires click handlers, localStorage persistence,
+  // and URL sync on tab change.
+  const STORAGE_KEY = 'profile_edit_active_tab';
+  const URL_PARAM = 'tab';
+  const VALID = ['search', 'features', 'notifications'];
+
+  const tabs = document.querySelectorAll('[role="tab"][data-tab]');
+  const panels = document.querySelectorAll('[role="tabpanel"][data-panel]');
+  if (tabs.length === 0 || panels.length === 0) return;
+
+  function activate(name) {
+    if (!VALID.includes(name)) return;
+    tabs.forEach(t => t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false'));
+    panels.forEach(p => {
+      if (p.dataset.panel === name) p.removeAttribute('hidden');
+      else p.setAttribute('hidden', '');
+    });
+    try { localStorage.setItem(STORAGE_KEY, name); } catch (e) { /* private mode */ }
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set(URL_PARAM, name);
+      window.history.replaceState(null, '', url.toString());
+    } catch (e) { /* IE / file:// */ }
+  }
+
+  // If URL has no ?tab= but localStorage has a remembered tab — restore it on load.
+  // (Server already picked 'search' as default in that case.)
+  //
+  // FOUC trade-off: при cold-load с stored != 'search' юзер увидит вспышку
+  // search-panel'а перед переключением (typically < 50ms на initial paint, в
+  // практике незаметно). Принимаем сознательно — spec §7.1 требует
+  // localStorage-персистентность ("вернулся на форму — попадаешь на тот же tab"),
+  // а server без cookie/session storage не знает remembered tab.
+  // Альтернатива (cookie-based SSR pick) — over-engineering для Phase 2.0.
+  const urlParams = new URLSearchParams(window.location.search);
+  if (!urlParams.has(URL_PARAM)) {
+    let stored = null;
+    try { stored = localStorage.getItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+    if (stored && VALID.includes(stored) && stored !== 'search') {
+      activate(stored);
+    }
+  }
+
+  tabs.forEach(t => {
+    t.addEventListener('click', () => activate(t.dataset.tab));
+  });
+})();
+</script>
 {% endblock %}

@@ -363,6 +363,9 @@ async def profile_edit_form(
         raise HTTPException(404, "Profile not found")
     ctx = await _layout_context(user, session, active="profiles")
     rules = await feat_repo.load_profile_rules(session, profile.id)
+    # Server-side tab selection (?tab=features|notifications|search). Invalid → search.
+    requested_tab = request.query_params.get("tab", "search")
+    active_tab = requested_tab if requested_tab in ("search", "features", "notifications") else "search"
     ctx.update({
         "title": "Редактирование профиля",
         "form_action": f"/search-profiles/{profile.id}",
@@ -372,7 +375,7 @@ async def profile_edit_form(
         "criteria_library": await _load_criteria_library(session),
         "criteria_state": await _load_profile_criteria_state(session, profile.id),
         "rules": rules,
-        "active_tab": "search",
+        "active_tab": active_tab,
     })
     return templates.TemplateResponse(request, "profiles/form.html", ctx)
 
