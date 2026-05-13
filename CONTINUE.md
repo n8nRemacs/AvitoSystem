@@ -67,7 +67,8 @@ avito-system-worker-8
 ### §2.2 Git state
 
 ```
-feat/defect-catalog (12 polish-коммитов поверх Project A):
+feat/defect-catalog (13 polish-коммитов поверх Project A):
+  55bcefb fix(defects): catch IntegrityError on duplicate slug → 400 с русским текстом
   2e557b5 feat(defects): auto-slug + Russian-only form labels (no anglicisms)
   2b4d31e feat(defects): root-add buttons + form-mount on devices/catalog pages
   762e93d feat(defects): feature_tree action icons (add/edit/delete)
@@ -119,6 +120,14 @@ Tasks 1-8 shipped:
 
 Deploy после Task 8: только `avito-monitor` rebuild + recreate (другие 6 Python-сервисов не задействованы). pytest baseline: 444 passed / 8 failed (те же 8 что и раньше) / 2 skipped.
 
+### §3.4 IntegrityError fix на duplicate slug (`55bcefb`, perед сном)
+
+Юзер репортнул перед сном: «при удалении дефекта/раздела и попытке создать с тем же названием — не получается, возможно проблема с авто-slug».
+
+Diagnose: prod DB чистая (никаких застрявших rows после delete). Реальный root cause — backend ловил только `ValueError` (regex-валидация), но `IntegrityError` от unique-constraint `uq_(device|feature)_nodes_parent_slug` пробрасывался → FastAPI 500 → HTMX silent ignore → юзер видит «не создаётся».
+
+Fix: catch `IntegrityError` → `session.rollback()` → 400 с понятным русским сообщением «Уже существует устройство/признак «X» (идентификатор «slug») на этом уровне». +2 route-теста. Deployed (commit 55bcefb). 23/23 defects-tests green.
+
 ### §3.3 Auto-slug + русификация без англицизмов (`2e557b5`, поздно вечером)
 
 Юзер во время smoke сказал: «slug должен добавляться автоматом сам на основе правил которые ты сам и придумал» + «вместо title — Название» + «UI на русском, без англицизмов».
@@ -161,6 +170,23 @@ Deployed. Stop на manual smoke (юзер пошёл спать).
 | BL4 | Re-extract `_render_node_form()` helper if number of routes grows past 8 (currently 8 — borderline) | Minor refactor | defects.py |
 | BL5 | Empty form-mount div remains after form clear — может убирать `#device-form-mount` content при cancel | Minor | devices.html / catalog.html |
 | BL6 | Cancel-form GET route без unit-test (тривиально, low risk) | Minor | test_defects_routes.py |
+
+### §4.2.5 ★ kind=`node` vs `section` mismatch (известный bug, найден 2026-05-14 поздно вечером)
+
+Запрос `SELECT slug, title, kind FROM feature_nodes` на prod показал:
+- Дисплей: kind=`node` (а не `section`!)
+- Корпус: kind=`node`
+- 6 defects: kind=`defect` ✓
+
+Причина: seed-скрипт `scripts/seed_defect_catalog.py` использует `kind="node"` для разделов (исходный intent Project A: hierarchy node), но dropdown в `node_form.html` (Task 3 polish) использует `<option value="section">Раздел</option>`. Несогласованность.
+
+**Что починить на сессии 2026-05-15:**
+
+- Решить: либо seed → переименовать `node` → `section` (миграция данных), либо dropdown → переименовать `section` → `node`. Spec Project A гласит `section`/`defect`, но реализация в seed использует `node`. По спецификации правильно `section`.
+- Скорее всего правильно: миграция `UPDATE feature_nodes SET kind='section' WHERE kind='node'` + поправить seed-скрипт.
+- Плюс UI: tooltip `[{{ entry.node.kind }}]` в `feature_tree.html` показывает «[node]» рядом с Дисплеем — англицизм, нужен mapping `node→Раздел / section→Раздел / defect→Дефект` в Jinja-фильтре (по аналогии с severity_ru).
+
+Не критично для merge, но красивее всё привести к одному значению до merge.
 
 ### §4.3 «Чуть подчистить UI» (§5.5) — что юзер увидит при smoke и захочет
 
