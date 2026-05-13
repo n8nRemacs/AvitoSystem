@@ -12,8 +12,8 @@ from app.services.seller_dialog_view import (
 )
 
 
-def test_phase_a_stages_contains_two_stages():
-    assert PHASE_A_STAGES == ["contact", "questions_setup"]
+def test_phase_a_stages_aliases_phase_b():
+    assert PHASE_A_STAGES == ["contact", "questions_setup", "questions"]
 
 
 def test_kanban_filters_default_empty():
