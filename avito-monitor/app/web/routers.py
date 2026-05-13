@@ -51,17 +51,12 @@ async def _layout_context(
     active_count_stmt = profiles_count_stmt.where(SearchProfile.is_active.is_(True))
     total = (await session.execute(profiles_count_stmt)).scalar_one()
     active_total = (await session.execute(active_count_stmt)).scalar_one()
-    sidebar_active_profile_id = (await session.execute(
-        select(SearchProfile.id).where(SearchProfile.user_id == user.id)
-        .order_by(SearchProfile.created_at).limit(1)
-    )).scalar_one_or_none()
     return {
         "current_user": user,
         "active": active,
         "sidebar_profiles_count": total,
         "sidebar_active_profiles": active_total,
         "sidebar_listings_count": 0,  # filled by Block 4
-        "sidebar_active_profile_id": str(sidebar_active_profile_id) if sidebar_active_profile_id else "",
     }
 
 
@@ -499,7 +494,7 @@ async def feature_rules_page(
     if not profile or profile.user_id != user.id:
         raise HTTPException(404)
     rules = await feat_repo.load_profile_rules(session, profile_id)
-    ctx = await _layout_context(user, session, active="model-settings")
+    ctx = await _layout_context(user, session, active="profiles")  # was "model-settings"
     ctx["profile"] = profile
     ctx["rules"] = rules
     return templates.TemplateResponse(request, "profiles/feature_rules.html", ctx)

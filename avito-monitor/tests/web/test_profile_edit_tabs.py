@@ -144,3 +144,34 @@ def test_patch_feature_rule_still_works(client, monkeypatch):
     assert resp.status_code == 200
     assert resp.json() == {"ok": True, "recompute": {"green": 0, "grey": 0, "red": 0}}
     assert upserts == [(str(PROFILE_ID), "display.glass_broken", "red")]
+
+
+def test_sidebar_no_longer_has_model_settings_nav(client):
+    """Phase 2.0 Task 2: sidebar nav removes «Настройки модели» link (moved into profile form tab).
+
+    Тестируем на edit-form, а НЕ на dashboard ("/"). Причины:
+    - `_layout.html` отрисовывается на каждой странице с _layout extends, поведение
+      одинаковое. Edit-form уже полностью замокана в фикстуре.
+    - Dashboard ("/") может делать сложные DB-агрегаты, которые FakeSession не
+      поддерживает (`.scalars().all()` и т.п.) — упадёт раньше assertion'ов.
+
+    Проверяем точечно: текст "Настройки модели" не появляется в `<a>` тэгах sidebar.
+    НЕ проверяем substring `/feature-rules` — он легитимно есть в JS partial'а
+    (PATCH endpoint URL литерально присутствует в template-string `${pid}` после
+    включения partial в tab «Признаки» через Task 3).
+    """
+    resp = client.get(f"/search-profiles/{PROFILE_ID}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'Настройки модели' not in body, \
+        "sidebar nav still contains 'Настройки модели' — should be removed in Phase 2.0"
+    # Дополнительная проверка: убедиться что нет sidebar-link именно с feature-rules href.
+    # Партиал содержит `/profiles/${pid}/feature-rules/` в JS-литерале — это
+    # PATCH endpoint, не href, не link в sidebar. Ищем точнее: href в nav.
+    # Допустимо иметь упоминание `/feature-rules` где угодно в теле, но НЕ
+    # внутри тэга <a href="..."> в sidebar nav block.
+    # Чтобы не цепляться за hand-crafted parsing — проверяем что нигде в body
+    # нет точной строки `href="/profiles/` + ... + `/feature-rules"`:
+    import re
+    assert not re.search(r'href="/profiles/[^"]*/feature-rules"', body), \
+        "sidebar still has hardcoded /profiles/<id>/feature-rules href — should be removed"
