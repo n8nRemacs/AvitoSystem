@@ -1,0 +1,13 @@
+{% macro render(entry) %}
+  {% if entry.node.kind == 'node' %}
+    <details class="ml-2" open>
+      <summary class="cursor-pointer text-sm py-1 font-medium">
+        ▼ {{ entry.node.title }}
+      </summary>
+      {% for child in entry.children %}{{ render(child) }}{% endfor %}
+    </details>
+  {% else %}
+    <div class="ml-4 text-sm py-1">• {{ entry.node.title }}</div>
+  {% endif %}
+{% endmacro %}
+{% for entry in tree %}{{ render(entry) }}{% endfor %}
