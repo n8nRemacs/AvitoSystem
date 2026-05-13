@@ -158,3 +158,57 @@ def test_severity_ru_filter():
     # Unknown values pass through unchanged (defensive)
     assert severity_ru("unknown") == "unknown"
     assert severity_ru("") == ""
+
+
+def test_binding_row_uses_ru_labels(defects_client, monkeypatch):
+    """GET /defects/devices/{id} renders bindings with Russian severity labels
+    + inherited/set-here/Override translations."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import DeviceNodeRow
+    from app.services.defect_catalog.resolver import ResolvedBinding
+    from app.web import defects as defects_mod
+
+    fake_dev_id = _uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    fake_feat_id = _uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    fake_bind_id = _uuid.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+    fake_device = DeviceNodeRow(
+        id=fake_dev_id, parent_id=None, slug="phone",
+        title="Phone", kind=None, sort_order=0,
+    )
+    # Two bindings: one inherited (block/ask), one set-here (info/skip)
+    inherited = ResolvedBinding(
+        binding_id=fake_bind_id, feature_node_id=fake_feat_id,
+        feature_path=["Корпус", "Midframe сломан"],
+        defect_action="block", unknown_action="ask",
+        inherited_from=_uuid.UUID("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+    )
+    set_here = ResolvedBinding(
+        binding_id=_uuid.UUID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+        feature_node_id=fake_feat_id,
+        feature_path=["Дисплей", "Стекло разбито"],
+        defect_action="info", unknown_action="skip",
+        inherited_from=None,
+    )
+
+    async def _fake_get_device_node(session, nid):
+        return fake_device
+
+    async def _fake_resolve(session, device_id):
+        return [inherited, set_here]
+
+    monkeypatch.setattr(defects_mod, "get_device_node", _fake_get_device_node)
+    monkeypatch.setattr(defects_mod, "resolve_applicable_defects", _fake_resolve)
+
+    resp = defects_client.get(f"/defects/devices/{fake_dev_id}")
+    assert resp.status_code == 200, resp.text[:500]
+    # Inherited display uses ru labels
+    assert "блок" in resp.text
+    assert "уточнить" in resp.text
+    # Set-here dropdowns also use ru in option labels
+    assert "инфо" in resp.text
+    assert "пропустить" in resp.text
+    # Translated annotations
+    assert "← унаследовано" in resp.text
+    assert "← задано здесь" in resp.text
+    # Override button translated
+    assert "Задать здесь" in resp.text

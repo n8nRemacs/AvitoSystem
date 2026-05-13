@@ -6,10 +6,10 @@
 
     {% if b.inherited_from %}
       <div class="mt-1 text-xs">
-        При находке: <strong>{{ b.defect_action }}</strong>
-        · Если неясно: <strong>{{ b.unknown_action }}</strong>
+        При находке: <strong>{{ b.defect_action | severity_ru }}</strong>
+        · Если неясно: <strong>{{ b.unknown_action | severity_ru }}</strong>
       </div>
-      <div class="mt-1 text-xs text-avito-text-soft">← inherited from ancestor</div>
+      <div class="mt-1 text-xs text-avito-text-soft">← унаследовано</div>
     {% else %}
       <div class="mt-1 flex gap-3 items-center text-xs">
         <label>При находке:
@@ -19,8 +19,8 @@
                   hx-vals='{"target_device_id": "{{ target_device_id }}"}'
                   name="defect_action"
                   class="border rounded px-1">
-            <option value="block" {% if b.defect_action == 'block' %}selected{% endif %}>block</option>
-            <option value="info"  {% if b.defect_action == 'info'  %}selected{% endif %}>info</option>
+            <option value="block" {% if b.defect_action == 'block' %}selected{% endif %}>{{ 'block' | severity_ru }}</option>
+            <option value="info"  {% if b.defect_action == 'info'  %}selected{% endif %}>{{ 'info'  | severity_ru }}</option>
           </select>
         </label>
         <label>Если неясно:
@@ -30,12 +30,12 @@
                   hx-vals='{"target_device_id": "{{ target_device_id }}"}'
                   name="unknown_action"
                   class="border rounded px-1">
-            <option value="ask"  {% if b.unknown_action == 'ask'  %}selected{% endif %}>ask</option>
-            <option value="skip" {% if b.unknown_action == 'skip' %}selected{% endif %}>skip</option>
+            <option value="ask"  {% if b.unknown_action == 'ask'  %}selected{% endif %}>{{ 'ask'  | severity_ru }}</option>
+            <option value="skip" {% if b.unknown_action == 'skip' %}selected{% endif %}>{{ 'skip' | severity_ru }}</option>
           </select>
         </label>
       </div>
-      <div class="mt-1 text-xs text-avito-text-soft">← set here</div>
+      <div class="mt-1 text-xs text-avito-text-soft">← задано здесь</div>
     {% endif %}
   </div>
 
@@ -46,7 +46,7 @@
       <input type="hidden" name="defect_action"   value="{{ b.defect_action }}">
       <input type="hidden" name="unknown_action"  value="{{ b.unknown_action }}">
       <button type="submit"
-              class="text-xs text-avito-text-soft hover:text-avito-green">Override</button>
+              class="text-xs text-avito-text-soft hover:text-avito-green">Задать здесь</button>
     </form>
   {% else %}
     <button hx-delete="/defects/bindings/{{ b.binding_id }}"
