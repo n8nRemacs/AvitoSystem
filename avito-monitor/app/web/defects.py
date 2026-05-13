@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import User
 from app.deps import db_session, require_user
 from app.services.defect_catalog.repository import (
+    create_binding,
     delete_binding,
     get_binding,
     get_device_node,
@@ -92,6 +93,42 @@ async def device_detail(
     return templates.TemplateResponse(
         request, "defects/_partials/device_detail.html",
         {"active_tab": "devices", "device": device, "bindings": resolved},
+    )
+
+
+@router.post("/bindings", response_class=HTMLResponse)
+async def create_binding_endpoint(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+    device_node_id: Annotated[str, Form()],
+    feature_node_id: Annotated[str, Form()],
+    defect_action: Annotated[str, Form()] = "block",
+    unknown_action: Annotated[str, Form()] = "ask",
+) -> HTMLResponse:
+    """Create an explicit override binding at the given device node."""
+    bid = await create_binding(
+        session,
+        device_node_id=uuid.UUID(device_node_id),
+        feature_node_id=uuid.UUID(feature_node_id),
+        defect_action=defect_action,
+        unknown_action=unknown_action,
+    )
+    b = await get_binding(session, bid)
+    if b is None:
+        return HTMLResponse("", status_code=500)
+    fp = await _feature_path(session, b.feature_node_id)
+    view = {
+        "binding_id": b.id,
+        "feature_node_id": b.feature_node_id,
+        "feature_path": fp,
+        "defect_action": b.defect_action,
+        "unknown_action": b.unknown_action,
+        "inherited_from": None,
+    }
+    return templates.TemplateResponse(
+        request, "defects/_partials/binding_row.html",
+        {"b": view, "target_device_id": device_node_id},
     )
 
 
