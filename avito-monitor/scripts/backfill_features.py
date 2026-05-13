@@ -21,7 +21,7 @@ import asyncio
 import logging
 import uuid
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 
 from app.db.base import dispose_engine, get_sessionmaker
 from app.db.models import Listing, ProfileListing
@@ -74,6 +74,14 @@ async def run(
                     title=listing.title or "",
                     description=listing.description or "",
                     parameters=listing.parameters or {},
+                )
+                await session.execute(
+                    update(ProfileListing)
+                    .where(
+                        ProfileListing.profile_id == pid,
+                        ProfileListing.listing_id == lid,
+                    )
+                    .values(bucket=bucket)
                 )
                 await session.commit()
                 bucket_counts[bucket] += 1

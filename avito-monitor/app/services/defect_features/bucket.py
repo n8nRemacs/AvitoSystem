@@ -11,18 +11,26 @@ def compute_bucket(
     features: dict[str, str],   # {feature_key: 'ok'|'defect'|'unknown'}
     rules: dict[str, str],      # {feature_key: 'green'|'red'|'ignore'}
 ) -> tuple[Bucket, str | None]:
-    """Pure: same inputs → same outputs. See spec §8 for the truth table.
+    """Pure: same inputs → same outputs.
 
-    Returns (bucket, reason_feature_key). reason is None when bucket == 'green'.
+    Semantics (post-F2 relax):
+    - Confirmed defect on a red-rule → red (short-circuit).
+    - Confirmed defect on a green-rule → grey (operator decides).
+    - Rule has NO feature row at all (parser didn't fill the key) → grey.
+      This catches lots that never ran through the new pipeline.
+    - Otherwise (every rule's feature is 'ok' or 'unknown') → green.
+      Parser-emitted 'unknown' counts as not-a-defect: the LLM scanned and
+      found no positive evidence of damage. Combined with active red-rule
+      catching confirmed defects, green = «scanned and no defects spotted».
     """
     # Step 1: red-flag CONFIRMED defect → red, short-circuit
     for fkey, rule in rules.items():
         if rule == "red" and features.get(fkey) == "defect":
             return ("red", fkey)
 
-    # Step 2: any non-ignored unknown → grey (must clarify)
+    # Step 2: rule with NO feature row (parser didn't run) → grey
     for fkey, rule in rules.items():
-        if rule in ("green", "red") and features.get(fkey, "unknown") == "unknown":
+        if rule in ("green", "red") and features.get(fkey) is None:
             return ("grey", fkey)
 
     # Step 3: green-flag defect → grey (operator decides)
@@ -30,5 +38,5 @@ def compute_bucket(
         if rule == "green" and features.get(fkey) == "defect":
             return ("grey", fkey)
 
-    # Step 4: clean sweep
+    # Step 4: no confirmed defects on any rule, all rules covered by parser
     return ("green", None)
