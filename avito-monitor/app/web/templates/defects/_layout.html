@@ -1,0 +1,19 @@
+{# app/web/templates/defects/_layout.html #}
+{% extends "_layout.html" %}
+{% block title %}Дефекты — Настройки{% endblock %}
+{% block page_content %}
+<div class="max-w-6xl mx-auto px-4 py-4">
+  <h1 class="text-xl font-medium text-avito-text mb-4">Настройки дефектов</h1>
+  <nav class="flex border-b border-avito-border-soft mb-4 text-sm">
+    <a href="/defects/devices"
+       class="px-4 py-2 -mb-px border-b-2 {% if active_tab == 'devices' %}border-avito-green text-avito-green{% else %}border-transparent text-avito-text-soft hover:text-avito-text{% endif %}">
+      Устройства
+    </a>
+    <a href="/defects/catalog"
+       class="px-4 py-2 -mb-px border-b-2 {% if active_tab == 'catalog' %}border-avito-green text-avito-green{% else %}border-transparent text-avito-text-soft hover:text-avito-text{% endif %}">
+      Признаки
+    </a>
+  </nav>
+  {% block defects_content %}{% endblock %}
+</div>
+{% endblock %}
