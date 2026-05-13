@@ -96,23 +96,10 @@ async def on_callback(query: CallbackQuery) -> None:
         else:
             await query.answer("Не удалось — нет продавца", show_alert=True)
     elif action == ACTION_RECLASSIFY:
-        # Re-enqueue V2 evaluation for this listing.
-        sessionmaker = get_sessionmaker()
-        async with sessionmaker() as session:
-            notif = await session.get(Notification, notif_id)
-        if notif and notif.related_listing_id and notif.profile_id:
-            try:
-                from app.tasks.analysis import evaluate_listing
-
-                await evaluate_listing.kiq(
-                    str(notif.related_listing_id), str(notif.profile_id)
-                )
-                await query.answer("LLM повторно поставлен в очередь")
-            except Exception:
-                log.exception("bot.callback.reclassify.kiq_failed")
-                await query.answer("Не удалось поставить в очередь", show_alert=True)
-        else:
-            await query.answer("Лот не найден", show_alert=True)
+        # V2 evaluate_listing removed in Phase 2.1. Reclassify button is a
+        # no-op until the unified-criteria pipeline (Task 5+) provides a
+        # replacement task.
+        await query.answer("Переклассификация временно недоступна (обновление pipeline)", show_alert=True)
     elif action == ACTION_APPLY_BAND:
         await query.answer("Авто-вилка появится в Block 7", show_alert=True)
     elif action == ACTION_IGNORE:

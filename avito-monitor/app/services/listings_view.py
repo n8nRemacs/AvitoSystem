@@ -166,8 +166,7 @@ async def query_listings(
         stmt = stmt.where(ProfileListing.profile_id.in_(f.profile_ids))
     if f.condition_classes:
         stmt = stmt.where(Listing.condition_class.in_(f.condition_classes))
-    if f.bucket:
-        stmt = stmt.where(ProfileListing.bucket == f.bucket)
+    # V2 bucket filter removed (ProfileListing.bucket dropped in 0016).
     if f.zone == ZONE_ALERT:
         stmt = stmt.where(ProfileListing.in_alert_zone.is_(True))
     elif f.zone == ZONE_MARKET:
@@ -249,7 +248,7 @@ async def query_listings(
             in_alert_zone=link.in_alert_zone,
             processing_status=link.processing_status,
             user_action=link.user_action,
-            bucket=link.bucket,
+            bucket=None,
             discovered_at=link.discovered_at,
             last_seen_at=listing.last_seen_at,
             image_url=_first_image_url(listing.images),
@@ -315,35 +314,8 @@ async def filter_summary(
         for cls, cnt in (await session.execute(cond_stmt)).all()
     }
 
-    bucket_stmt = (
-        select(ProfileListing.bucket, func.count())
-        .select_from(ProfileListing)
-        .join(SearchProfile, SearchProfile.id == ProfileListing.profile_id)
-        .where(SearchProfile.user_id == user_id)
-        .group_by(ProfileListing.bucket)
-    )
-    actions = _TAB_TO_USER_ACTIONS.get(tab, _TAB_TO_USER_ACTIONS["new"])
-    if actions is not None:
-        if "pending" in actions:
-            bucket_stmt = bucket_stmt.where(
-                or_(
-                    ProfileListing.user_action.in_(actions),
-                    ProfileListing.user_action.is_(None),
-                )
-            )
-        else:
-            bucket_stmt = bucket_stmt.where(
-                ProfileListing.user_action.in_(actions)
-            )
-    buckets_raw = {
-        b: int(cnt)
-        for b, cnt in (await session.execute(bucket_stmt)).all()
-    }
-    buckets = {
-        "green": buckets_raw.get("green", 0),
-        "grey":  buckets_raw.get("grey", 0),
-        "red":   buckets_raw.get("red", 0),
-        "all":   sum(buckets_raw.values()),
-    }
+    # V2 bucket counts removed (ProfileListing.bucket dropped in 0016).
+    # Bucket UI now relies on defect-features pipeline (Task 5+).
+    buckets = {"green": 0, "grey": 0, "red": 0, "all": 0}
 
     return {"profiles": profiles, "conditions": conditions, "buckets": buckets}

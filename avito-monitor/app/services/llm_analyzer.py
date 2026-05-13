@@ -1,19 +1,23 @@
-"""LLM-driven listing analysis — V2 pipeline + Price Intelligence.
+"""LLM-driven listing analysis — Price Intelligence + seller dialog.
 
-Two cooperating entry points:
-
-* ``evaluate_listing`` — V2 flag-based evaluator. Runs every criterion and
-  info_llm field for a listing in one (or several) LLM calls, assigns a
-  green/grey/red bucket, and caches results per-criterion so re-runs are
-  cheap.
+Entry points:
 
 * ``compare_to_reference`` — Price Intelligence (Block 7). Compares a
-  competitor listing against the user's reference lot.
+  competitor listing against the user's reference lot. Cached per
+  (competitor, reference, model, prompt version) via llm_analyses table.
+
+* Module-level seller-dialog dispatchers (``detect_yes_selling``,
+  ``formulate_question``, ``parse_topic_answer``, ``formulate_recap``,
+  ``parse_seller_agreement``) — lightweight one-shot classifiers for the
+  messenger pipeline. Not cached at this layer.
 
 Legacy ADR-010 methods (``classify_condition`` / ``match_criteria``) were
 removed in Phase C (migration 0009_drop_legacy_v2_artifacts).
 
-Cache skeleton shared by all methods:
+V2 flag-based evaluator (``evaluate_listing`` and friends) removed in
+Phase 2.1 Task 4 (migration 0016_unified_criteria).
+
+Cache skeleton for compare_to_reference:
 
 * Compute a deterministic ``cache_key`` (sha256 of model, prompt version,
   listing id+timestamp, per-method extras) and short-circuit through
@@ -39,11 +43,7 @@ import jinja2
 
 from shared.models.avito import ListingDetail
 from shared.models.llm import (
-    BatchEvaluationResponse,
     ComparisonResult,
-    CriterionFlag,
-    InfoFieldExtract,
-    ListingEvaluation,
     LLMResponse,
 )
 
@@ -372,348 +372,6 @@ class LLMAnalyzer:
         return result
 
 
-    # ==================================================================
-    # V2 pipeline: evaluate_listing (flag-based, hot-switchable strategy)
-    # ==================================================================
-
-    def _cache_key_for_criterion(
-        self, listing: ListingDetail, model: str, spec: CriterionSpec
-    ) -> str:
-        return _hash(
-            "criterion_eval",
-            model,
-            spec.key,
-            str(spec.version),
-            json.dumps(spec.params or {}, sort_keys=True, ensure_ascii=False),
-            str(listing.id),
-            listing.first_seen or "",
-        )
-
-    def _cache_key_for_info_llm(
-        self, listing: ListingDetail, model: str, spec: InfoFieldSpec
-    ) -> str:
-        return _hash(
-            "info_llm_extract",
-            model,
-            spec.key,
-            str(spec.version),
-            str(listing.id),
-            listing.first_seen or "",
-        )
-
-    async def evaluate_listing(
-        self,
-        listing: ListingDetail,
-        *,
-        criteria: list[CriterionSpec],
-        info_llm_fields: list[InfoFieldSpec],
-        info_api_values: dict[str, Any] | None = None,
-        strategy: str = "per_listing",
-        confidence_threshold: float = 0.7,
-        model: str | None = None,
-    ) -> ListingEvaluation:
-        """Resolve all criteria + info_llm fields and assign a bucket.
-
-        ``strategy``:
-            - ``per_listing`` (default) — one batch LLM call covers every
-              missing criterion AND every missing info_llm field. The
-              response is split into per-criterion / per-info cache rows.
-            - ``per_criterion`` — one LLM call per missing criterion;
-              info_llm always gets one batched call (info_llm fields
-              don't depend on each other and don't depend on criteria).
-
-        Cache is per-criterion always — flipping ``strategy`` does NOT
-        invalidate already-computed rows.
-
-        On parse failure the affected criteria default to ``unknown``
-        with confidence 0.0; the resulting bucket is at worst ``grey``
-        (never auto-blacklist on a parse error).
-        """
-        m = model or self._default_text_model
-
-        # 1. Cache lookup per-criterion / per-info_llm.
-        criterion_results: dict[str, CriterionFlag] = {}
-        missing_criteria: list[CriterionSpec] = []
-        for c in criteria:
-            ck = self._cache_key_for_criterion(listing, m, c)
-            cached = await self._cache.get(ck)
-            if cached is not None:
-                criterion_results[c.key] = _criterion_flag_from_dict(cached)
-            else:
-                missing_criteria.append(c)
-
-        info_llm_results: dict[str, InfoFieldExtract] = {}
-        missing_info: list[InfoFieldSpec] = []
-        for f in info_llm_fields:
-            ck = self._cache_key_for_info_llm(listing, m, f)
-            cached = await self._cache.get(ck)
-            if cached is not None:
-                info_llm_results[f.key] = _info_extract_from_dict(cached)
-            else:
-                missing_info.append(f)
-
-        # 2. LLM calls for missing entries.
-        if strategy == "per_criterion":
-            for spec in missing_criteria:
-                flag = await self._eval_one_criterion(listing, spec, m)
-                criterion_results[spec.key] = flag
-            if missing_info:
-                extracted = await self._eval_info_batch(listing, missing_info, m)
-                info_llm_results.update(extracted)
-        else:  # per_listing (default)
-            if missing_criteria or missing_info:
-                fresh_criteria, fresh_info = await self._eval_batch(
-                    listing, missing_criteria, missing_info, m
-                )
-                criterion_results.update(fresh_criteria)
-                info_llm_results.update(fresh_info)
-
-        # 3. Bucket from the confidence threshold.
-        bucket, reds = _compute_bucket(criterion_results, confidence_threshold)
-
-        # 4. Merge info_api (no LLM) into the final info dict.
-        merged_info: dict[str, InfoFieldExtract] = dict(info_llm_results)
-        for k, v in (info_api_values or {}).items():
-            merged_info[k] = InfoFieldExtract(value=v, reasoning="from listing.parameters")
-
-        return ListingEvaluation(
-            criteria=criterion_results,
-            info=merged_info,
-            bucket=bucket,
-            red_criterion_keys=reds,
-        )
-
-    async def _eval_batch(
-        self,
-        listing: ListingDetail,
-        criteria_specs: list[CriterionSpec],
-        info_specs: list[InfoFieldSpec],
-        model: str,
-    ) -> tuple[dict[str, CriterionFlag], dict[str, InfoFieldExtract]]:
-        """One LLM call covering every missing criterion + info_llm field.
-
-        Splits the response into N cache rows so the next run — possibly
-        in ``per_criterion`` mode — gets clean per-key cache hits.
-        """
-        version, sys_tpl, usr_tpl = _read_prompt(
-            "evaluate_listing_batch", self._prompts_dir
-        )
-        rendered_criteria = [
-            {
-                "key": c.key,
-                "title_ru": c.title_ru,
-                "prompt_fragment": _render_fragment(c.prompt_fragment, c.params),
-            }
-            for c in criteria_specs
-        ]
-        rendered_info = [
-            {
-                "key": f.key,
-                "title_ru": f.title_ru,
-                "prompt_fragment": f.prompt_fragment,
-            }
-            for f in info_specs
-        ]
-        ctx = _listing_to_render_dict(listing)
-        ctx_with_specs = {**ctx, "criteria": rendered_criteria, "info_fields": rendered_info}
-        system_prompt = sys_tpl.render(**ctx_with_specs)
-        user_content = usr_tpl.render(**ctx)
-
-        resp = await self._openrouter.complete_json(
-            model=model,
-            system_prompt=system_prompt,
-            user_content=user_content,
-            temperature=0.0,
-            max_tokens=1200,
-        )
-        parsed = _safe_json_loads(resp.content)
-        if parsed is None:
-            log.warning(
-                "llm_analyzer.eval_batch.bad_json listing_id=%s raw=%r",
-                listing.id, (resp.content or "")[:400],
-            )
-            return self._fallback_unknown_for_specs(criteria_specs, info_specs)
-
-        try:
-            batch = BatchEvaluationResponse.model_validate(parsed)
-        except Exception as exc:
-            log.warning(
-                "llm_analyzer.eval_batch.invalid_schema listing_id=%s err=%s",
-                listing.id, exc,
-            )
-            return self._fallback_unknown_for_specs(criteria_specs, info_specs)
-
-        # Split cost across all N cache rows so SUM(cost_usd) over the
-        # llm_analyses table still reflects the true total.
-        n_rows = max(len(criteria_specs) + len(info_specs), 1)
-        per_row_cost = (resp.cost_usd or 0.0) / n_rows
-        per_row_in = (resp.input_tokens or 0) // n_rows
-        per_row_out = (resp.output_tokens or 0) // n_rows
-
-        criterion_results: dict[str, CriterionFlag] = {}
-        for spec in criteria_specs:
-            flag = batch.criteria.get(spec.key) or CriterionFlag(
-                flag="unknown", confidence=0.0, reasoning="missing in batch response"
-            )
-            criterion_results[spec.key] = flag
-            await self._cache.put(
-                cache_key=self._cache_key_for_criterion(listing, model, spec),
-                type="criterion_eval",
-                listing_id=listing.id,
-                reference_id=None,
-                model=model,
-                prompt_version=version,
-                input_tokens=per_row_in,
-                output_tokens=per_row_out,
-                cost_usd=per_row_cost,
-                latency_ms=resp.latency_ms,
-                result=flag.model_dump(mode="json"),
-            )
-
-        info_results: dict[str, InfoFieldExtract] = {}
-        for spec in info_specs:
-            raw = batch.info.get(spec.key)
-            extract = InfoFieldExtract(value=raw)
-            info_results[spec.key] = extract
-            await self._cache.put(
-                cache_key=self._cache_key_for_info_llm(listing, model, spec),
-                type="info_llm_extract",
-                listing_id=listing.id,
-                reference_id=None,
-                model=model,
-                prompt_version=version,
-                input_tokens=per_row_in,
-                output_tokens=per_row_out,
-                cost_usd=per_row_cost,
-                latency_ms=resp.latency_ms,
-                result=extract.model_dump(mode="json"),
-            )
-
-        return criterion_results, info_results
-
-    async def _eval_one_criterion(
-        self,
-        listing: ListingDetail,
-        spec: CriterionSpec,
-        model: str,
-    ) -> CriterionFlag:
-        version, sys_tpl, usr_tpl = _read_prompt(
-            "evaluate_criterion", self._prompts_dir
-        )
-        ctx = _listing_to_render_dict(listing)
-        ctx["criterion"] = {
-            "key": spec.key,
-            "title_ru": spec.title_ru,
-            "prompt_fragment": _render_fragment(spec.prompt_fragment, spec.params),
-        }
-        system_prompt = sys_tpl.render(**ctx)
-        user_content = usr_tpl.render(**ctx)
-
-        resp = await self._openrouter.complete_json(
-            model=model,
-            system_prompt=system_prompt,
-            user_content=user_content,
-            temperature=0.0,
-            max_tokens=400,
-        )
-        parsed = _safe_json_loads(resp.content)
-        if parsed is None:
-            flag = CriterionFlag(
-                flag="unknown", confidence=0.0, reasoning="LLM returned invalid JSON"
-            )
-        else:
-            try:
-                flag = CriterionFlag.model_validate(parsed)
-            except Exception as exc:
-                log.warning(
-                    "llm_analyzer.eval_one.invalid_schema listing_id=%s key=%s err=%s",
-                    listing.id, spec.key, exc,
-                )
-                flag = CriterionFlag(
-                    flag="unknown", confidence=0.0, reasoning="LLM JSON did not match schema"
-                )
-
-        await self._cache.put(
-            cache_key=self._cache_key_for_criterion(listing, model, spec),
-            type="criterion_eval",
-            listing_id=listing.id,
-            reference_id=None,
-            model=model,
-            prompt_version=version,
-            input_tokens=resp.input_tokens,
-            output_tokens=resp.output_tokens,
-            cost_usd=resp.cost_usd,
-            latency_ms=resp.latency_ms,
-            result=flag.model_dump(mode="json"),
-        )
-        return flag
-
-    async def _eval_info_batch(
-        self,
-        listing: ListingDetail,
-        specs: list[InfoFieldSpec],
-        model: str,
-    ) -> dict[str, InfoFieldExtract]:
-        version, sys_tpl, usr_tpl = _read_prompt(
-            "extract_info", self._prompts_dir
-        )
-        rendered = [
-            {"key": f.key, "title_ru": f.title_ru, "prompt_fragment": f.prompt_fragment}
-            for f in specs
-        ]
-        ctx = _listing_to_render_dict(listing)
-        ctx_with_specs = {**ctx, "info_fields": rendered}
-        system_prompt = sys_tpl.render(**ctx_with_specs)
-        user_content = usr_tpl.render(**ctx)
-
-        resp = await self._openrouter.complete_json(
-            model=model,
-            system_prompt=system_prompt,
-            user_content=user_content,
-            temperature=0.0,
-            max_tokens=600,
-        )
-        parsed = _safe_json_loads(resp.content)
-        info_block = (parsed or {}).get("info") if isinstance(parsed, dict) else None
-        if not isinstance(info_block, dict):
-            info_block = {}
-
-        n_rows = max(len(specs), 1)
-        per_row_cost = (resp.cost_usd or 0.0) / n_rows
-        per_row_in = (resp.input_tokens or 0) // n_rows
-        per_row_out = (resp.output_tokens or 0) // n_rows
-
-        results: dict[str, InfoFieldExtract] = {}
-        for spec in specs:
-            extract = InfoFieldExtract(value=info_block.get(spec.key))
-            results[spec.key] = extract
-            await self._cache.put(
-                cache_key=self._cache_key_for_info_llm(listing, model, spec),
-                type="info_llm_extract",
-                listing_id=listing.id,
-                reference_id=None,
-                model=model,
-                prompt_version=version,
-                input_tokens=per_row_in,
-                output_tokens=per_row_out,
-                cost_usd=per_row_cost,
-                latency_ms=resp.latency_ms,
-                result=extract.model_dump(mode="json"),
-            )
-        return results
-
-    @staticmethod
-    def _fallback_unknown_for_specs(
-        criteria: list[CriterionSpec], info: list[InfoFieldSpec]
-    ) -> tuple[dict[str, CriterionFlag], dict[str, InfoFieldExtract]]:
-        c = {
-            spec.key: CriterionFlag(
-                flag="unknown", confidence=0.0, reasoning="batch parse error"
-            )
-            for spec in criteria
-        }
-        i = {spec.key: InfoFieldExtract(value=None) for spec in info}
-        return c, i
 
 
 # ----------------------------------------------------------------------
@@ -728,47 +386,6 @@ def _comparison_from_dict(d: dict[str, Any]) -> ComparisonResult:
             comparable=False, score=0,
             key_advantages=[], key_disadvantages=["invalid cached payload"],
         )
-
-
-def _criterion_flag_from_dict(d: dict[str, Any]) -> CriterionFlag:
-    try:
-        return CriterionFlag.model_validate(d)
-    except Exception:
-        return CriterionFlag(
-            flag="unknown", confidence=0.0, reasoning="invalid cached payload"
-        )
-
-
-def _info_extract_from_dict(d: dict[str, Any]) -> InfoFieldExtract:
-    try:
-        return InfoFieldExtract.model_validate(d)
-    except Exception:
-        return InfoFieldExtract(value=None, reasoning="invalid cached payload")
-
-
-def _compute_bucket(
-    criteria: dict[str, CriterionFlag], threshold: float
-) -> tuple[str, list[str]]:
-    """Sort a (profile, listing) into green / grey / red.
-
-    - Any criterion with ``flag=red`` AND ``confidence >= threshold``
-      → ``red`` bucket (caller will auto-blacklist).
-    - All criteria ``flag=green`` AND ``confidence >= threshold``
-      → ``green`` bucket (caller will alert if in alert price band).
-    - Anything else → ``grey`` (UI-only, no blacklist, no alert).
-    """
-    reds = [
-        k for k, c in criteria.items()
-        if c.flag == "red" and c.confidence >= threshold
-    ]
-    if reds:
-        return "red", reds
-    if criteria and all(
-        c.flag == "green" and c.confidence >= threshold
-        for c in criteria.values()
-    ):
-        return "green", []
-    return "grey", []
 
 
 # ----------------------------------------------------------------------

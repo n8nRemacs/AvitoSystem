@@ -40,7 +40,6 @@ from app.db.base import get_sessionmaker
 from app.db.models import (
     Listing,
     ListingStatusEvent,
-    ProfileCriterion,
     ProfileListing,
     ProfileRun,
     SearchProfile,
@@ -822,35 +821,16 @@ async def poll_profile(profile_id: str) -> dict[str, Any]:
     # DB session keeps the transaction short and lets the worker pull
     # them up immediately from Redis.
     #
-    # Phase C: legacy analyze_listing removed. All profiles must have at
-    # least one profile_criteria row. Profiles without criteria are
-    # skipped (safety guard — no silently wrong LLM calls).
+    # Phase 2.1: V2 evaluate_listing removed. Analysis enqueue is a no-op
+    # here until the unified-criteria pipeline (Task 5+) wires up its own
+    # task. to_analyze is collected but not dispatched for now.
     enqueued_for_analysis = 0
     if to_analyze:
-        from sqlalchemy import func as sa_func
-
-        from app.tasks.analysis import evaluate_listing
-
-        async with sessionmaker() as session:
-            count = await session.scalar(
-                select(sa_func.count(ProfileCriterion.id)).where(
-                    ProfileCriterion.profile_id == pid
-                )
-            )
-        if not count:
-            log.warning(
-                "polling.no_criteria_skip_analysis profile_id=%s",
-                profile_id,
-            )
-        else:
-            for lid in to_analyze:
-                try:
-                    await evaluate_listing.kiq(str(lid), str(pid))
-                    enqueued_for_analysis += 1
-                except Exception:
-                    log.exception(
-                        "polling.enqueue_analyze_failed listing_id=%s", lid
-                    )
+        log.debug(
+            "polling.analysis_enqueue_deferred profile_id=%s count=%d "
+            "(unified-criteria pipeline not yet wired)",
+            profile_id, len(to_analyze),
+        )
 
     # Detail-refresh fan-out for reservation-flipped items. Independent of
     # the analyze enqueue: detail re-fetch is cheap (no LLM) and we want it
