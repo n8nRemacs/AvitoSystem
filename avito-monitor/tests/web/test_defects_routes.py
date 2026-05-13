@@ -116,3 +116,33 @@ def test_defects_devices_tree_empty_200(defects_client):
 def test_defects_catalog_tree_empty_200(defects_client):
     resp = defects_client.get("/defects/catalog/tree")
     assert resp.status_code == 200
+
+
+def test_defects_device_detail_renders_with_sidebar(defects_client, monkeypatch):
+    """Regression: /defects/devices/{id} extends global _layout.html and so the
+    route must populate sidebar context (sidebar_profiles_count, etc.). Without
+    it Jinja raises UndefinedError → 500."""
+    from app.services.defect_catalog import repository as repo
+    from app.services.defect_catalog.repository import DeviceNodeRow
+    from app.web import defects as defects_mod
+
+    fake_id = uuid.UUID("14e54f9a-6155-5e4c-8f27-63e5f9317f9b")
+    fake_device = DeviceNodeRow(
+        id=fake_id, parent_id=None, slug="iphone_12_pm",
+        title="iPhone 12 Pro Max", kind=None, sort_order=0,
+    )
+
+    async def _fake_get_device_node(session, nid):
+        return fake_device
+
+    async def _fake_resolve(session, device_id):
+        return []
+
+    monkeypatch.setattr(defects_mod, "get_device_node", _fake_get_device_node)
+    monkeypatch.setattr(defects_mod, "resolve_applicable_defects", _fake_resolve)
+
+    resp = defects_client.get(f"/defects/devices/{fake_id}")
+    assert resp.status_code == 200, resp.text[:500]
+    assert "iPhone 12 Pro Max" in resp.text
+    # Sidebar must be rendered (proves _layout_context was passed)
+    assert "Avito Monitor" in resp.text

@@ -116,9 +116,12 @@ async def device_detail(
     if device is None:
         return HTMLResponse("Device not found", status_code=404)
     resolved = await resolve_applicable_defects(session, device_id)
+    ctx = await _layout_context(user, session, active="defects")
+    ctx["active_tab"] = "devices"
+    ctx["device"] = device
+    ctx["bindings"] = resolved
     return templates.TemplateResponse(
-        request, "defects/_partials/device_detail.html",
-        {"active_tab": "devices", "device": device, "bindings": resolved},
+        request, "defects/_partials/device_detail.html", ctx,
     )
 
 
