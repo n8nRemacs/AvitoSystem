@@ -257,6 +257,11 @@
               {% include "_partials/_features_block.html" %}
             {% endwith %}
 
+            {% with features=r.features_by_key %}
+              {% include "_partials/listing_price_signal_block.html" %}
+              {% include "_partials/listing_info_api_block.html" %}
+            {% endwith %}
+
             {# Avito-side parameters straight from /items/{id}.parameters.flat —
                Состояние, Цвет, Встроенная память, АКБ, Комплектация, итд.
                Render as a compact 2-column grid on top of the description. #}

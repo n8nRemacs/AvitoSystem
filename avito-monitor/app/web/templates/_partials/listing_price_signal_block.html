@@ -1,0 +1,49 @@
+{# Phase 2.1: price_signal card block.
+   Expects: features — dict[feature_key -> {kind, state, value, evidence}]
+   Renders empty if both battery_health and repaired_components are null/missing. #}
+
+{% set _bh = features.get('battery_health') if features else none %}
+{% set _rc = features.get('repaired_components') if features else none %}
+{% set _has_bh = _bh and _bh.value %}
+{% set _has_rc = _rc and _rc.value and _rc.value.get('items') %}
+
+{% if _has_bh or _has_rc %}
+<div class="bg-avito-surface border-t border-avito-border-soft px-3 py-2 text-xs space-y-1">
+  <div class="text-[10px] uppercase tracking-wide text-avito-text-muted mb-1">Цена / торг</div>
+
+  {% if _has_bh %}
+    <div class="flex items-center gap-2">
+      <span>🔋</span>
+      <span class="text-avito-text">
+        АКБ
+        {% if _bh.value.get('percent') is not none %}
+          <strong>{{ _bh.value.percent }}%</strong>
+        {% elif _bh.value.get('text') %}
+          <strong>{{ _bh.value.text }}</strong>
+        {% endif %}
+      </span>
+    </div>
+  {% endif %}
+
+  {% if _has_rc %}
+    <div class="flex items-start gap-2">
+      <span>🔧</span>
+      <div class="text-avito-text flex-1">
+        Заменено:
+        {% for item in _rc.value['items'] %}
+          <span class="inline-flex items-center gap-1 mr-2">
+            <span>{{ item.component }}</span>
+            {% if item.quality == 'original' %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">оригинал</span>
+            {% elif item.quality == 'aftermarket' %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-800">копия</span>
+            {% else %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-200 text-stone-700">?</span>
+            {% endif %}
+          </span>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endif %}

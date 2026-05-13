@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +48,9 @@ class KanbanCard:
     opened_at: datetime
     last_event_at: datetime | None
     features: dict[str, str] = field(default_factory=dict)
+    # Phase 2.1: rich feature dict for price_signal + info_api partials.
+    # Maps feature_key -> {kind, state, value, evidence} for all kinds.
+    features_by_key: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -88,17 +92,29 @@ async def query_kanban_cards(
     rows = (await session.execute(stmt)).all()
 
     # Batch-load features for all listings in one query (no N+1).
+    # Phase 2.1: also fetch kind/value/evidence for price_signal + info_api partials.
     listing_ids = [listing.id for _, listing, _ in rows]
     features_rows = []
     if listing_ids:
         features_rows = (await session.execute(
             select(ListingFeature.listing_id, ListingFeature.feature_key,
-                   ListingFeature.state)
+                   ListingFeature.state, ListingFeature.kind,
+                   ListingFeature.value, ListingFeature.evidence)
             .where(ListingFeature.listing_id.in_(listing_ids))
         )).all()
+    # Legacy defect dict: {feature_key: state} — consumed by _features_block.html
     features_by_listing: dict[uuid.UUID, dict[str, str]] = {}
-    for lid, fkey, state in features_rows:
-        features_by_listing.setdefault(lid, {})[fkey] = state
+    # Rich dict: {feature_key: {kind, state, value, evidence}} — consumed by new partials
+    features_by_key_by_listing: dict[uuid.UUID, dict[str, dict[str, Any]]] = {}
+    for lid, fkey, state, kind, value, evidence in features_rows:
+        if state is not None:
+            features_by_listing.setdefault(lid, {})[fkey] = state
+        features_by_key_by_listing.setdefault(lid, {})[fkey] = {
+            "kind": kind,
+            "state": state,
+            "value": value,
+            "evidence": evidence,
+        }
 
     out: dict[str, list[KanbanCard]] = {s: [] for s in PHASE_B_STAGES}
     for sd, listing, profile_name in rows:
@@ -126,6 +142,7 @@ async def query_kanban_cards(
             opened_at=sd.opened_at,
             last_event_at=sd.last_event_at,
             features=features_by_listing.get(listing.id, {}),
+            features_by_key=features_by_key_by_listing.get(listing.id, {}),
         )
         out[sd.stage].append(card)
     return out

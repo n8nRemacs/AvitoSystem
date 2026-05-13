@@ -9,6 +9,11 @@
     {% include "_partials/_features_block.html" %}
   {% endwith %}
 
+  {% with features=card.features_by_key %}
+    {% include "_partials/listing_price_signal_block.html" %}
+    {% include "_partials/listing_info_api_block.html" %}
+  {% endwith %}
+
   {% if card.description %}
     <div class="text-sm text-stone-800 whitespace-pre-line leading-relaxed">{{ card.description }}</div>
   {% else %}

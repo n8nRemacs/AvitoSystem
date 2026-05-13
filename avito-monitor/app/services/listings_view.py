@@ -74,6 +74,9 @@ class ListingRow:
     images: list[ListingImage]
     url: str | None
     features: dict[str, str] = field(default_factory=dict)
+    # Phase 2.1: rich feature dict for price_signal + info_api partials.
+    # Maps feature_key -> {kind, state, value, evidence} for all kinds.
+    features_by_key: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def price_delta_pct(self) -> float | None:
@@ -215,17 +218,29 @@ async def query_listings(
     rows = (await session.execute(stmt)).all()
 
     # Batch-load features for all listings in one query (no N+1).
+    # Phase 2.1: also fetch kind/value/evidence for price_signal + info_api partials.
     listing_ids = [listing.id for listing, _, _, _ in rows]
     features_rows = []
     if listing_ids:
         features_rows = (await session.execute(
             select(ListingFeature.listing_id, ListingFeature.feature_key,
-                   ListingFeature.state)
+                   ListingFeature.state, ListingFeature.kind,
+                   ListingFeature.value, ListingFeature.evidence)
             .where(ListingFeature.listing_id.in_(listing_ids))
         )).all()
+    # Legacy defect dict: {feature_key: state} — consumed by _features_block.html
     features_by_listing: dict[uuid.UUID, dict[str, str]] = {}
-    for lid, fkey, state in features_rows:
-        features_by_listing.setdefault(lid, {})[fkey] = state
+    # Rich dict: {feature_key: {kind, state, value, evidence}} — consumed by new partials
+    features_by_key_by_listing: dict[uuid.UUID, dict[str, dict[str, Any]]] = {}
+    for lid, fkey, state, kind, value, evidence in features_rows:
+        if state is not None:
+            features_by_listing.setdefault(lid, {})[fkey] = state
+        features_by_key_by_listing.setdefault(lid, {})[fkey] = {
+            "kind": kind,
+            "state": state,
+            "value": value,
+            "evidence": evidence,
+        }
 
     out: list[ListingRow] = []
     for listing, link, p_id, p_name in rows:
@@ -256,6 +271,7 @@ async def query_listings(
             images=_images_list(listing.images),
             url=listing.url,
             features=features_by_listing.get(listing.id, {}),
+            features_by_key=features_by_key_by_listing.get(listing.id, {}),
         ))
     return out, total
 
