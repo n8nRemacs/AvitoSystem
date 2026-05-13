@@ -317,3 +317,115 @@ async def delete_device_node(session: AsyncSession, nid: uuid.UUID) -> None:
         text("DELETE FROM device_nodes WHERE id = :id"), {"id": str(nid)},
     )
     await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# CRUD — device_feature_bindings
+# ---------------------------------------------------------------------------
+
+@dataclass
+class BindingRow:
+    id: uuid.UUID
+    device_node_id: uuid.UUID
+    feature_node_id: uuid.UUID
+    defect_action: str
+    unknown_action: str
+    disabled: bool
+
+
+def _row_to_b(row) -> BindingRow:
+    return BindingRow(
+        id=uuid.UUID(str(row.id)),
+        device_node_id=uuid.UUID(str(row.device_node_id)),
+        feature_node_id=uuid.UUID(str(row.feature_node_id)),
+        defect_action=row.defect_action,
+        unknown_action=row.unknown_action,
+        disabled=bool(row.disabled),
+    )
+
+
+async def create_binding(
+    session: AsyncSession, *,
+    device_node_id: uuid.UUID, feature_node_id: uuid.UUID,
+    defect_action: str, unknown_action: str, disabled: bool = False,
+) -> uuid.UUID:
+    if defect_action not in ("block", "info"):
+        raise ValueError(f"Invalid defect_action {defect_action!r}")
+    if unknown_action not in ("ask", "skip"):
+        raise ValueError(f"Invalid unknown_action {unknown_action!r}")
+    row = (await session.execute(
+        text("SELECT kind FROM feature_nodes WHERE id = :id"),
+        {"id": str(feature_node_id)},
+    )).first()
+    if row is None:
+        raise ValueError(f"feature_node {feature_node_id} not found")
+    if row.kind != "defect":
+        raise ValueError(
+            f"feature_node {feature_node_id} is kind={row.kind!r}; "
+            "bindings can only point to kind='defect' leaves"
+        )
+
+    bid = uuid.uuid4()
+    await session.execute(text("""
+        INSERT INTO device_feature_bindings
+            (id, device_node_id, feature_node_id, defect_action, unknown_action, disabled)
+        VALUES (:id, :dn, :fn, :da, :ua, :dis)
+    """), {
+        "id": str(bid),
+        "dn": str(device_node_id), "fn": str(feature_node_id),
+        "da": defect_action, "ua": unknown_action,
+        "dis": 1 if disabled else 0,
+    })
+    await session.commit()
+    return bid
+
+
+async def get_binding(session: AsyncSession, bid: uuid.UUID) -> BindingRow | None:
+    row = (await session.execute(
+        text("SELECT * FROM device_feature_bindings WHERE id = :id"),
+        {"id": str(bid)},
+    )).first()
+    return _row_to_b(row) if row else None
+
+
+async def list_bindings_at_device(
+    session: AsyncSession, device_node_id: uuid.UUID,
+) -> list[BindingRow]:
+    rows = (await session.execute(
+        text("SELECT * FROM device_feature_bindings WHERE device_node_id = :dn"),
+        {"dn": str(device_node_id)},
+    )).all()
+    return [_row_to_b(r) for r in rows]
+
+
+async def update_binding(
+    session: AsyncSession, bid: uuid.UUID, *,
+    defect_action: str | None = None, unknown_action: str | None = None,
+    disabled: bool | None = None,
+) -> None:
+    sets, params = [], {"id": str(bid)}
+    if defect_action is not None:
+        if defect_action not in ("block", "info"):
+            raise ValueError(f"Invalid defect_action {defect_action!r}")
+        sets.append("defect_action = :da"); params["da"] = defect_action
+    if unknown_action is not None:
+        if unknown_action not in ("ask", "skip"):
+            raise ValueError(f"Invalid unknown_action {unknown_action!r}")
+        sets.append("unknown_action = :ua"); params["ua"] = unknown_action
+    if disabled is not None:
+        sets.append("disabled = :dis"); params["dis"] = 1 if disabled else 0
+    if not sets:
+        return
+    sets.append(f"updated_at = {_now_expr(session)}")
+    await session.execute(
+        text(f"UPDATE device_feature_bindings SET {', '.join(sets)} WHERE id = :id"),
+        params,
+    )
+    await session.commit()
+
+
+async def delete_binding(session: AsyncSession, bid: uuid.UUID) -> None:
+    await session.execute(
+        text("DELETE FROM device_feature_bindings WHERE id = :id"), {"id": str(bid)},
+    )
+    await session.commit()

@@ -176,3 +176,86 @@ async def test_device_node_cycle_detection(db_session):
     b = await create_device_node(db_session, parent_id=a, slug="b", title="B")
     with pytest.raises(ValueError, match="cycle"):
         await update_device_node(db_session, a, parent_id=b)
+
+
+# ---------------------------------------------------------------------------
+# Task 12: binding CRUD + kind='defect' validation
+# ---------------------------------------------------------------------------
+
+from app.services.defect_catalog.repository import (
+    create_binding, get_binding, list_bindings_at_device,
+    update_binding, delete_binding,
+)
+
+
+@pytest_asyncio.fixture
+async def seeded(db_session):
+    """Seed a minimal tree: Phone device, Корпус node, Стекло defect."""
+    phone = await create_device_node(db_session, parent_id=None, slug="phone", title="Phone")
+    case = await create_feature_node(db_session, parent_id=None, kind="node", slug="case", title="Корпус")
+    leaf = await create_feature_node(
+        db_session, parent_id=case, kind="defect", slug="back_broken", title="Задняя крышка",
+    )
+    return {"phone": phone, "case": case, "leaf": leaf}
+
+
+@pytest.mark.asyncio
+async def test_create_binding_on_defect(db_session, seeded):
+    bid = await create_binding(
+        db_session, device_node_id=seeded["phone"],
+        feature_node_id=seeded["leaf"],
+        defect_action="block", unknown_action="ask",
+    )
+    b = await get_binding(db_session, bid)
+    assert b.defect_action == "block"
+    assert b.disabled is False
+
+
+@pytest.mark.asyncio
+async def test_binding_on_node_kind_rejected(db_session, seeded):
+    """Cannot bind a non-leaf feature_node (kind='node')."""
+    with pytest.raises(ValueError, match="defect"):
+        await create_binding(
+            db_session, device_node_id=seeded["phone"],
+            feature_node_id=seeded["case"],
+            defect_action="block", unknown_action="ask",
+        )
+
+
+@pytest.mark.asyncio
+async def test_binding_update_severity(db_session, seeded):
+    bid = await create_binding(
+        db_session, device_node_id=seeded["phone"],
+        feature_node_id=seeded["leaf"],
+        defect_action="block", unknown_action="ask",
+    )
+    await update_binding(db_session, bid, defect_action="info", unknown_action="skip")
+    b = await get_binding(db_session, bid)
+    assert b.defect_action == "info"
+    assert b.unknown_action == "skip"
+
+
+@pytest.mark.asyncio
+async def test_binding_toggle_disabled(db_session, seeded):
+    bid = await create_binding(
+        db_session, device_node_id=seeded["phone"],
+        feature_node_id=seeded["leaf"],
+        defect_action="block", unknown_action="ask",
+    )
+    await update_binding(db_session, bid, disabled=True)
+    assert (await get_binding(db_session, bid)).disabled is True
+
+
+@pytest.mark.asyncio
+async def test_binding_unique_per_device_feature(db_session, seeded):
+    await create_binding(
+        db_session, device_node_id=seeded["phone"],
+        feature_node_id=seeded["leaf"],
+        defect_action="block", unknown_action="ask",
+    )
+    with pytest.raises(Exception):
+        await create_binding(
+            db_session, device_node_id=seeded["phone"],
+            feature_node_id=seeded["leaf"],
+            defect_action="info", unknown_action="skip",
+        )
