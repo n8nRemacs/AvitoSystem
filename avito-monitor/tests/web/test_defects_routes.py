@@ -305,3 +305,37 @@ def test_get_feature_form_edit(defects_client, monkeypatch):
     assert 'value="display"' in resp.text
     assert 'value="Дисплей"' in resp.text
     assert 'value="Дисплей телефона"' in resp.text
+
+
+def test_device_tree_renders_action_icons(defects_client, monkeypatch):
+    """GET /defects/devices/tree renders [+][✏][🗑] icons per node + hx-confirm для delete."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import DeviceNodeRow
+    from app.web import defects as defects_mod
+
+    nid = _uuid.UUID("55555555-5555-5555-5555-555555555555")
+    fake_node = DeviceNodeRow(
+        id=nid, parent_id=None, slug="apple", title="Apple",
+        kind=None, sort_order=0,
+    )
+
+    call_count = {"n": 0}
+
+    async def _fake_list_children(session, parent_id):
+        call_count["n"] += 1
+        # First call (parent_id=None) returns the apple node; recursive calls return [].
+        if call_count["n"] == 1:
+            return [fake_node]
+        return []
+
+    monkeypatch.setattr(defects_mod, "list_device_children", _fake_list_children)
+
+    resp = defects_client.get("/defects/devices/tree")
+    assert resp.status_code == 200
+    # Icon buttons for the apple node
+    assert f'hx-get="/defects/devices/{nid}/new"'  in resp.text  # [+]
+    assert f'hx-get="/defects/devices/{nid}/edit"' in resp.text  # [✏]
+    assert f'hx-delete="/defects/devices/{nid}"'   in resp.text  # [🗑]
+    # Native confirm на delete
+    assert "hx-confirm=" in resp.text
+    assert "Apple" in resp.text

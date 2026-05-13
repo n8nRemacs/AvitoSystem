@@ -1,16 +1,27 @@
 {% macro render(entry) %}
-  {% if entry.children %}
-    <details class="ml-2" open>
-      <summary class="cursor-pointer text-sm py-1 hover:text-avito-green">
-        <a href="/defects/devices/{{ entry.node.id }}" hx-boost="false">{{ entry.node.title }}</a>
-      </summary>
-      {% for child in entry.children %}{{ render(child) }}{% endfor %}
-    </details>
-  {% else %}
-    <div class="ml-4 text-sm py-1">
+  <div class="ml-2">
+    <div class="flex items-center gap-1 py-1 text-sm">
       <a href="/defects/devices/{{ entry.node.id }}" hx-boost="false"
-         class="hover:text-avito-green">{{ entry.node.title }}</a>
+         class="flex-1 hover:text-avito-green">{{ entry.node.title }}</a>
+      <button hx-get="/defects/devices/{{ entry.node.id }}/new"
+              hx-target="this" hx-swap="afterend"
+              class="text-xs text-avito-text-soft hover:text-avito-green px-1"
+              title="Добавить дочернюю ноду">[+]</button>
+      <button hx-get="/defects/devices/{{ entry.node.id }}/edit"
+              hx-target="closest div.flex" hx-swap="outerHTML"
+              class="text-xs text-avito-text-soft hover:text-avito-green px-1"
+              title="Переименовать">[✏]</button>
+      <button hx-delete="/defects/devices/{{ entry.node.id }}"
+              hx-target="#device-tree" hx-swap="innerHTML"
+              hx-confirm="Удалить «{{ entry.node.title }}» и всех потомков?"
+              class="text-xs text-avito-text-soft hover:text-red-600 px-1"
+              title="Удалить">[🗑]</button>
     </div>
-  {% endif %}
+    {% if entry.children %}
+      <div class="ml-3">
+        {% for child in entry.children %}{{ render(child) }}{% endfor %}
+      </div>
+    {% endif %}
+  </div>
 {% endmacro %}
 {% for entry in tree %}{{ render(entry) }}{% endfor %}
