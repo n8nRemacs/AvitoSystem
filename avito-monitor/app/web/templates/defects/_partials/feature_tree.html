@@ -1,13 +1,28 @@
 {% macro render(entry) %}
-  {% if entry.node.kind == 'node' %}
-    <details class="ml-2" open>
-      <summary class="cursor-pointer text-sm py-1 font-medium">
-        ▼ {{ entry.node.title }}
-      </summary>
-      {% for child in entry.children %}{{ render(child) }}{% endfor %}
-    </details>
-  {% else %}
-    <div class="ml-4 text-sm py-1">• {{ entry.node.title }}</div>
-  {% endif %}
+  <div class="ml-2">
+    <div class="flex items-center gap-1 py-1 text-sm">
+      <span class="flex-1">{{ entry.node.title }}
+        <span class="text-xs text-avito-text-soft">[{{ entry.node.kind }}]</span>
+      </span>
+      <button hx-get="/defects/catalog/{{ entry.node.id }}/new"
+              hx-target="this" hx-swap="afterend"
+              class="text-xs text-avito-text-soft hover:text-avito-green px-1"
+              title="Добавить дочерний признак">[+]</button>
+      <button hx-get="/defects/catalog/{{ entry.node.id }}/edit"
+              hx-target="closest div.flex" hx-swap="outerHTML"
+              class="text-xs text-avito-text-soft hover:text-avito-green px-1"
+              title="Редактировать">[✏]</button>
+      <button hx-delete="/defects/catalog/{{ entry.node.id }}"
+              hx-target="#feature-tree" hx-swap="innerHTML"
+              hx-confirm="Удалить «{{ entry.node.title }}» и всех потомков?"
+              class="text-xs text-avito-text-soft hover:text-red-600 px-1"
+              title="Удалить">[🗑]</button>
+    </div>
+    {% if entry.children %}
+      <div class="ml-3">
+        {% for child in entry.children %}{{ render(child) }}{% endfor %}
+      </div>
+    {% endif %}
+  </div>
 {% endmacro %}
 {% for entry in tree %}{{ render(entry) }}{% endfor %}
