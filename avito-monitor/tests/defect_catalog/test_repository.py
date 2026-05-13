@@ -104,3 +104,10 @@ async def test_duplicate_slug_in_parent_rejected(db_session):
         await create_feature_node(
             db_session, parent_id=pid, kind="defect", slug="back_broken", title="B",
         )
+
+
+@pytest.mark.asyncio
+async def test_now_expr_sqlite(db_session):
+    """SQLite session should pick datetime('now')."""
+    from app.services.defect_catalog.repository import _now_expr
+    assert _now_expr(db_session) == "datetime('now')"

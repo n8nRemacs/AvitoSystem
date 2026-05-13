@@ -12,6 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
+def _now_expr(session: AsyncSession) -> str:
+    """SQL expression for current timestamp, dialect-aware.
+
+    SQLite uses ``datetime('now')``, Postgres uses ``now()``.
+    """
+    return "now()" if session.bind.dialect.name != "sqlite" else "datetime('now')"
+
+
 def validate_slug(slug: str) -> None:
     """Slug must be ^[a-z][a-z0-9_]*$ (snake-case, starting with a letter)."""
     if not _SLUG_RE.match(slug):
@@ -167,7 +175,7 @@ async def update_feature_node(
     if not sets:
         return
 
-    sets.append("updated_at = datetime('now')")
+    sets.append(f"updated_at = {_now_expr(session)}")
     await session.execute(
         text(f"UPDATE feature_nodes SET {', '.join(sets)} WHERE id = :id"),
         params,
