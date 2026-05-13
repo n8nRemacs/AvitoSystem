@@ -59,6 +59,42 @@ def upgrade() -> None:
         if col in pl_cols:
             op.drop_column("profile_listings", col)
 
+    # 3b) Drop profile_listings.bucket (V2 cache column added by 0006).
+    if "bucket" in pl_cols:
+        op.drop_column("profile_listings", "bucket")
+
+    # 3c) Drop profile_listings.latest_evaluation_id FK + column.
+    #     MUST happen before op.drop_table("profile_listing_evaluations") —
+    #     plain DROP TABLE (no CASCADE) fails while this FK exists.
+    if "latest_evaluation_id" in pl_cols:
+        inspector = sa.inspect(bind)
+        for fk in inspector.get_foreign_keys("profile_listings"):
+            if fk.get("referred_table") == "profile_listing_evaluations":
+                op.drop_constraint(
+                    fk["name"], "profile_listings", type_="foreignkey"
+                )
+                break
+        op.drop_column("profile_listings", "latest_evaluation_id")
+
+    # 3d) Drop V2-orphan columns on search_profiles (added by 0006).
+    sp_cols = {
+        row[0]
+        for row in bind.execute(
+            sa.text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'search_profiles'"
+            )
+        )
+    }
+    for col in (
+        "evaluate_strategy",
+        "confidence_threshold",
+        "criteria_set_hash",
+        "bucket_routing",
+    ):
+        if col in sp_cols:
+            op.drop_column("search_profiles", col)
+
     # 4) Drop V2 tables in child-first FK order.
     #    Guard with IF EXISTS in case 0009 / future migrations already removed them.
     existing_tables = {
@@ -273,11 +309,60 @@ def downgrade() -> None:
         ["profile_id", "bucket"],
     )
 
-    # 2) profile_listings FK columns (match_result_id / condition_classification_id)
-    #    were dropped in 0009_drop_legacy_v2_artifacts before this migration.
-    #    We do NOT re-add them here — restoring them without the FK target rows
-    #    would leave orphaned UUID columns with no referential meaning. The
-    #    0009 downgrade handles that level of rollback if needed.
+    # 2) Re-add V2-orphan columns to search_profiles and profile_listings.
+    #    Order: search_profiles first (no FK dependency), then profile_listings
+    #    (latest_evaluation_id FK requires profile_listing_evaluations to exist,
+    #    which was re-created above).
+
+    # search_profiles — exact types/defaults from 0006_v2_llm_pipeline
+    op.add_column(
+        "search_profiles",
+        sa.Column(
+            "evaluate_strategy",
+            sa.String(length=16),
+            nullable=False,
+            server_default="per_listing",
+        ),
+    )
+    op.add_column(
+        "search_profiles",
+        sa.Column(
+            "confidence_threshold",
+            sa.Numeric(4, 3),
+            nullable=False,
+            server_default="0.7",
+        ),
+    )
+    op.add_column(
+        "search_profiles",
+        sa.Column("criteria_set_hash", sa.String(length=64), nullable=True),
+    )
+    op.add_column(
+        "search_profiles",
+        sa.Column("bucket_routing", postgresql.JSONB(), nullable=True),
+    )
+
+    # profile_listings — bucket (no server_default in 0006; nullable)
+    op.add_column(
+        "profile_listings",
+        sa.Column("bucket", sa.String(length=8), nullable=True),
+    )
+    # latest_evaluation_id FK — profile_listing_evaluations was re-created above
+    op.add_column(
+        "profile_listings",
+        sa.Column(
+            "latest_evaluation_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey(
+                "profile_listing_evaluations.id", ondelete="SET NULL"
+            ),
+            nullable=True,
+        ),
+    )
+
+    # NOTE: match_result_id / condition_classification_id were dropped in
+    #       0009_drop_legacy_v2_artifacts before this migration. We do NOT
+    #       re-add them here — the 0009 downgrade handles that level of rollback.
 
     # 3) Reverse listing_features changes
     op.drop_constraint("lf_kind_shape_chk", "listing_features", type_="check")
