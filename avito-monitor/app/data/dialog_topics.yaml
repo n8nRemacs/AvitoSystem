@@ -1,5 +1,6 @@
 # Defect taxonomy — see DOCS/superpowers/specs/2026-05-12-defect-checklist-design.md §5
 - key: display.replaced
+  kind: defect
   section: display
   title: Дисплей менялся
   default_phrasing: "Уточни — менялся ли дисплей"
@@ -7,6 +8,7 @@
   severity_hint: green
   opener_phrasing: "дисплей менялся"
 - key: display.glass_broken
+  kind: defect
   section: display
   title: Стекло дисплея разбито
   default_phrasing: "Стекло дисплея целое или есть трещины/сколы?"
@@ -14,6 +16,7 @@
   severity_hint: green
   opener_phrasing: "разбито стекло дисплея"
 - key: display.touchscreen_glitch
+  kind: defect
   section: display
   title: Тачскрин глючит
   default_phrasing: "Тачскрин работает корректно?"
@@ -21,6 +24,7 @@
   severity_hint: green
   opener_phrasing: "глючит тачскрин"
 - key: display.stains_stripes
+  kind: defect
   section: display
   title: Пятна / полосы на дисплее
   default_phrasing: "Есть ли полосы или пятна на дисплее, битые пиксели?"
@@ -28,6 +32,7 @@
   severity_hint: green
   opener_phrasing: "есть полосы/пятна на дисплее"
 - key: case.back_broken
+  kind: defect
   section: case
   title: Задняя крышка разбита
   default_phrasing: "Задняя крышка целая?"
@@ -35,6 +40,7 @@
   severity_hint: green
   opener_phrasing: "разбита задняя крышка"
 - key: case.midframe_bent
+  kind: defect
   section: case
   title: Средняя часть корпуса погнута
   default_phrasing: "Средняя часть корпуса ровная, без замятий?"
@@ -42,6 +48,7 @@
   severity_hint: green
   opener_phrasing: "погнута средняя часть корпуса"
 - key: case.midframe_cracked
+  kind: defect
   section: case
   title: Средняя часть корпуса сломана
   default_phrasing: "На корпусе нет трещин или сломов?"
@@ -49,6 +56,7 @@
   severity_hint: green
   opener_phrasing: "сломана средняя часть корпуса"
 - key: locks.icloud_linked
+  kind: defect
   section: locks
   title: iCloud привязан к чужому аккаунту
   default_phrasing: "iCloud отвязан от прошлого аккаунта?"
@@ -56,6 +64,7 @@
   severity_hint: red
   opener_phrasing: "iCloud привязан"
 - key: locks.passcode_forgotten
+  kind: defect
   section: locks
   title: Пароль на экран забыт
   default_phrasing: "Пароль на разблокировку известен / снят?"
@@ -63,6 +72,7 @@
   severity_hint: red
   opener_phrasing: "пароль на экран забыт"
 - key: sensors.face_id
+  kind: defect
   section: sensors
   title: Face ID не работает
   default_phrasing: "Face ID работает без сбоев?"
@@ -70,6 +80,7 @@
   severity_hint: green
   opener_phrasing: "не работает Face ID"
 - key: sensors.truetone
+  kind: defect
   section: sensors
   title: TrueTone не работает
   default_phrasing: "TrueTone в настройках включается?"
@@ -77,6 +88,7 @@
   severity_hint: info
   opener_phrasing: "не работает TrueTone"
 - key: sensors.wifi
+  kind: defect
   section: sensors
   title: WiFi не работает
   default_phrasing: "WiFi ловит сети, подключается стабильно?"
@@ -84,6 +96,7 @@
   severity_hint: green
   opener_phrasing: "не работает WiFi"
 - key: sensors.sim
+  kind: defect
   section: sensors
   title: SIM не работает
   default_phrasing: "SIM-карта определяется, сеть ловит?"
@@ -91,6 +104,7 @@
   severity_hint: green
   opener_phrasing: "не работает SIM"
 - key: sensors.bluetooth
+  kind: defect
   section: sensors
   title: Bluetooth не работает
   default_phrasing: "Bluetooth подключается к устройствам?"
@@ -98,6 +112,7 @@
   severity_hint: info
   opener_phrasing: "не работает Bluetooth"
 - key: sensors.other
+  kind: defect
   section: sensors
   title: Другие датчики не работают
   default_phrasing: "Какие-нибудь другие датчики не работают (proximity, гироскоп)?"
@@ -105,6 +120,7 @@
   severity_hint: info
   opener_phrasing: "есть проблемы с другими датчиками"
 - key: charging.not_charging
+  kind: defect
   section: charging
   title: Не заряжается
   default_phrasing: "Аппарат заряжается от кабеля?"
@@ -112,6 +128,7 @@
   severity_hint: red
   opener_phrasing: "не заряжается"
 - key: charging.wireless_only
+  kind: defect
   section: charging
   title: Заряжается только беспроводной
   default_phrasing: "Аппарат заряжается от обычного кабеля Lightning?"
@@ -119,6 +136,7 @@
   severity_hint: green
   opener_phrasing: "заряжается только беспроводной зарядкой"
 - key: charging.unstable
+  kind: defect
   section: charging
   title: Зарядка нестабильна
   default_phrasing: "Зарядка стабильная или нужно двигать кабель?"
@@ -126,6 +144,7 @@
   severity_hint: green
   opener_phrasing: "зарядка нестабильна (нужно двигать кабель)"
 - key: operability.boot_loop
+  kind: defect
   section: operability
   title: Висит на прошивке
   default_phrasing: "Аппарат прошивается / включается без зависания?"
@@ -133,6 +152,7 @@
   severity_hint: red
   opener_phrasing: "висит на прошивке"
 - key: operability.reboots
+  kind: defect
   section: operability
   title: Периодически перезагружается
   default_phrasing: "Бывает ли что аппарат сам перезагружается?"
@@ -140,6 +160,7 @@
   severity_hint: green
   opener_phrasing: "периодически перезагружается"
 - key: operability.no_boot
+  kind: defect
   section: operability
   title: Не загружается
   default_phrasing: "После включения экран загрузки доходит до рабочего стола?"
@@ -147,9 +168,109 @@
   severity_hint: red
   opener_phrasing: "стартует и не загружается"
 - key: operability.apple_loop
+  kind: defect
   section: operability
   title: Циклится на яблоке
   default_phrasing: "Аппарат загружается до яблока и идёт дальше?"
   expected_format: yesno
   severity_hint: red
   opener_phrasing: "циклится на яблоке"
+
+# ---------- Phase 2.1: new defect keys (4) ----------
+- key: sensors.touch_id
+  kind: defect
+  section: sensors
+  title: "Не работает Touch ID"
+  default_phrasing: "Touch ID работает корректно?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "не работает Touch ID"
+  prompt_fragment: |
+    Цель: определить состояние сканера отпечатка пальца (Touch ID).
+    defect — продавец прямо упоминает неработающий Touch ID, либо «сенсор отпечатка не работает», «touchID сломан».
+    ok — продавец прямо подтверждает работу Touch ID.
+    unknown — Touch ID не упомянут, либо модель явно без Touch ID (iPhone X+).
+
+- key: locks.frp_locked
+  kind: defect
+  section: locks
+  title: "FRP / MDM-блокировка"
+  default_phrasing: "Привязан ли к чужому Google-аккаунту или корпоративному профилю?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "FRP-блокировка или MDM"
+  prompt_fragment: |
+    Цель: определить наличие FRP / MDM / corporate-block.
+    defect — упоминания «привязан к Google», «FRP-lock», «MDM», «корпоративный профиль», «не сбрасывается без логина владельца».
+    ok — продавец подтверждает что устройство чистое.
+    unknown — нет упоминаний.
+
+- key: locks.vendor_account
+  kind: defect
+  section: locks
+  title: "Заблокирован Mi/Samsung/Huawei аккаунтом"
+  default_phrasing: "Привязан ли к чужому Mi/Samsung/Huawei-аккаунту?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "vendor account block"
+  prompt_fragment: |
+    Цель: определить vendor-account block (не iCloud, не FRP).
+    defect — упоминания «привязан к Mi/Samsung/Huawei», «Xiaomi-аккаунт нужен», «не сбрасывается без аккаунта владельца» (на не-Apple устройстве).
+    ok — устройство чистое.
+    unknown — нет упоминаний.
+
+- key: operability.parts_only
+  kind: defect
+  section: operability
+  title: "Продаётся только на запчасти"
+  default_phrasing: "Лот продаётся только на запчасти?"
+  expected_format: yesno
+  severity_hint: red
+  opener_phrasing: "только на запчасти"
+  prompt_fragment: |
+    Цель: определить intent-based parts-only sale.
+    defect — explicit «на запчасти», «на разбор», «нерабочий, продаю как комплект».
+    ok — продавец продаёт как рабочее устройство.
+    unknown — нет explicit указания.
+
+# ---------- Phase 2.1: price_signal features (2) ----------
+- key: battery_health
+  kind: price_signal
+  title: "АКБ"
+  prompt_fragment: |
+    Извлеки информацию об аккумуляторе.
+    Если упомянут процент — верни {"percent": N}.
+    Если состояние словесно ("новый", "родной", "слабый", "садится быстро") — верни {"text": "..."}.
+    Если ничего не сказано — верни null.
+
+- key: repaired_components
+  kind: price_signal
+  title: "Заменено"
+  prompt_fragment: |
+    Перечисли заменённые/отремонтированные компоненты.
+    Для каждого компонента (экран, АКБ, корпус, разъём, динамик, камера, и т.п.) определи quality:
+    - original: явно сказано «оригинал», «service center», «Apple Genuine», «родной»
+    - aftermarket: «копия», «китайский аналог», «совместимый», «не оригинал»
+    - unknown: качество не указано
+    Верни {"items": [{"component": "...", "quality": "original|aftermarket|unknown", "evidence": "цитата из описания"}]} или null если замен не упомянуто.
+
+# ---------- Phase 2.1: info_api features (3) ----------
+- key: memory_gb
+  kind: info_api
+  title: "Память"
+  api_path: "Встроенная память"
+  parser: numeric_gb
+
+- key: color
+  kind: info_api
+  title: "Цвет"
+  api_path: "Цвет"
+  parser: text
+
+- key: vendor_model
+  kind: info_api
+  title: "Модель"
+  api_path:
+    - "Производитель"
+    - "Модель"
+  parser: vendor_model_concat
