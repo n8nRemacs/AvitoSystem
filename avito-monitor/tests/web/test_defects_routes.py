@@ -358,6 +358,66 @@ def test_post_device_uses_explicit_slug_when_provided(defects_client, monkeypatc
     assert captured["slug"] == "custom_alias"
 
 
+def test_post_device_returns_400_on_duplicate_slug(defects_client, monkeypatch):
+    """Если backend репо бросает IntegrityError (нарушение uq_device_nodes_parent_slug),
+    handler должен поймать и вернуть 400 с понятным русским сообщением — не 500."""
+    from sqlalchemy.exc import IntegrityError
+    from app.web import defects as defects_mod
+
+    async def _fake_create_dupe(session, **kwargs):
+        raise IntegrityError("INSERT INTO ...", {}, Exception("duplicate key"))
+
+    async def _fake_rollback():
+        return None
+
+    async def _fake_list_children(session, parent_id):
+        return []
+
+    # Patch session.rollback on the real session — easier to monkeypatch
+    # the create function only and let session.rollback be a no-op against
+    # the fake session (DefectFakeSession already has commit; we add rollback).
+    monkeypatch.setattr(defects_mod, "create_device_node", _fake_create_dupe)
+    monkeypatch.setattr(defects_mod, "list_device_children", _fake_list_children)
+    # Ensure DefectFakeSession.rollback exists (add via setattr on class instance via fixture):
+    # Simpler — monkeypatch the DefectFakeSession class for this test:
+    from tests.web.test_defects_routes import DefectFakeSession
+    async def _rb(self):
+        return None
+    monkeypatch.setattr(DefectFakeSession, "rollback", _rb, raising=False)
+
+    resp = defects_client.post("/defects/devices", data={"title": "iPhone 13", "slug": ""})
+    assert resp.status_code == 400, resp.text[:500]
+    assert "уже существует" in resp.text.lower()
+    assert "iphone_13" in resp.text  # mentions the derived slug
+    assert "iPhone 13" in resp.text  # mentions the title
+
+
+def test_post_feature_returns_400_on_duplicate_slug(defects_client, monkeypatch):
+    """Симметрично: catalog endpoint ловит IntegrityError → 400 с русским сообщением."""
+    from sqlalchemy.exc import IntegrityError
+    from app.web import defects as defects_mod
+
+    async def _fake_create_dupe(session, **kwargs):
+        raise IntegrityError("INSERT INTO ...", {}, Exception("duplicate key"))
+
+    async def _fake_list_children(session, parent_id):
+        return []
+
+    monkeypatch.setattr(defects_mod, "create_feature_node", _fake_create_dupe)
+    monkeypatch.setattr(defects_mod, "list_feature_children", _fake_list_children)
+    from tests.web.test_defects_routes import DefectFakeSession
+    async def _rb(self):
+        return None
+    monkeypatch.setattr(DefectFakeSession, "rollback", _rb, raising=False)
+
+    resp = defects_client.post(
+        "/defects/catalog",
+        data={"title": "Дисплей", "slug": "", "kind": "section"},
+    )
+    assert resp.status_code == 400
+    assert "уже существует" in resp.text.lower()
+
+
 def test_post_device_rejects_unmappable_title(defects_client):
     """If title contains only special chars, derivation yields '' → 400 with Russian error."""
     resp = defects_client.post("/defects/devices", data={"title": "!@#$%", "slug": ""})

@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User
@@ -354,6 +355,12 @@ async def create_device_endpoint(
         await create_device_node(session, parent_id=pid, slug=effective_slug, title=title, kind=kind)
     except ValueError as e:
         return HTMLResponse(f'<div class="text-red-600 text-xs">{e}</div>', status_code=400)
+    except IntegrityError:
+        await session.rollback()
+        return HTMLResponse(
+            f'<div class="text-red-600 text-xs">Уже существует устройство «{title}» (идентификатор «{effective_slug}») на этом уровне. Выберите другое название.</div>',
+            status_code=400,
+        )
     tree = await _build_device_tree(session, parent_id=None)
     return templates.TemplateResponse(
         request, "defects/_partials/device_tree.html", {"tree": tree},
@@ -385,6 +392,12 @@ async def create_feature_endpoint(
         )
     except ValueError as e:
         return HTMLResponse(f'<div class="text-red-600 text-xs">{e}</div>', status_code=400)
+    except IntegrityError:
+        await session.rollback()
+        return HTMLResponse(
+            f'<div class="text-red-600 text-xs">Уже существует признак «{title}» (идентификатор «{effective_slug}») на этом уровне. Выберите другое название.</div>',
+            status_code=400,
+        )
     tree = await _build_feature_tree(session, parent_id=None)
     return templates.TemplateResponse(
         request, "defects/_partials/feature_tree.html", {"tree": tree},
