@@ -3,6 +3,11 @@
 For each section (display / case / ...), one LLM call extracts the
 state of all the requested features in a single response. Six sections
 run in parallel via parse_defect_features (Task 6).
+
+Phase 2.1: parse_section_defects now also accepts `active_keys` (list of
+feature key strings) as an alternative to `features` (list of FeatureSpec).
+Results support both dict-style access (result[key]["state"]) and
+attribute-style access (result[key].state) via FeatureResult.
 """
 from __future__ import annotations
 
@@ -19,6 +24,20 @@ from app.services.llm_analyzer import _llm_call_json
 
 _PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
 _VALID_STATES = {"ok", "defect", "unknown"}
+
+
+class FeatureResult(dict):
+    """Dict subclass that also supports attribute-style access.
+
+    Allows both result["state"] and result.state for compatibility
+    with both old tests (dict access) and new Task 6 tests (attr access).
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(name) from None
 
 
 def _build_features_listing(features: Iterable[FeatureSpec]) -> str:
@@ -43,10 +62,10 @@ def _render_prompt(section: str, features: Iterable[FeatureSpec],
     )
 
 
-def _coerce_one(raw: Any) -> dict[str, Any]:
-    """Validate one feature's LLM block, returning a normalized dict."""
+def _coerce_one(raw: Any) -> FeatureResult:
+    """Validate one feature's LLM block, returning a normalized FeatureResult."""
     if not isinstance(raw, dict):
-        return {"state": "unknown", "confidence": None, "evidence": None}
+        return FeatureResult({"state": "unknown", "confidence": None, "evidence": None})
     state = raw.get("state")
     if state not in _VALID_STATES:
         state = "unknown"
@@ -56,22 +75,36 @@ def _coerce_one(raw: Any) -> dict[str, Any]:
     evidence = raw.get("evidence")
     if not isinstance(evidence, str):
         evidence = None
-    return {"state": state, "confidence": confidence, "evidence": evidence}
+    return FeatureResult({"state": state, "confidence": confidence, "evidence": evidence})
 
 
 async def parse_section_defects(
     *,
     section: str,
-    features: list[FeatureSpec],
+    features: list[FeatureSpec] | None = None,
+    active_keys: list[str] | None = None,
     title: str,
     description: str,
     parameters: dict[str, Any],
-) -> dict[str, dict[str, Any]]:
-    """Return {feature_key: {state, confidence, evidence, source='llm'}}.
+) -> dict[str, FeatureResult]:
+    """Return {feature_key: FeatureResult(state, confidence, evidence, source='llm')}.
 
-    If `features` is empty, returns {} immediately without calling LLM.
+    Accepts either `features` (list[FeatureSpec]) or `active_keys` (list[str]).
+    When `active_keys` is provided, FeatureSpecs are resolved from taxonomy.
+
+    If the effective features list is empty, returns {} immediately (no LLM call).
     On LLM failure: all requested features -> state='unknown', source='llm'.
+
+    Results support both dict-style (result[key]["state"]) and attribute-style
+    (result[key].state) access via FeatureResult.
     """
+    # Resolve features from active_keys if provided
+    if features is None and active_keys is not None:
+        taxonomy_by_key = {f.key: f for f in load_taxonomy()}
+        features = [taxonomy_by_key[k] for k in active_keys if k in taxonomy_by_key]
+    elif features is None:
+        features = []
+
     if not features:
         return {}
 
@@ -80,13 +113,13 @@ async def parse_section_defects(
         result = await _llm_call_json(prompt, max_tokens=600)
     except Exception:
         return {
-            f.key: {"state": "unknown", "confidence": None,
-                    "evidence": None, "source": "llm"}
+            f.key: FeatureResult({"state": "unknown", "confidence": None,
+                                  "evidence": None, "source": "llm"})
             for f in features
         }
     if not isinstance(result, dict):
         result = {}
-    out: dict[str, dict[str, Any]] = {}
+    out: dict[str, FeatureResult] = {}
     for f in features:
         block = _coerce_one(result.get(f.key))
         block["source"] = "llm"
