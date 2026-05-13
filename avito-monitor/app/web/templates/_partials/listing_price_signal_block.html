@@ -1,11 +1,23 @@
 {# Phase 2.1: price_signal card block.
    Expects: features — dict[feature_key -> {kind, state, value, evidence}]
+   repaired_components.value tolerates two shapes from the LLM:
+     a) {"items":[{...}, ...]} — what the prompt asks for
+     b) [{...}, ...]          — common LLM drift, treated as items directly
    Renders empty if both battery_health and repaired_components are null/missing. #}
 
 {% set _bh = features.get('battery_health') if features else none %}
 {% set _rc = features.get('repaired_components') if features else none %}
 {% set _has_bh = _bh and _bh.value %}
-{% set _has_rc = _rc and _rc.value and _rc.value.get('items') %}
+{% if _rc and _rc.value %}
+  {% if _rc.value is mapping %}
+    {% set _rc_items = _rc.value.get('items') %}
+  {% else %}
+    {% set _rc_items = _rc.value %}
+  {% endif %}
+{% else %}
+  {% set _rc_items = none %}
+{% endif %}
+{% set _has_rc = _rc_items and (_rc_items | length) > 0 %}
 
 {% if _has_bh or _has_rc %}
 <div class="bg-avito-surface border-t border-avito-border-soft px-3 py-2 text-xs space-y-1">
@@ -30,7 +42,7 @@
       <span>🔧</span>
       <div class="text-avito-text flex-1">
         Заменено:
-        {% for item in _rc.value['items'] %}
+        {% for item in _rc_items %}
           <span class="inline-flex items-center gap-1 mr-2">
             <span>{{ item.component }}</span>
             {% if item.quality == 'original' %}
