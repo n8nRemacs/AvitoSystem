@@ -1,0 +1,16 @@
+{% macro render(entry) %}
+  {% if entry.children %}
+    <details class="ml-2" open>
+      <summary class="cursor-pointer text-sm py-1 hover:text-avito-green">
+        <a href="/defects/devices/{{ entry.node.id }}" hx-boost="false">{{ entry.node.title }}</a>
+      </summary>
+      {% for child in entry.children %}{{ render(child) }}{% endfor %}
+    </details>
+  {% else %}
+    <div class="ml-4 text-sm py-1">
+      <a href="/defects/devices/{{ entry.node.id }}" hx-boost="false"
+         class="hover:text-avito-green">{{ entry.node.title }}</a>
+    </div>
+  {% endif %}
+{% endmacro %}
+{% for entry in tree %}{{ render(entry) }}{% endfor %}

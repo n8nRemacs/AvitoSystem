@@ -1,16 +1,28 @@
 """Admin UI for defect catalog (Project A)."""
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User
 from app.deps import db_session, require_user
+from app.services.defect_catalog.repository import (
+    delete_binding,
+    get_binding,
+    get_device_node,
+    list_device_children,
+    update_binding,
+)
+from app.services.defect_catalog.resolver import (
+    _feature_path,
+    resolve_applicable_defects,
+)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -45,3 +57,84 @@ async def catalog_page(
         request, "defects/catalog.html",
         {"active_tab": "catalog", "user": user},
     )
+
+
+async def _build_device_tree(session, parent_id):
+    """Pre-compute the device tree as nested dicts for the template.
+    This avoids requiring async-Jinja support."""
+    nodes = await list_device_children(session, parent_id=parent_id)
+    return [{"node": n, "children": await _build_device_tree(session, n.id)} for n in nodes]
+
+
+@router.get("/devices/tree", response_class=HTMLResponse)
+async def devices_tree(
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    tree = await _build_device_tree(session, parent_id=None)
+    return templates.TemplateResponse(
+        request, "defects/_partials/device_tree.html", {"tree": tree},
+    )
+
+
+@router.get("/devices/{device_id}", response_class=HTMLResponse)
+async def device_detail(
+    device_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    device = await get_device_node(session, device_id)
+    if device is None:
+        return HTMLResponse("Device not found", status_code=404)
+    resolved = await resolve_applicable_defects(session, device_id)
+    return templates.TemplateResponse(
+        request, "defects/_partials/device_detail.html",
+        {"active_tab": "devices", "device": device, "bindings": resolved},
+    )
+
+
+@router.patch("/bindings/{binding_id}", response_class=HTMLResponse)
+async def patch_binding(
+    binding_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+    defect_action: Annotated[str | None, Form()] = None,
+    unknown_action: Annotated[str | None, Form()] = None,
+    disabled: Annotated[bool | None, Form()] = None,
+    target_device_id: Annotated[str | None, Form()] = None,
+) -> HTMLResponse:
+    await update_binding(
+        session, binding_id,
+        defect_action=defect_action,
+        unknown_action=unknown_action,
+        disabled=disabled,
+    )
+    b = await get_binding(session, binding_id)
+    if b is None:
+        return HTMLResponse("", status_code=200)
+    fp = await _feature_path(session, b.feature_node_id)
+    view = {
+        "binding_id": b.id,
+        "feature_node_id": b.feature_node_id,
+        "feature_path": fp,
+        "defect_action": b.defect_action,
+        "unknown_action": b.unknown_action,
+        "inherited_from": None,
+    }
+    return templates.TemplateResponse(
+        request, "defects/_partials/binding_row.html",
+        {"b": view, "target_device_id": target_device_id or str(b.device_node_id)},
+    )
+
+
+@router.delete("/bindings/{binding_id}", response_class=HTMLResponse)
+async def delete_binding_endpoint(
+    binding_id: uuid.UUID,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    await delete_binding(session, binding_id)
+    return HTMLResponse("", status_code=200)
