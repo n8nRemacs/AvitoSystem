@@ -1,60 +1,58 @@
-# CONTINUE — следующая сессия (2026-05-13 после Phase 2.1 hotfixes + Project A defect-catalog ship)
+# CONTINUE — следующая сессия (2026-05-15 после Project A + polish bundle, перед merge)
 
-> **Если ты Claude в новой сессии:** прочитай этот файл + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md`. **Главное:** на main замержены Phase 2.0 + 2.1 + F1+F5 фиксы + parser-tune + bucket relax. Project A «defect-catalog» полностью отгружен на ветку `feat/defect-catalog`, deployed на prod (alembic head `0017_defect_catalog`), НЕ замержен в main. Юзер должен сделать manual UI smoke перед мержем.
+> **Если ты Claude в новой сессии:** прочитай этот файл + `c:/Projects/Sync/CLAUDE.md` (глобальные секреты) + auto-memory `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/MEMORY.md`.
+>
+> **Главное:** ветка `feat/defect-catalog` имеет полный Project A + polish-bundle (12 polish-коммитов поверх 30 Project-A-коммитов). **Deployed на prod**, **НЕ merged в main**. Юзер вчера вечером пошёл спать перед manual smoke. На сегодня план: smoke → merge → следующее направление (UI cleanup или сразу Project C — авто-генерация LLM-промптов через квиз).
 
 ---
 
 ## §1. TL;DR
 
-**Что shipped 2026-05-13:**
+**Что shipped (chronologically):**
 
-| # | Что | Где | Merge state |
-|---|---|---|---|
-| A | Phase 2.0 (3-tab profile-edit + sidebar cleanup) | `main` | merged |
-| B | Phase 2.1 (unified_criteria schema + V2 rip + info_api/price_signal) | `main` | merged |
-| C | F1 fix — STRICT JSON SHAPE в `extract_price_signal.md` (LLM bare-array repaired_components 71%) | `main` (commit `fa1d296`) | merged |
-| D | F5 fix — стейл PHASE_A_STAGES test rename | `main` (commit `7f2abf6`) | merged |
-| E | Parser-tune (6 section prompts с negation-as-ok + euphemism examples) | `main` (commit `c562971`) | merged |
-| F | Bucket relax (`unknown ≈ ok` + missing→grey safety + backfill persistence) | `main` (commit `7e44d3b`) | merged |
-| G | **Project A — defect-catalog admin tool (новый раздел `/defects`)** | `feat/defect-catalog` (30 commits) | **НЕ merged**, deployed на prod |
+| Дата | Что | Где |
+|---|---|---|
+| 2026-05-04 | Server Migration | main (V1) |
+| 2026-05-11 | Phase 2.0 (3-tab profile-edit) | main |
+| 2026-05-13 рано | Phase 2.1 (unified_criteria + V2 rip) + F1/F5/parser-tune/bucket-relax | main |
+| 2026-05-13 поздно | Project A defect-catalog admin (`/defects` + alembic 0017 + 8+3+6 seed) | feat/defect-catalog (deployed, не merged) |
+| 2026-05-14 | Project A polish: device_detail fix + русификация + CRUD UI + auto-slug | feat/defect-catalog (deployed, не merged) |
 
-**Recall improvement** после parser-tune: `red:5→14` (+9 confirmed defects поймано), sensors.sim ok 10→34, operability.no_boot ok 0→8. Green по-прежнему 0 из 32 active — потому что 18 grey-лотов имеют defect на green-rule cosmetic (стекло разбито / задняя крышка). Per `project_screen_broken_not_killer.md` memory — это интенциональное (косметика не killer для байера).
-
-**Что прямо сейчас делать в новой сессии (по убыванию приоритета):**
+**На сегодня (в порядке приоритета):**
 
 | # | Шаг | Кто | Время |
 |---|---|---|---|
-| §5.1 | Sanity verify (main + branch state, prod /login, /defects, alembic head) | Claude | 1 мин |
-| §5.2 | **Manual UI smoke на /defects** | Юзер в браузере | 15-30 мин |
-| §5.3 | Merge `feat/defect-catalog` → main + cleanup branches | Claude | 5 мин (после §5.2) |
-| §5.4 | Решение про cosmetic green-rules (переключить в `ignore` чтобы получить non-zero green count?) | Юзер | brainstorm |
-| §5.5 | Backlog приоритезация (Project B Признаки UI, бэклог CQ-ревью) | Юзер+Claude | 10 мин |
+| §5.1 | Sanity (branch/alembic/prod 200) | Claude | 1 мин |
+| §5.2 | **Manual UI smoke на /defects** (полный checklist § 4.1) | Юзер | 15-30 мин |
+| §5.3 | **Final code-review** (per subagent-driven skill) на ветку перед merge | Claude (Opus subagent) | 10 мин |
+| §5.4 | Merge `feat/defect-catalog` → main + push | Claude | 5 мин |
+| §5.5 | «Чуть подчистить UI» — мелкие doменные правки которые увидел юзер | Юзер→Claude | 15-60 мин |
+| §5.6 | **Project C brainstorm:** автогенерация LLM-промптов через квиз с Sonnet/Haiku | Юзер+Claude | 30-60 мин |
 
 ---
 
-## §2. Production state (snapshot 2026-05-13 после deploy)
+## §2. Production state (snapshot 2026-05-14 после deploy)
 
 | Что | Где |
 |---|---|
-| **VPS** | `81.200.119.132` (ssh root@, key auth). Все 7 Python-сервисов rebuild + recreated 2026-05-13. |
+| **VPS** | `81.200.119.132` (ssh root@, key auth) |
 | **Public URL** | `https://avitosystem.duckdns.org` |
-| **БД** | Cloud Supabase Frankfurt `drwgozasaypgphkxyizt`. Pooler 6543 transaction mode + `?ssl=require&prepared_statement_cache_size=0`. |
+| **БД** | Cloud Supabase Frankfurt `drwgozasaypgphkxyizt`, pooler 6543 transaction mode |
 | **Outbound к Avito** | ru-vpn `155.212.217.226` через SOCKS5 SSH-туннель `socks5h://172.18.0.1:1081` |
-| **Alembic head на prod** | `0017_defect_catalog` (Phase 2.1 → defect-catalog) |
-| **Активные таблицы (новые post-Phase 2.1):** | `listing_features` (с `kind` + `value` JSONB); `profile_feature_rules` (старая flat rule-схема, продолжает работать); **`feature_nodes`, `device_nodes`, `device_feature_bindings`** (Project A — 8+3+6 rows seeded) |
-| **V2 артефакты дропнуты** | `criteria_templates`, `profile_criteria`, `profile_listing_evaluations` ушли в migration 0016 |
-| **/defects admin** | NEW. Sidebar entry «🛠 Дефекты». Tab «Устройства» — split-pane (device tree + applicable bindings). Tab «Признаки» — catalog editor. HTMX inline edits для severity. |
+| **Alembic head на prod** | `0017_defect_catalog` (без изменений vs вчера) |
+| **/defects admin UI** | Live, **полностью русифицирован** (включая «блок/инфо/уточнить/пропустить» в bindings) |
+| **/defects/devices/{id}** | Live, **fix `_layout_context` применён** (commit `3c92d3a`) |
+| **CRUD UI** | `[+][✏][🗑]` на каждой ноде, inline-формы, `hx-confirm` на delete. Add-форма скрывает «Идентификатор» — backend выводит slug из «Название» через `title_to_slug()` (русский транслит) |
+| **Активные таблицы defect-catalog** | `feature_nodes` (8 rows), `device_nodes` (3 rows), `device_feature_bindings` (6 rows) |
 | **Профили** | `iPhone 12 Pro max 10500-13500` (active, ~138 ProfileListing) + `iPhone 13` (inactive) |
-| **Pipeline на проде** | compute_bucket работает на старой flat-схеме (31 feature × ProfileFeatureRule). Catalog НЕ интегрирован в pipeline — это Project B. |
-| **V2 reliability autoreply** | OFF (`MESSENGER_BOT_ENABLED=false`). seller_dialog ветка жива. |
-| **pg_dump pre-2.1 backup** | `/opt/avito-system/data/pre-phase-2.1-backup-20260513-0742.dump` (2.0M) |
+| **Pipeline на проде** | compute_bucket работает на старой flat-схеме (31 feature × ProfileFeatureRule). Catalog НЕ интегрирован в pipeline — это Project B |
 
-### §2.1 Containers (10) — все на новом image post-deploy
+### §2.1 Containers (10) — avito-monitor пересобран 2026-05-14 ~20:30 UTC после auto-slug commit
 
 ```
-avito-system-avito-monitor-1  (FastAPI dashboard + /defects)
+avito-system-avito-monitor-1   (FastAPI dashboard + /defects polished)
 avito-system-avito-mcp-1
-avito-system-avito-xapi-1     (НЕ Phase 2.1, не пересобирался)
+avito-system-avito-xapi-1
 avito-system-caddy-1
 avito-system-health-checker-1
 avito-system-messenger-bot-1
@@ -64,184 +62,181 @@ avito-system-telegram-bot-1
 avito-system-worker-8
 ```
 
+Только avito-monitor пересобран в polish-цикле (другие 6 Python-сервисов не загружают `app.web.defects`, образы не обновлялись).
+
 ### §2.2 Git state
 
 ```
-main:
-  c562971 fix(prompts): improve section-parser recall (F2 root cause)
-  7e44d3b fix(bucket): relax compute_bucket — unknown counts as not-a-defect
-  8b5c097 Merge Phase 2.1 — unified criteria + V2 rip (deployed 2026-05-13)
-  4b0a7e5 Merge Phase 2.0 — unified-criteria UI placement (deployed 2026-05-13)
-  ... (84+ commits ahead of pre-merge state)
+feat/defect-catalog (12 polish-коммитов поверх Project A):
+  2e557b5 feat(defects): auto-slug + Russian-only form labels (no anglicisms)
+  2b4d31e feat(defects): root-add buttons + form-mount on devices/catalog pages
+  762e93d feat(defects): feature_tree action icons (add/edit/delete)
+  083903a feat(defects): device_tree action icons (add/edit/delete)
+  5123341 feat(defects): GET form-fragment routes for feature CRUD UI
+  4f93777 feat(defects): GET form-fragment routes for device CRUD UI
+  8e5a235 feat(defects): node_form.html — common inline form partial
+  c32ca67 feat(defects): Russify binding_row labels + inherited/set-here/Override
+  ce1299b feat(defects): add severity_ru Jinja-filter for Russian UI labels
+  d8d728a docs(plan): defect-catalog polish — 12 tasks TDD implementation
+  dae4b83 docs(spec): defect-catalog polish — Russification + CRUD UI
+  3c92d3a fix(defects): pass _layout_context to device_detail route
+  e53d1e7 docs(continue+reference): post Project A ship ← here previous CONTINUE
+  8d595c9 test(defect-catalog): seed idempotency
+  18b1102 feat(defect-catalog): MVP seed script with stable UUIDs
+  ... (rest of Project A — 30+ commits total)
 
-feat/defect-catalog (off main, 30 commits):
-  spec + 34-task plan committed in DOCS/
-  Phase 1: 3 models (feature_node, device_node, device_feature_binding) + alembic 0017
-  Phase 2: SQLite test conftest
-  Phase 3: repository.py — slug validator + 3 CRUDs + cycle detection (+ critical fix: dialect-aware NOW)
-  Phase 4: resolver.py — walk-up inheritance + override + disabled
-  Phase 5: app/web/defects.py + 7 templates (NOT in app/web/routers/ — name collision avoided)
-  Phase 6: POST/PATCH/DELETE endpoints + sidebar nav entry
-  Phase 7: scripts/seed_defect_catalog.py + idempotency test
-  Phase 8: deployed to prod
+main (без изменений сегодня):
+  06d23b7 docs(plan): defect-catalog Project A — 34-task TDD implementation plan
+  952c472 docs(spec): defect-catalog Project A design
+  7e44d3b fix(bucket): relax compute_bucket
+  c562971 fix(prompts): improve section-parser recall
+  8b5c097 Merge Phase 2.1
 ```
 
-Origin URL для PR: https://github.com/n8nRemacs/AvitoSystem/pull/new/feat/defect-catalog
+Origin URL для PR (если решишь через GitHub merge): https://github.com/n8nRemacs/AvitoSystem/pull/new/feat/defect-catalog
 
 ---
 
-## §3. Что сделано в сессии 2026-05-13 (по порядку)
+## §3. Что сделано 2026-05-14 (в порядке)
 
-### §3.1 CONTINUE.md TODO выполнен (§5.1-5.6 предыдущей сессии)
+### §3.1 device_detail hotfix (`3c92d3a`)
 
-1. **§5.1 sanity** — branch verified, 102 pytest pass, prod /login 200
-2. **§5.2 F1 fix** — `extract_price_signal.md` переписан с STRICT JSON SHAPE block + canonical/wrong examples + rejection-warning. Deploy: rebuild всех 7 services + recreate. 5 unit tests pass (моки не зависят от prompt).
-3. **§5.3 Merge** — `phase-2.0-tabs` + `phase-2.1-unification` → `main`. Push origin/main. 84 commits ahead.
-4. **§5.4 Bucket=0 green decision** — DEEP investigation:
-   - Diag показал: 102/133 grey-лотов имеют no_row для ВСЕХ rule-features (pre-Phase-2.1 rejected лоты)
-   - 31 backfilled лот: parser почти всегда возвращает 'unknown' даже на очевидных фразах
-   - 3 examples: «корпус в хорошем состоянии без трещин» → display.glass_broken=unknown (должно быть ok); «Айфон на айклауде заблокирован» → locks.icloud_linked=unknown (должно быть defect!)
-   - **Parser-tune 6 section prompts** с расширенным «ok» определением (positive confirm OR negation-of-defect OR общее положительное состояние) + explicit euphemism lists + concrete examples. После tune: recall +200% (sensors.sim 10→34 ok, operability.no_boot 0→8 ok, display.glass_broken 0→25 detected = 7 ok + 18 defect)
-   - **Bucket relax** — `compute_bucket` теперь: explicit `state='unknown'` НЕ блокирует green; только missing-feature (None default) → grey safety. Конкретно: bucket=green если нет confirmed defect на любом rule + все rules покрыты parser'ом.
-5. **§5.5 manual UI smoke** — юзер начал, увидел: SIM defect показывается как зелёная галочка вместо красного indicator. Brainstorm про визуал переключился в Project A redesign.
-6. **§5.6 F5 fix** — `tests/seller_dialog/test_view.py::test_phase_a_stages_contains_two_stages` rename + assertion update под Phase B alias.
+Manual smoke в начале сессии: клик на iPhone 12 Pro Max → 500 `UndefinedError: 'sidebar_profiles_count' is undefined`. Root cause — `device_detail` route не передавал `_layout_context()` (sidebar variables) в template context, хотя `device_detail.html` extends global `_layout.html`. Fix: добавил `ctx = await _layout_context(user, session, active="defects")` симметрично `devices_page`/`catalog_page`. +1 regression-test `test_defects_device_detail_renders_with_sidebar`. Deployed.
 
-### §3.2 Project A defect-catalog — спецификация + план + реализация
+### §3.2 Project A polish: brainstorm + spec + plan + impl (commits `dae4b83`, `d8d728a`, T1-T8)
 
-Юзер запросил greenfield-редизайн дефект-системы с двумя иерархиями (feature catalog + device tree) и наследованием.
+Brainstorm 3 раунда → spec `DOCS/superpowers/specs/2026-05-13-defect-catalog-polish.md` → plan `DOCS/superpowers/plans/2026-05-13-defect-catalog-polish.md` (12 tasks TDD) → subagent-driven execution (Sonnet implementers, Opus reviewers, две stage reviews per task).
 
-- **Brainstorming** (3 раунда AskUserQuestion): глобальный catalog vs per-profile, свободная глубина дерева, 2-dim severity matrix (defect_action × unknown_action), device hierarchy с inheritance.
-- **Spec** `DOCS/superpowers/specs/2026-05-13-defect-catalog-design.md` (410 строк, 14 секций) — commit `952c472`
-- **Implementation plan** `DOCS/superpowers/plans/2026-05-13-defect-catalog-impl.md` (~3000 строк, 34 tasks) — commit `06d23b7`
-- **Реализация** через subagent-driven-development (Sonnet для implementers, Opus для reviewers + parent). 34 tasks done, 30 commits на `feat/defect-catalog`. **2 critical fixes по review:**
-  - F31: `datetime('now')` в update_feature_node — SQLite-only, фейлило бы на Postgres. Fix: dialect-aware `_now_expr(session)` helper.
-  - F18.5: `app/web/routers/` directory shadowed existing `app/web/routers.py` — ImportError на `web_router`. Fix: переехал в `app/web/defects.py` как sibling.
+Tasks 1-8 shipped:
+1. `severity_ru` Jinja-filter (block→блок / info→инфо / ask→уточнить / skip→пропустить).
+2. `binding_row.html` Russification (severity labels + «← унаследовано» / «← задано здесь» / «Задать здесь»).
+3. `node_form.html` common partial для add/edit, device/feature.
+4. 4 GET form-fragment routes для device + cancel (`/devices/new`, `/devices/cancel-form`, `/devices/{parent_id}/new`, `/devices/{node_id}/edit`).
+5. То же для feature (`/catalog/...`). Импорт `get_feature_node` добавлен.
+6. `device_tree.html`: action icons `[+][✏][🗑]` + `hx-confirm` на delete.
+7. `feature_tree.html`: symmetric icons + `[kind]` suffix (Раздел/Дефект).
+8. `devices.html` + `catalog.html`: «+ Добавить корневое устройство/признак» + form-mount + Loading→Загрузка.
 
-### §3.3 Deploy Phase 8 (Tasks 31-34)
+Deploy после Task 8: только `avito-monitor` rebuild + recreate (другие 6 Python-сервисов не задействованы). pytest baseline: 444 passed / 8 failed (те же 8 что и раньше) / 2 skipped.
 
-```
-2026-05-13 ~16:00 UTC  Sync feat/defect-catalog source via tar+ssh
-2026-05-13 ~16:05 UTC  docker compose build для всех 7 Python-сервисов
-2026-05-13 ~16:10 UTC  docker compose up -d --force-recreate всех 7 (это критично — alembic в старом контейнере НЕ видит новый migration файл)
-2026-05-13 ~16:11 UTC  alembic upgrade head → Running upgrade 0016_unified_criteria → 0017_defect_catalog
-2026-05-13 ~16:12 UTC  /login HTTP 200, /defects HTTP 303 → /defects/devices
-2026-05-13 ~16:13 UTC  python -m scripts.seed_defect_catalog → 8 features + 3 devices + 6 bindings inserted
-2026-05-13 ~16:13 UTC  Verified row counts через asyncpg query — все таблицы populated
-```
+### §3.3 Auto-slug + русификация без англицизмов (`2e557b5`, поздно вечером)
+
+Юзер во время smoke сказал: «slug должен добавляться автоматом сам на основе правил которые ты сам и придумал» + «вместо title — Название» + «UI на русском, без англицизмов».
+
+- `title_to_slug(title: str) -> str` в `repository.py`: per-char транслит русского (а→a, б→b, …, ы→y, ё→yo, …), prepend `n_` если начинается с цифры, collapse `__`, trim leading/trailing `_`. 11 unit-тестов. Дисплей→displey, Корпус→korpus, "iPhone 13"→"iphone_13".
+- POST `/devices` + `/catalog`: если slug пустой, derive из title. Если derived empty → 400 с русским сообщением.
+- `node_form.html`: slug скрыт в add-режиме, показан в edit как «Идентификатор». Лейблы без англицизмов: Название / Тип (Раздел/Дефект) / Подсказка. DB-значения остаются английскими.
+- Tooltip device_tree «Добавить дочернюю ноду» → «Добавить дочернее устройство».
+- +5 route-level тестов. Defect-tests suite: 21/21 green.
+
+Deployed. Stop на manual smoke (юзер пошёл спать).
 
 ---
 
-## §4. Open findings и backlog
+## §4. Open / pending
 
-### §4.1 Подтверждено работающим
+### §4.1 Manual UI smoke checklist для §5.2
 
-- ✅ Phase 2.1 pipeline — все 3 kinds в `listing_features` (defect + price_signal + info_api)
-- ✅ F1 prompt fix задеплоен — repaired_components shape должен быть canonical (нужно подтвердить через мониторинг 100+ новых лотов)
-- ✅ Parser-tune задеплоен — recall +200% на iPhone 12 PM
-- ✅ Bucket relax задеплоен — `unknown ≈ ok` semantics live
-- ✅ Project A `/defects` admin page — все 8 routes registered, 33 unit tests pass, seed данные видны
-- ✅ V2 mapping применён ранее (5 inserts: locks.vendor_account ×2, locks.frp_locked ×2, sensors.touch_id ×1)
+Юзер открывает `https://avitosystem.duckdns.org/defects/devices` в браузере:
 
-### §4.2 Pending — Project A manual UI smoke (§5.2)
+- [ ] Sidebar — пункт «🛠 Дефекты», текст «Загрузка…» виден кратко при первом GET tree.
+- [ ] **Add root device** — клик `[+] Добавить корневое устройство` → inline-форма с **только полем «Название»** (slug скрыт) + dropdown «Тип» только для catalog tab. Ввести `Test Brand` → ОК → Test Brand виден в дереве.
+- [ ] **Slug auto-derived** — проверь что в DB реально записан slug `test_brand` (можно через клик `[✏]` на ноду — в edit-форме поле «Идентификатор» покажет правильно).
+- [ ] **Add child** — клик `[+]` рядом с Test Brand → форма появилась под ним → ввести `Test Phone` → ОК → Test Phone виден под Test Brand.
+- [ ] **Edit** — клик `[✏]` на Test Phone → форма заменила row, prefill = `test_phone` / `Test Phone` → изменить Название на `Test Phone v2` → ОК → row обновился.
+- [ ] **Delete** — клик `[🗑]` на Test Phone → native confirm «Удалить «Test Phone v2» и всех потомков?» → OK → row исчез. Удалить Test Brand тем же путём.
+- [ ] **Severity labels на /defects/devices/{id}** — клик iPhone 12 Pro Max в реальном дереве → 6 bindings показывают **блок**/**инфо** + **уточнить**/**пропустить** + «← унаследовано» + кнопка «Задать здесь».
+- [ ] **Catalog tab** — клик «Признаки» → дерево с `[section]`/`[defect]` (в UI — «Раздел»/«Дефект» в dropdown добавления). `[+]` под root + per-node иконки работают.
+- [ ] **Project C quiz** — пока всё ок, можно начинать brainstorm Project C (§5.6).
 
-Юзер должен открыть `https://avitosystem.duckdns.org/defects/devices` и проверить:
+**Если что-то крашится** — fix-redeploy цикл (sync source + rebuild avito-monitor + recreate).
 
-- [ ] Sidebar — пункт «🛠 Дефекты»
-- [ ] Tab «Устройства» — слева дерево Phone → Apple → iPhone 12 Pro Max
-- [ ] Клик на iPhone 12 Pro Max — справа 6 inherited bindings (all «← inherited from ancestor»), severity dropdowns скрыты, кнопка «Override»
-- [ ] Клик «Override» на одном binding — копируется на iPhone 12 PM level, dropdowns активируются, label меняется на «← set here»
-- [ ] Меняешь severity в dropdown — HTMX PATCH, row swap, новые значения сохраняются
-- [ ] Клик «Удалить» на set-here row — binding удаляется, row возвращается в inherited mode (если предок имел binding)
-- [ ] Tab «Признаки» — дерево «Корпус → 3 defects» + «Дисплей → 3 defects»
-- [ ] Все 3 page paths (/defects, /defects/devices, /defects/catalog) рендерятся без crash
-
-**Если что-то крашится** — back to fix-and-redeploy cycle (sync source + rebuild ВСЕХ 7 сервисов + recreate).
-
-### §4.3 Backlog из CQ-ревью (deferred, не блокирует MVP)
+### §4.2 Backlog из code-review (deferred, не блокирует merge)
 
 | # | Что | Тип | Где |
 |---|---|---|---|
-| BL1 | Repository: миграция raw `text()` SQL → SQLAlchemy ORM (FeatureNode/DeviceNode/DeviceFeatureBinding модели уже есть, не используются) | Important refactor | `app/services/defect_catalog/repository.py` |
-| BL2 | Repository: per-call `session.commit()` → caller commits (нарушает «service composes, caller commits» pattern) | Important refactor | same |
-| BL3 | Resolver: N+1 queries (`_feature_path` + walk_up_device) → single CTE query когда catalog масштабируется | Minor | `app/services/defect_catalog/resolver.py` |
-| BL4 | POST /bindings: try/except на cycle/duplicate с inline-HTML error fragment | Minor UX | `app/web/defects.py` |
-| BL5 | Empty commits Tasks 14-17 (implementer написал все 5 resolver-тестов в Task 13 commit, потом 4 пустых маркера) | Cosmetic | можно squash при merge |
-| BL6 | Cycle detection логика дублирована между update_feature_node и update_device_node — extract `_assert_no_cycle` helper | Minor refactor | repository.py |
-| BL7 | Index naming `idx_*` vs project convention `ix_*` в migration 0017 | Cosmetic | migration |
-| BL8 | Repository: тесты gaps (parent_id=None update path, slug update happy path, bare `pytest.raises(Exception)` → narrow IntegrityError) | Minor | test_repository.py |
+| BL1 | Loss of collapsibility в tree — было `<details>/<summary>`, стало flat-div дерево (всегда expanded). Для MVP 5-10 нод OK; >50 нод хуже. | Minor UX | device_tree.html / feature_tree.html |
+| BL2 | Stacking `[+]` forms при повторных кликах — каждый клик добавляет ещё одну форму ниже. Cancel убирает по одной. | Minor UX | device_tree / feature_tree |
+| BL3 | ARIA labels на icon buttons (только `title=`). Для single-admin tool OK. | A11y | tree templates |
+| BL4 | Re-extract `_render_node_form()` helper if number of routes grows past 8 (currently 8 — borderline) | Minor refactor | defects.py |
+| BL5 | Empty form-mount div remains after form clear — может убирать `#device-form-mount` content при cancel | Minor | devices.html / catalog.html |
+| BL6 | Cancel-form GET route без unit-test (тривиально, low risk) | Minor | test_defects_routes.py |
 
-### §4.4 Backlog продуктовый
+### §4.3 «Чуть подчистить UI» (§5.5) — что юзер увидит при smoke и захочет
 
-| # | Что | Приоритет |
-|---|---|---|
-| P1 | **Project B — «Признаки» UI на profile/cards читает из catalog'а.** Требует: добавить `device_node_id` FK к `SearchProfile`, integrate resolver в Признаки-render. Отдельный spec/plan. | После manual UI smoke + decision |
-| P2 | **Project C — auto-gen LLM prompts из catalog `prompt_hint`.** Generator берёт applicable defects → группирует по feature_tree узлу → генерит section-prompts. Заменяет hand-written. | После Project B |
-| P3 | **Cosmetic green-rules → ignore.** Сейчас display.glass_broken / case.back_broken / display.stains_stripes — green-rule, что блокирует бакет в grey даже при tuned parsers. Юзер мог бы переключить в `ignore` на iPhone 12 PM профиле → non-zero green count. | Юзер decision |
-| P4 | **Backfill rejected лоты (109 шт)** — текущий backfill пропускает user_action='rejected'. Для consistency можно прогнать с relaxed фильтром. | Опционально |
-| P5 | **Refresh-flow push gap** — Avito-app silent refresh = push не идёт = JWT протухает. Pull-based план ~10ч. | Из старого backlog |
-| P6 | **Price-tiered criteria** — строгость criteria зависит от цены в alert-вилке (low → relaxed cosmetics, high → pristine). Spec не написан. | Из старого backlog |
-| P7 | **Seller dialog Phase B** — questions_setup → questions stages. Phase A shipped. | Из старого backlog |
+Не знаю заранее — будет видно по фидбеку. Возможные кандидаты: spacing, hover states, индикация ошибок валидации (если slug=`123abc` пройдёт в edit и DB вернёт 400 — сейчас показывается `Invalid slug ...` английским text). Может надо переписать на «Идентификатор должен начинаться с латинской буквы и содержать только латиницу, цифры, подчёркивания» — это правки validate_slug + error response.
 
-### §4.5 Pre-existing test failures (baseline — не регрессии нашей работы)
+### §4.4 Project C — автогенерация LLM-промптов через квиз (§5.6)
 
-`pytest -q` показывает 433 passed / 8 failed / 2 skipped. 8 failures те же что в CONTINUE.md предыдущей сессии (§4.3):
-- `tests/avito_mcp/test_tools.py` (1) — стейл assertion
-- `tests/health_checker/test_*` (5) — alerts pipeline
-- `tests/test_polling.py` (1) — Windows cp1252 codec
-- (`tests/seller_dialog/test_view.py` F5 — FIXED in этой сессии)
+**Идея пользователя** (озвучена 2026-05-14 вечером):
+
+> «Следующим шагом будет чуть подчистить UI и потом автогенерация промпта, нужно обсудить как это будет работать, возможно в качестве квиза с хорошей моделью, например sonnet, если потянет Haiku, то вообще супер. Нужно просто написать промпт для генерации промпта будет.»
+
+**Что есть сейчас (входы для Project C):**
+
+- Catalog `feature_nodes` с `prompt_hint` полем на каждом defect (например, `prompt_hint = "Дисплей телефона"`).
+- 6 hand-written section-prompts в `app/prompts/extract_*.md`.
+- Существующий `compute_bucket` использует эти 6 + flat ProfileFeatureRule.
+
+**Гипотеза Project C:** взять catalog + applicable defects для конкретного device-node, и сгенерировать section-prompts автоматически через **meta-prompt → Sonnet/Haiku**. Возможно в формате «квиза» где LLM задаёт уточняющие вопросы.
+
+**Не начинать имплементацию без brainstorming:**
+1. UX квиза — где живёт (admin UI? CLI? webhook?)
+2. Какая модель (Sonnet preferred, Haiku если потянет cheap)
+3. Design meta-prompt template
+4. Возможно перед Project C сделать Project B (Признаки UI читает из catalog), чтобы catalog был в реальном использовании — решение юзера.
+
+Brainstorm на сессии 2026-05-15.
+
+### §4.5 Pre-existing test failures (baseline — не регрессии)
+
+`pytest -q` показывает 459 passed / 8 failed / 2 skipped (459 = baseline 433 + 16 новых polish-тестов + 10 title_to_slug-тестов). 8 failures те же что в предыдущем CONTINUE:
+- `tests/avito_mcp/test_tools.py` (1)
+- `tests/health_checker/test_*` (6)
+- `tests/test_polling.py` (1)
 
 ---
 
 ## §5. Что делать в новой сессии
 
-### §5.1 Шаг 0 — Sanity verify (1 минута)
+### §5.1 Sanity verify (1 мин)
 
 ```bash
 cd c:/Projects/Sync/AvitoSystem
-git branch --show-current  # либо main либо feat/defect-catalog
-git log --oneline main -3
-# Top: c562971 fix(prompts): improve section-parser recall
-#      7e44d3b fix(bucket): relax compute_bucket
-git log --oneline feat/defect-catalog -3
-# Top: 8d595c9 test(defect-catalog): seed idempotency
-#      18b1102 feat(defect-catalog): MVP seed script
-#      243c8b6 feat(defect-catalog): sidebar nav entry
-```
-
-Smoke prod:
-```bash
-ssh root@81.200.119.132 'curl -sS --resolve avitosystem.duckdns.org:443:127.0.0.1 -k -o /dev/null -w "HTTP %{http_code}\n" https://avitosystem.duckdns.org/login'
-# Expected: 200
-ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 alembic current 2>&1 | tail -2'
+git branch --show-current  # feat/defect-catalog
+git log --oneline feat/defect-catalog -5
+# Top: 2e557b5 feat(defects): auto-slug + Russian-only form labels (no anglicisms)
+ssh root@81.200.119.132 'curl -sS --resolve avitosystem.duckdns.org:443:127.0.0.1 -k -o /dev/null -w "/defects=%{http_code}\n" https://avitosystem.duckdns.org/defects'
+# Expected: /defects=303 (redirect to /defects/devices)
+ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 alembic current 2>&1 | tail -1'
 # Expected: 0017_defect_catalog (head)
-ssh root@81.200.119.132 'docker exec avito-system-avito-monitor-1 python -c "
-import asyncio, os, re, asyncpg
-def strip(u):
-    u = u.replace(\"postgresql+asyncpg://\", \"postgresql://\")
-    u = re.sub(r\"[?&]prepared_statement_cache_size=\d+\", \"\", u)
-    return u.replace(\"?ssl=require\", \"?sslmode=require\")
-async def go():
-    c = await asyncpg.connect(strip(os.environ[\"DATABASE_URL\"]), statement_cache_size=0)
-    for t in (\"feature_nodes\", \"device_nodes\", \"device_feature_bindings\"):
-        print(f\"{t}:\", await c.fetchval(f\"SELECT COUNT(*) FROM {t}\"))
-    await c.close()
-asyncio.run(go())
-"'
-# Expected: feature_nodes: 8 / device_nodes: 3 / device_feature_bindings: 6
 ```
 
-### §5.2 Шаг 1 — Manual UI smoke на /defects (юзер) ★
+### §5.2 Шаг 1 — Manual UI smoke ★
 
-См. §4.2 checklist. Юзер открывает в браузере, проходит по пунктам.
+См. §4.1 checklist. Юзер открывает в браузере, проходит по пунктам.
 
-Если что-то крашится — Claude debug + fix + redeploy.
+Если что-то крашится — Claude debug + fix + redeploy (sync source + `docker compose build avito-monitor` + `up -d --force-recreate`).
 
-### §5.3 Шаг 2 — Merge `feat/defect-catalog` → main (после §5.2)
+### §5.3 Шаг 2 — Final code-review subagent перед merge
+
+Per `superpowers:subagent-driven-development` skill, после всех tasks dispatched a **final reviewer subagent** для всей ветки (от main до HEAD = 12 polish-коммитов + 30 Project A коммитов).
+
+```
+Agent (general-purpose, Opus):
+  Базовый прип: code-reviewer skill (или manual prompt)
+  PLAN: DOCS/superpowers/plans/2026-05-13-defect-catalog-polish.md
+  BASE_SHA: $(git merge-base main feat/defect-catalog)
+  HEAD_SHA: 2e557b5
+  Просьба: оверолл-ревью всей ветки, не per-commit. Найти cross-task gaps, security issues, missing tests.
+```
+
+### §5.4 Шаг 3 — Merge feat/defect-catalog → main
 
 ```bash
 git checkout main
 git pull origin main
-git merge --no-ff feat/defect-catalog -m "Merge Project A — defect catalog admin (deployed 2026-05-13)"
+git merge --no-ff feat/defect-catalog -m "Merge Project A + polish — defect catalog admin (deployed 2026-05-14)"
 git push origin main
 
 # Cleanup (опционально):
@@ -251,63 +246,58 @@ git push origin --delete feat/defect-catalog
 
 **ВАЖНО:** prod уже работает на этом коде. Merge — это git hygiene; не требует re-deploy. Только убедиться что main = prod.
 
-### §5.4 Шаг 3 — Cosmetic green-rules decision (юзер)
+### §5.5 Шаг 4 — «Чуть подчистить UI»
 
-После §5.2 юзер видит реальный bucket distribution. Если 0 green продолжает быть проблемой:
+Жди фидбек юзера после smoke. Возможные мелкие fixes:
+- Russian error на validate_slug rejections в edit (сейчас `Invalid slug ...: must match ^[a-z][a-z0-9_]*$` английским)
+- Spacing/hover в tree
+- Clear form-mount при cancel
 
-Option A: на /profiles/{id}/feature-rules переключить cosmetic rules (display.glass_broken, case.back_broken, display.stains_stripes) с `green` на `ignore`. Это сразу даст non-zero green count (лоты без critical defect перестанут падать в grey из-за косметики).
+Низкий приоритет, делать только то что юзер реально просит.
 
-Option B: оставить — grey = «нужен ручной разбор» работает; green просто остаётся редким сигналом для урgent TG.
+### §5.6 Шаг 5 — Project C brainstorm
 
-Brainstorm с юзером если непонятно.
+См. §4.4. Обязательно через `superpowers:brainstorming` skill (creative work, требует brainstorm перед implementation). Спросить юзера:
+1. Где живёт квиз? (admin UI page? CLI? задача в worker?)
+2. Какая модель? (Sonnet vs Haiku — start с Sonnet, тестировать Haiku потом)
+3. Input для генерации: catalog state + applicable defects для конкретного device-node?
+4. Output: 1 section-prompt за раз, или сразу 6?
+5. Quiz mechanic: LLM спрашивает уточняющие вопросы у юзера до финального prompt'a, или batch-generation?
 
-### §5.5 Шаг 4 — Project B priority decision
+После brainstorm → spec → plan → execute (subagent-driven как сегодня).
 
-После Project A merged — следующий вопрос: когда начинать Project B?
-
-Project B = «Признаки» UI на profile-edit + kanban-card читает из catalog (вместо текущего flat-системы). Это требует:
-- Добавить `device_node_id` FK к `SearchProfile`
-- Резолвер `resolve_applicable_defects(profile.device_node_id)` → dict feature_key → severity
-- Переписать profile-edit form Tab «Признаки» чтобы рендерить applicable defects из catalog
-- Переписать compute_bucket чтобы читать severity из catalog (или поддерживать оба пути backward-compat)
-- Kanban card «Признаки» block — то же
-
-Spec нужен. Brainstorm 30-60 мин. Реализация ~similar scale что Project A.
-
-### §5.6 Что НЕ делать без подтверждения
+### §5.7 Что НЕ делать без подтверждения
 
 - Force-push в main / feat/defect-catalog
-- Дропать новые таблицы (feature_nodes / device_nodes / device_feature_bindings)
-- Rebuild image только для одного сервиса (§6 — нужны все Python-services вместе)
-- Удалить `app/services/defect_catalog/` или `app/web/defects.py` (Project A core)
+- Дропать `feature_nodes` / `device_nodes` / `device_feature_bindings`
+- Изменять backend POST/PATCH/DELETE routes (полное Project A покрытие тестами уже есть)
+- Удалить `app/services/defect_catalog/` или `app/web/defects.py`
+- Менять словарь severity_ru без подтверждения (block/info/ask/skip — settled)
 
 ---
 
-## §6. Известные грабли (актуально 2026-05-13)
+## §6. Известные грабли (актуальны 2026-05-14)
 
-### Новые из Project A deploy
+### Polish session learnings (новое)
 
-- ❌ **Alembic в старом контейнере не видит новый migration файл.** После sync source — сначала `docker compose up -d --force-recreate` всех 7 сервисов, ПОТОМ `alembic upgrade head`. Если запустишь до recreate — `alembic current` вернёт старый head, `upgrade head` — no-op. (Произошло в этой сессии.)
-- ❌ **`asyncpg.connection.close()` → `RuntimeError: Event loop is closed`** при запуске seed/diag скриптов через docker exec. **Это known §6 quirk, не fatal — данные коммитятся ДО shutdown.** Проверять реальный state через отдельный asyncpg query.
-- ❌ **Создание `app/web/routers/` директории shadow'ит существующий `app/web/routers.py`** → ImportError на `from app.web.routers import router as web_router`. **НЕ создавай routers/ под существующий routers.py.** Новые роутеры — siblings типа `app/web/defects.py`.
+- ❌ **`device_detail.html` extends `defects/_layout.html` который extends `_layout.html` (sidebar+topbar)**. Любой route что рендерит этот partial должен передавать full `_layout_context(...)` — иначе UndefinedError на `sidebar_profiles_count`. Симметрично делают `devices_page` / `catalog_page`. Проверено regression-тестом `test_defects_device_detail_renders_with_sidebar`.
+- ❌ **FastAPI route registration order: literal-segments перед UUID-catchall**. `/defects/devices/new`, `/defects/devices/cancel-form`, `/defects/catalog/new`, `/defects/catalog/cancel-form` ДОЛЖНЫ быть зарегистрированы ПЕРЕД `/devices/{device_id}` и `/catalog/{feature_id}/edit` — иначе FastAPI попытается распарсить `"new"` как UUID и вернёт 422.
+- ❌ **DB-значения severity (`block/info/ask/skip`) остаются английскими** — translation только в UI через `severity_ru` Jinja filter. `option value="block"` (English) → display text `{{ 'block' | severity_ru }}` = `блок` (Russian). HTMX form post отправляет англ. value на backend.
+- ❌ **Slug auto-derive: backend выводит из title через `title_to_slug()`**. Если slug пустой в POST — derive. Если derive yields '' (title без букв) — 400 с русским error. UI: add-форма скрывает slug, edit-форма показывает как «Идентификатор».
+- ❌ **«Слаг» / «нода» / «промпт» — англицизмы, нельзя в UI**. Правильно: «Идентификатор», «узел/устройство/признак» (по контексту), «Подсказка».
 
-### Из Phase 2.1 deploy (sticky)
+### Sticky из предыдущих sessions
 
-- ❌ **`docker compose build avito-monitor` НЕ обновляет образы worker/scheduler/messenger-bot/telegram-bot/health-checker/avito-mcp** — у каждого свой image SHA, хоть build context общий. Надо `docker compose build` для ВСЕХ Python-сервисов вместе.
-- ❌ **pg_dump 16 vs server 17.6** — host pg-client несовместим с Cloud Supabase 17. Use `docker run --rm postgres:17 pg_dump ...`.
-- ❌ **Cloud Supabase pooler search_path пустой** — `psql` запросы требуют `SET search_path=public` ИЛИ schema-qualified `public.table_name`. SQLAlchemy/asyncpg в коде работает потому что queries автоматически используют public (default). Если будешь дебажить через psql напрямую — добавляй `--set=search_path=public` или `public.<table>`.
-- ❌ **DATABASE_URL preprocessing для pg_dump/psql** — у нас `postgresql+asyncpg://...?ssl=require&prepared_statement_cache_size=0`. Для libpq tools конвертация: `s|postgresql+asyncpg://|postgresql://|; s/[?&]prepared_statement_cache_size=0//; s/[?&]ssl=require/?sslmode=require/`.
-- ❌ **pgbouncer/Supavisor transaction-mode + asyncpg prepared statements** = `DuplicatePreparedStatementError`. При raw asyncpg connect — `statement_cache_size=0` обязательно. SQLAlchemy code работает потому что `prepared_statement_cache_size=0` уже в DATABASE_URL.
-- ❌ **`pytest_plugins` в non-top-level conftest deprecated** — pytest 8+ блокирует. Define fixtures прямо в conftest.
-
-### Из общей prod-эксплуатации
-
-- ❌ **Никогда не пересобирай только один service** (повтор) — shared image, нужны все consumers.
-- ❌ **JWT-сессии могут стать server-side-зомби** — manual refresh launch Avito-app 60 сек.
-- ❌ **TaskIQ-task'и регистрировать в `app/tasks/broker.py::_register_tasks()`** через import.
-- ❌ **Не deploy'ить через rsync с Windows** — нет в системе. Use `tar + ssh tar -xf`.
-- ❌ **SQLite не поддерживает JSONB + `pg_insert.on_conflict_do_update`** — для тестов в `tests/defect_features/conftest.py` dialect-aware UPSERT (`_is_postgres(session)` check). Тот же паттерн используется в `app/services/defect_catalog/repository.py` через `_now_expr(session)` helper.
-- ❌ **Hardcoded `datetime('now')` в UPDATE statements** — SQLite-only syntax, на Postgres `function datetime(unknown) does not exist`. Use dialect-aware helper.
+- ❌ Alembic в старом контейнере не видит новый migration файл — recreate ВСЕХ Python-сервисов перед `alembic upgrade head` (НЕ в этом polish-цикле — миграций не было).
+- ❌ Docker compose `build avito-monitor` НЕ обновляет образы worker/scheduler/messenger-bot/telegram-bot/health-checker/avito-mcp — у каждого свой image SHA. Для polish-only изменений в defects.py это OK (другие сервисы не загружают этот модуль).
+- ❌ pg_dump 16 vs server 17.6 — use `docker run --rm postgres:17 pg_dump ...`
+- ❌ Cloud Supabase pooler search_path пустой — psql напрямую нужен `SET search_path=public` или `public.<table>`.
+- ❌ DATABASE_URL preprocessing для libpq tools: `s|postgresql+asyncpg://|postgresql://|; s/[?&]prepared_statement_cache_size=0//; s/[?&]ssl=require/?sslmode=require/`.
+- ❌ pgbouncer/Supavisor transaction-mode + asyncpg prepared statements = `DuplicatePreparedStatementError`. Raw asyncpg `statement_cache_size=0`.
+- ❌ `pytest_plugins` в non-top-level conftest deprecated. Define fixtures напрямую.
+- ❌ Никогда не deploy'ить через rsync с Windows — нет в системе. Use `tar | ssh tar -xf`.
+- ❌ TaskIQ-task'и регистрировать в `app/tasks/broker.py::_register_tasks()`.
+- ❌ Hardcoded `datetime('now')` в UPDATE — SQLite-only. Use `_now_expr(session)` helper (есть в `repository.py`).
 
 ---
 
@@ -316,33 +306,34 @@ Spec нужен. Brainstorm 30-60 мин. Реализация ~similar scale ч
 ```
 Проект: c:/Projects/Sync/AvitoSystem/
 
-Прочитай CONTINUE.md + auto-memory (особенно project_phase_2_1_shipped.md
-и memory про Project A когда сохранён).
+Прочитай CONTINUE.md + auto-memory (особенно project_defect_catalog_polish.md
+и project_c_quiz_prompts.md).
 
 Состояние:
-- main: Phase 2.0 + 2.1 + F1/F5/parser-tune/bucket-relax merged + deployed.
-- feat/defect-catalog: Project A defect-catalog admin tool готов и
-  deployed на prod (alembic 0017, /defects live, 8+3+6 seed rows),
-  НО НЕ merged в main.
+- main: Phase 2.0 + 2.1 + F1/F5/parser-tune/bucket-relax + Project A specs/plans merged.
+- feat/defect-catalog: Project A + 12 polish-коммитов (русификация + CRUD UI +
+  auto-slug + Russian-only labels). Deployed на prod, НЕ merged. 21/21
+  defect-tests + 11 title_to_slug-tests green.
 
-Юзер должен сделать manual UI smoke на /defects (см. §4.2 checklist в
-CONTINUE.md). После smoke OK — merge feat/defect-catalog в main.
-
-Дальше:
-- §5.4 — cosmetic green-rules decision (юзер переключает в ignore?)
-- §5.5 — Project B priority (Признаки UI читает из catalog)
-- §5.6 — backlog (CQ refactors / Project C auto-gen prompts /
-  refresh-flow push gap / price-tiered criteria / Phase B dialogs)
+Юзер вчера вечером пошёл спать перед manual smoke. На сегодня:
+  1. §5.2 — manual UI smoke юзера на /defects (см. §4.1 checklist)
+  2. §5.3 — final code-review subagent перед merge
+  3. §5.4 — merge feat/defect-catalog → main + push
+  4. §5.5 — «чуть подчистить UI» по feedback'у юзера (см. §4.3)
+  5. §5.6 — Project C brainstorm: автогенерация LLM-промптов через квиз
+     с Sonnet/Haiku из catalog prompt_hints (см. §4.4)
 
 Production:
 - VPS 81.200.119.132 (ssh root@, key auth)
 - Cloud Supabase Frankfurt drwgozasaypgphkxyizt
-- Alembic head 0017_defect_catalog
-- https://avitosystem.duckdns.org/defects (новое!)
+- Alembic head 0017_defect_catalog (без изменений vs 2026-05-13)
+- https://avitosystem.duckdns.org/defects полностью русифицирован,
+  CRUD UI работает, auto-slug деривирует из «Название»
 
-ОЧЕНЬ ВАЖНО при code-deploy: docker compose build для ВСЕХ Python-
-сервисов сразу + ВСЕГДА recreate ДО alembic upgrade (alembic в старом
-контейнере не видит новый migration файл).
+ВАЖНО:
+- UI без англицизмов — Идентификатор / узел / Подсказка (НЕ слаг/нода/промпт)
+- Brainstorm Project C перед имплементацией (через superpowers:brainstorming skill)
+- Final code-review subagent перед merge feat/defect-catalog → main
 ```
 
 ---
@@ -352,44 +343,52 @@ Production:
 - **Глобальные:** `c:/Projects/Sync/CLAUDE.md`
 - **VPS** `/opt/avito-system/.env`
 - **Auto-memory:** `c:/Users/EloNout/.claude/projects/C--Projects-Sync-AvitoSystem/memory/`
-- **pg_dump бэкапы:** `/opt/avito-system/data/`
 
 ---
 
 ## §9. Ссылки на актуальные документы
 
-- `DOCS/superpowers/specs/2026-05-12-unified-criteria-design.md` — spec Phase 2.0+2.1
-- `DOCS/superpowers/plans/2026-05-13-unified-criteria-phase-2.1.md` — план 14 tasks (выполнен)
-- `DOCS/superpowers/specs/2026-05-13-defect-catalog-design.md` — **NEW** spec Project A
-- `DOCS/superpowers/plans/2026-05-13-defect-catalog-impl.md` — **NEW** план Project A (34 tasks, выполнен)
-- `DOCS/REFERENCE/README.md` — карта production (обновлена 2026-05-13)
+- `DOCS/superpowers/specs/2026-05-13-defect-catalog-design.md` — spec Project A core
+- `DOCS/superpowers/plans/2026-05-13-defect-catalog-impl.md` — план Project A (34 tasks, shipped)
+- `DOCS/superpowers/specs/2026-05-13-defect-catalog-polish.md` — **spec polish bundle** (commit `dae4b83`)
+- `DOCS/superpowers/plans/2026-05-13-defect-catalog-polish.md` — **plan polish bundle** (commit `d8d728a`, 12 tasks shipped)
+- `DOCS/REFERENCE/README.md` — карта production
 - `DOCS/DECISIONS.md` — ADR-001..011
 
 ---
 
-## §10. Phase 2.1 + Project A deploy log (для архива)
+## §10. Deploy log (для архива)
 
 ```
-== Phase 2.1 deploy (предыдущая сессия) ==
-2026-05-13 07:42 UTC  pg_dump (2.0M) via docker postgres:17
-2026-05-13 07:48 UTC  docker compose build для всех 7 Python-сервисов
-2026-05-13 07:48 UTC  docker compose up -d --force-recreate всех
-2026-05-13 07:49 UTC  alembic upgrade head: 0015 → 0016_unified_criteria
-2026-05-13 07:50 UTC  V2 mapping --apply: 5 inserts
-2026-05-13 07:54 UTC  Hotfix 4af53c4 (template tolerates bare-array repaired_components)
+== 2026-05-14 morning — Project A polish kick-off ==
+~14:00 Z  Read CONTINUE.md, sanity verify prod
+~14:15 Z  Detected device_detail 500 via user smoke
+~14:30 Z  Fix _layout_context, regression test, deploy (commit 3c92d3a)
 
-== Эта сессия — Phase 2.1 hotfixes ==
-2026-05-13 12:xx UTC  F1 prompt fix deployed (extract_price_signal.md STRICT JSON)
-2026-05-13 12:xx UTC  Parser-tune deployed (6 section prompts с negation-as-ok)
-2026-05-13 12:xx UTC  Backfill #3: red 5→14 (+9 confirmed defects)
-2026-05-13 12:xx UTC  Bucket relax deployed (unknown ≈ ok)
-2026-05-13 12:xx UTC  F5 test fix + merge Phase 2.0+2.1 → main + push
+== 2026-05-14 afternoon — polish brainstorm + spec/plan ==
+~15:00 Z  Brainstorm 3 раунда (scope + add-UX + словарь)
+~15:30 Z  Spec dae4b83 + plan d8d728a committed
+~15:45 Z  Subagent-driven execution start (Sonnet implementers, Opus reviewers)
 
-== Project A defect-catalog ==
-2026-05-13 13-15 UTC  Brainstorming + spec + plan committed
-2026-05-13 15-16 UTC  Subagent-driven impl: 34 tasks, 30 commits, 33 new tests
-2026-05-13 ~16:10 UTC docker compose build + recreate всех 7
-2026-05-13 ~16:11 UTC alembic upgrade head: 0016 → 0017_defect_catalog
-2026-05-13 ~16:13 UTC seed_defect_catalog: 8 features + 3 devices + 6 bindings
-2026-05-13 ~16:14 UTC /defects smoke 200/303 OK, branch pushed to origin
+== 2026-05-14 evening — Tasks 1-8 ==
+~16:00 Z  T1: severity_ru filter (ce1299b)
+~16:10 Z  T2: binding_row russification (c32ca67)
+~16:20 Z  T3: node_form.html partial (8e5a235)
+~16:35 Z  T4: device form-fragment routes (4f93777)
+~16:50 Z  T5: feature form-fragment routes (5123341)
+~17:05 Z  T6: device_tree action icons (083903a)
+~17:15 Z  T7: feature_tree action icons (762e93d)
+~17:25 Z  T8: root-add buttons + Loading→Загрузка (2b4d31e)
+~17:35 Z  T9: full pytest sweep — 444/8/2 baseline
+~17:40 Z  T10: deploy avito-monitor rebuild + recreate
+~17:50 Z  Manual smoke юзера start
+
+== 2026-05-14 late evening — auto-slug feedback ==
+~20:00 Z  Юзер: «slug автоматом + UI без англицизмов + Название вместо title»
+~20:15 Z  Helper title_to_slug + 11 unit-tests
+~20:20 Z  POST handlers: derive slug if empty + Russian error
+~20:25 Z  node_form.html: hide slug in add, russify labels (Название/Тип/Подсказка)
+~20:28 Z  +5 route tests; full suite 21/21 green
+~20:30 Z  Deploy avito-monitor (commit 2e557b5)
+~20:32 Z  Юзер ушёл спать; запись CONTINUE.md под завтра
 ```
