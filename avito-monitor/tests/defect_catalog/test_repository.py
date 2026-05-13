@@ -1,8 +1,9 @@
-"""Tests for defect_catalog repository — Tasks 7, 8, 9."""
+"""Tests for defect_catalog repository — Tasks 7, 8, 9, 10, 11, 12."""
 from __future__ import annotations
 
 import uuid
 import pytest
+import pytest_asyncio
 from app.services.defect_catalog.repository import (
     validate_slug,
     create_feature_node,
@@ -139,3 +140,39 @@ async def test_update_parent_to_descendant_rejected(db_session):
     )
     with pytest.raises(ValueError, match="cycle"):
         await update_feature_node(db_session, root, parent_id=leaf)
+
+
+# ---------------------------------------------------------------------------
+# Task 11: device_node CRUD with cycle detection
+# ---------------------------------------------------------------------------
+
+from app.services.defect_catalog.repository import (
+    create_device_node, get_device_node, list_device_children,
+    update_device_node, delete_device_node,
+)
+
+
+@pytest.mark.asyncio
+async def test_device_node_crud(db_session):
+    root = await create_device_node(
+        db_session, parent_id=None, slug="phone", title="Phone", kind="type",
+    )
+    brand = await create_device_node(
+        db_session, parent_id=root, slug="apple", title="Apple", kind="brand",
+    )
+    model = await create_device_node(
+        db_session, parent_id=brand, slug="iphone_12_pm",
+        title="iPhone 12 Pro Max", kind="model",
+    )
+    assert (await get_device_node(db_session, model)).title == "iPhone 12 Pro Max"
+    assert len(await list_device_children(db_session, root)) == 1
+    await delete_device_node(db_session, brand)
+    assert await get_device_node(db_session, model) is None
+
+
+@pytest.mark.asyncio
+async def test_device_node_cycle_detection(db_session):
+    a = await create_device_node(db_session, parent_id=None, slug="a", title="A")
+    b = await create_device_node(db_session, parent_id=a, slug="b", title="B")
+    with pytest.raises(ValueError, match="cycle"):
+        await update_device_node(db_session, a, parent_id=b)

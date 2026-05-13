@@ -204,3 +204,116 @@ async def delete_feature_node(session: AsyncSession, nid: uuid.UUID) -> None:
         {"id": str(nid)},
     )
     await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# CRUD — device_nodes
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DeviceNodeRow:
+    id: uuid.UUID
+    parent_id: uuid.UUID | None
+    slug: str
+    title: str
+    kind: str | None
+    sort_order: int
+
+
+def _row_to_dn(row) -> DeviceNodeRow:
+    return DeviceNodeRow(
+        id=uuid.UUID(str(row.id)),
+        parent_id=uuid.UUID(str(row.parent_id)) if row.parent_id is not None else None,
+        slug=row.slug, title=row.title, kind=row.kind,
+        sort_order=row.sort_order,
+    )
+
+
+async def create_device_node(
+    session: AsyncSession, *, parent_id: uuid.UUID | None,
+    slug: str, title: str, kind: str | None = None, sort_order: int = 0,
+) -> uuid.UUID:
+    validate_slug(slug)
+    nid = uuid.uuid4()
+    await session.execute(text("""
+        INSERT INTO device_nodes (id, parent_id, slug, title, kind, sort_order)
+        VALUES (:id, :pid, :slug, :title, :kind, :sort)
+    """), {
+        "id": str(nid),
+        "pid": str(parent_id) if parent_id is not None else None,
+        "slug": slug, "title": title, "kind": kind, "sort": sort_order,
+    })
+    await session.commit()
+    return nid
+
+
+async def get_device_node(session: AsyncSession, nid: uuid.UUID) -> DeviceNodeRow | None:
+    row = (await session.execute(
+        text("SELECT * FROM device_nodes WHERE id = :id"), {"id": str(nid)},
+    )).first()
+    return _row_to_dn(row) if row else None
+
+
+async def list_device_children(
+    session: AsyncSession, parent_id: uuid.UUID | None,
+) -> list[DeviceNodeRow]:
+    if parent_id is None:
+        rows = (await session.execute(
+            text("SELECT * FROM device_nodes WHERE parent_id IS NULL ORDER BY sort_order, slug")
+        )).all()
+    else:
+        rows = (await session.execute(
+            text("SELECT * FROM device_nodes WHERE parent_id = :pid ORDER BY sort_order, slug"),
+            {"pid": str(parent_id)},
+        )).all()
+    return [_row_to_dn(r) for r in rows]
+
+
+async def update_device_node(
+    session: AsyncSession, nid: uuid.UUID, *,
+    title: str | None = None, slug: str | None = None,
+    parent_id: object = _UNSET, kind: object = _UNSET,
+    sort_order: int | None = None,
+) -> None:
+    if parent_id is not _UNSET and parent_id is not None:
+        if str(parent_id) == str(nid):
+            raise ValueError("cycle: device cannot be its own parent")
+        cursor = parent_id
+        while cursor is not None:
+            row = (await session.execute(
+                text("SELECT parent_id FROM device_nodes WHERE id = :id"),
+                {"id": str(cursor)},
+            )).first()
+            if row is None:
+                break
+            if row.parent_id is not None and str(row.parent_id) == str(nid):
+                raise ValueError("cycle: parent would create a loop")
+            cursor = uuid.UUID(str(row.parent_id)) if row.parent_id else None
+
+    sets, params = [], {"id": str(nid)}
+    if title is not None:
+        sets.append("title = :title"); params["title"] = title
+    if slug is not None:
+        validate_slug(slug); sets.append("slug = :slug"); params["slug"] = slug
+    if parent_id is not _UNSET:
+        sets.append("parent_id = :pid")
+        params["pid"] = str(parent_id) if parent_id is not None else None
+    if kind is not _UNSET:
+        sets.append("kind = :kind"); params["kind"] = kind
+    if sort_order is not None:
+        sets.append("sort_order = :sort"); params["sort"] = sort_order
+    if not sets:
+        return
+    sets.append(f"updated_at = {_now_expr(session)}")
+    await session.execute(
+        text(f"UPDATE device_nodes SET {', '.join(sets)} WHERE id = :id"),
+        params,
+    )
+    await session.commit()
+
+
+async def delete_device_node(session: AsyncSession, nid: uuid.UUID) -> None:
+    await session.execute(
+        text("DELETE FROM device_nodes WHERE id = :id"), {"id": str(nid)},
+    )
+    await session.commit()
