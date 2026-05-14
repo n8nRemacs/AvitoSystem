@@ -143,13 +143,42 @@ async def get_feature_node(
 
 async def list_all_defect_leaves(session: AsyncSession) -> list[FeatureNodeRow]:
     """All feature_nodes with kind='defect', sorted by title.
-    Used by the «Добавить дефект» UI on /defects/devices/{id}."""
+    Kept for tests + downstream callers; new UI uses list_all_features_with_path."""
     rows = (
         await session.execute(
             text("SELECT * FROM feature_nodes WHERE kind = 'defect' ORDER BY title")
         )
     ).all()
     return [_row_to_fn(r) for r in rows]
+
+
+async def list_all_features_with_path(
+    session: AsyncSession,
+) -> list[tuple[FeatureNodeRow, list[str]]]:
+    """All feature_nodes (any kind) with их полным path в catalog'е.
+    Used by «Добавить дефект» UI to show «Раздел / Подраздел / Дефект» в dropdown
+    и позволить юзеру биндить любую ветвь (sections), не только leaves."""
+    rows = (
+        await session.execute(text("SELECT * FROM feature_nodes ORDER BY title"))
+    ).all()
+    by_id = {str(r.id): r for r in rows}
+
+    def path_for(r) -> list[str]:
+        out = [r.title]
+        cur = r
+        seen = {str(r.id)}
+        while cur.parent_id:
+            pid = str(cur.parent_id)
+            if pid in seen:
+                break
+            seen.add(pid)
+            cur = by_id.get(pid)
+            if cur is None:
+                break
+            out.insert(0, cur.title)
+        return out
+
+    return [(_row_to_fn(r), path_for(r)) for r in rows]
 
 
 async def list_feature_children(
@@ -406,11 +435,9 @@ async def create_binding(
     )).first()
     if row is None:
         raise ValueError(f"feature_node {feature_node_id} not found")
-    if row.kind != "defect":
-        raise ValueError(
-            f"feature_node {feature_node_id} is kind={row.kind!r}; "
-            "bindings can only point to kind='defect' leaves"
-        )
+    # Section-level bindings allowed (user feedback 2026-05-15) — binding на
+    # kind='node'/'section' семантически применяется ко всем потомкам.
+    # Resolver/compute_bucket expansion to descendants — Phase B.
 
     bid = uuid.uuid4()
     await session.execute(text("""
@@ -421,7 +448,7 @@ async def create_binding(
         "id": str(bid),
         "dn": str(device_node_id), "fn": str(feature_node_id),
         "da": defect_action, "ua": unknown_action,
-        "dis": 1 if disabled else 0,
+        "dis": bool(disabled),
     })
     await session.commit()
     return bid
@@ -460,7 +487,7 @@ async def update_binding(
             raise ValueError(f"Invalid unknown_action {unknown_action!r}")
         sets.append("unknown_action = :ua"); params["ua"] = unknown_action
     if disabled is not None:
-        sets.append("disabled = :dis"); params["dis"] = 1 if disabled else 0
+        sets.append("disabled = :dis"); params["dis"] = bool(disabled)
     if not sets:
         return
     sets.append(f"updated_at = {_now_expr(session)}")

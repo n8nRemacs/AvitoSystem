@@ -496,35 +496,46 @@ def test_device_detail_has_add_binding_button(defects_client, monkeypatch):
     assert f'hx-get="/defects/devices/{nid}/bindings/new"' in resp.text
 
 
-def test_binding_form_lists_defect_features(defects_client, monkeypatch):
-    """GET /defects/devices/{id}/bindings/new returns form with feature select.
-    Only kind=defect features should appear (bindings only point to defect leaves)."""
+def test_binding_form_lists_features_with_paths(defects_client, monkeypatch):
+    """GET /defects/devices/{id}/bindings/new returns form with full-hierarchy select.
+    User feedback 2026-05-15: показать иерархию + возможность бинд'ить ветви (sections).
+    Each option label = path joined «Раздел / Дефект» so юзер видит контекст."""
     import uuid as _uuid
     from app.services.defect_catalog.repository import FeatureNodeRow
     from app.web import defects as defects_mod
 
     dev_id = _uuid.UUID("21212121-aaaa-bbbb-cccc-111111111111")
-    defect1 = FeatureNodeRow(
-        id=_uuid.UUID("31313131-aaaa-bbbb-cccc-222222222222"),
-        parent_id=None, kind="defect", slug="cracked",
+    section = FeatureNodeRow(
+        id=_uuid.UUID("aaaa1111-aaaa-bbbb-cccc-aaaaaaaaaaaa"),
+        parent_id=None, kind="node", slug="display",
+        title="Дисплей", sort_order=0, prompt_hint=None,
+    )
+    defect = FeatureNodeRow(
+        id=_uuid.UUID("bbbb2222-aaaa-bbbb-cccc-bbbbbbbbbbbb"),
+        parent_id=section.id, kind="defect", slug="cracked",
         title="Разбит", sort_order=0, prompt_hint=None,
     )
 
-    async def _fake_list_defects(session):
-        return [defect1]
+    async def _fake_list(session):
+        # Returns [(FeatureNodeRow, path_list), ...]
+        return [
+            (section, ["Дисплей"]),
+            (defect, ["Дисплей", "Разбит"]),
+        ]
 
-    monkeypatch.setattr(defects_mod, "list_all_defect_leaves", _fake_list_defects)
+    monkeypatch.setattr(defects_mod, "list_all_features_with_path", _fake_list)
 
     resp = defects_client.get(f"/defects/devices/{dev_id}/bindings/new")
     assert resp.status_code == 200
-    # Form posts to /defects/bindings with device_node_id hidden
+    # Form basic structure
     assert 'hx-post="/defects/bindings"' in resp.text
     assert f'value="{dev_id}"' in resp.text
-    # Feature dropdown with the defect option
     assert 'name="feature_node_id"' in resp.text
-    assert str(defect1.id) in resp.text
-    assert "Разбит" in resp.text
-    # Severity defaults present
+    # Section IS included (user wants to bind whole branches)
+    assert str(section.id) in resp.text
+    # Path is shown — defect option label = «Дисплей / Разбит»
+    assert "Дисплей / Разбит" in resp.text
+    # Severity defaults
     assert 'name="defect_action"' in resp.text
     assert 'name="unknown_action"' in resp.text
 

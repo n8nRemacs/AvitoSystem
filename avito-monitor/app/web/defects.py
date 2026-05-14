@@ -24,6 +24,7 @@ from app.services.defect_catalog.repository import (
     get_device_node,
     get_feature_node,
     list_all_defect_leaves,
+    list_all_features_with_path,
     list_device_children,
     list_feature_children,
     title_to_slug,
@@ -272,10 +273,10 @@ async def binding_form_new(
     user: Annotated[User, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> HTMLResponse:
-    defects = await list_all_defect_leaves(session)
+    features = await list_all_features_with_path(session)
     return templates.TemplateResponse(
         request, "defects/_partials/binding_form.html",
-        {"device_id": str(device_id), "defects": defects},
+        {"device_id": str(device_id), "features": features},
     )
 
 

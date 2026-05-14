@@ -1,7 +1,8 @@
 {# Inline form for creating a new binding on a device_detail page.
    Context:
      device_id : UUID str
-     defects   : list[FeatureNodeRow] (kind='defect')
+     features  : list[tuple[FeatureNodeRow, list[str]]] — node + полный path
+                 (любой kind: section/node/defect — можно биндить ветвь)
 #}
 <form hx-post="/defects/bindings"
       hx-target="#bindings-list"
@@ -10,10 +11,10 @@
       class="my-2 p-3 bg-avito-elev rounded text-xs flex flex-wrap gap-2 items-center">
   <input type="hidden" name="device_node_id" value="{{ device_id }}">
 
-  <label>Дефект:
-    <select name="feature_node_id" required class="border rounded px-1 max-w-xs">
-      {% for d in defects %}
-        <option value="{{ d.id }}">{{ d.title }}</option>
+  <label>Признак:
+    <select name="feature_node_id" required class="border rounded px-1 max-w-md">
+      {% for node, path in features %}
+        <option value="{{ node.id }}">{{ path | join(' / ') }} [{{ node.kind | kind_ru }}]</option>
       {% endfor %}
     </select>
   </label>

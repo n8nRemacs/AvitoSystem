@@ -244,14 +244,18 @@ async def test_create_binding_on_defect(db_session, seeded):
 
 
 @pytest.mark.asyncio
-async def test_binding_on_node_kind_rejected(db_session, seeded):
-    """Cannot bind a non-leaf feature_node (kind='node')."""
-    with pytest.raises(ValueError, match="defect"):
-        await create_binding(
-            db_session, device_node_id=seeded["phone"],
-            feature_node_id=seeded["case"],
-            defect_action="block", unknown_action="ask",
-        )
+async def test_binding_on_section_kind_allowed(db_session, seeded):
+    """Section-level bindings allowed (user feedback 2026-05-15): юзер хочет
+    привязывать целые ветви catalog'а (Корпус, Дисплей) — не только листья.
+    Pipeline expansion to descendant defects — отдельная Phase B задача."""
+    bid = await create_binding(
+        db_session, device_node_id=seeded["phone"],
+        feature_node_id=seeded["case"],  # kind='node' — section
+        defect_action="block", unknown_action="ask",
+    )
+    b = await get_binding(db_session, bid)
+    assert b.defect_action == "block"
+    assert b.feature_node_id == seeded["case"]
 
 
 @pytest.mark.asyncio
