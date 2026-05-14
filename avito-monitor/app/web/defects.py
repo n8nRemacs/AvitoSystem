@@ -353,6 +353,7 @@ async def create_binding_endpoint(
         "defect_action": b.defect_action,
         "unknown_action": b.unknown_action,
         "inherited_from": None,
+        "inherited_from_section": None,
     }
     return templates.TemplateResponse(
         request, "defects/_partials/binding_row.html",
@@ -388,6 +389,7 @@ async def patch_binding(
         "defect_action": b.defect_action,
         "unknown_action": b.unknown_action,
         "inherited_from": None,
+        "inherited_from_section": None,
     }
     return templates.TemplateResponse(
         request, "defects/_partials/binding_row.html",

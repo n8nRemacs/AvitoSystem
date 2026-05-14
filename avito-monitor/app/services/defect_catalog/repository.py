@@ -141,6 +141,29 @@ async def get_feature_node(
     return _row_to_fn(row) if row else None
 
 
+async def list_descendant_defects(
+    session: AsyncSession, root_id: uuid.UUID,
+) -> list[FeatureNodeRow]:
+    """All defect-kind descendants (BFS) under the given feature_node.
+    Used for section-binding expansion in the resolver."""
+    out: list[FeatureNodeRow] = []
+    queue: list[uuid.UUID] = [root_id]
+    seen: set[str] = {str(root_id)}
+    while queue:
+        cur = queue.pop(0)
+        children = await list_feature_children(session, cur)
+        for c in children:
+            cid = str(c.id)
+            if cid in seen:
+                continue
+            seen.add(cid)
+            if c.kind == "defect":
+                out.append(c)
+            else:
+                queue.append(c.id)
+    return out
+
+
 async def list_all_defect_leaves(session: AsyncSession) -> list[FeatureNodeRow]:
     """All feature_nodes with kind='defect', sorted by title.
     Kept for tests + downstream callers; new UI uses list_all_features_with_path."""

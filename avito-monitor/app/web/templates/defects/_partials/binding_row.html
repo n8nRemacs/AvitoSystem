@@ -1,20 +1,28 @@
-{# Context: b (ResolvedBinding-shaped), target_device_id (uuid str). #}
-<div class="flex items-start gap-3 py-2 border-b border-avito-border-soft text-sm"
-     id="binding-{{ b.binding_id }}">
-  <div class="flex-1">
-    <div class="font-medium">{{ b.feature_path | join(' / ') }}</div>
+{# Context: b (ResolvedBinding-shaped), target_device_id (uuid str).
 
-    {% if b.inherited_from %}
-      <div class="mt-1 text-xs">
-        При находке: <strong>{{ b.defect_action | severity_ru }}</strong>
-        · Если неясно: <strong>{{ b.unknown_action | severity_ru }}</strong>
-      </div>
-      <div class="mt-1 text-xs text-avito-text-soft">← унаследовано</div>
-    {% else %}
+   State machine:
+   - own direct (no inherited_from, no inherited_from_section) — editable + Удалить
+   - inherited from device ancestor (inherited_from set) — read-only + Задать здесь
+   - synthetic from section default (inherited_from_section set) — read-only + Задать здесь
+     (indented by feature_path depth, label «← из раздела»)
+#}
+{% set is_synthetic = b.inherited_from_section is not none %}
+{% set is_inherited_device = b.inherited_from is not none and not is_synthetic %}
+{% set is_own = not is_synthetic and not is_inherited_device %}
+{% set indent_level = (b.feature_path | length) - 1 if is_synthetic else 0 %}
+<div class="flex items-start gap-3 py-2 border-b border-avito-border-soft text-sm"
+     id="binding-{{ b.binding_id }}-{{ b.feature_node_id }}"
+     {% if is_synthetic %}style="margin-left: {{ indent_level * 1.25 }}rem;"{% endif %}>
+  <div class="flex-1">
+    <div class="font-medium {% if is_synthetic %}text-avito-text-soft{% endif %}">
+      {% if is_synthetic %}{{ b.feature_path[-1] }}{% else %}{{ b.feature_path | join(' / ') }}{% endif %}
+    </div>
+
+    {% if is_own %}
       <div class="mt-1 flex gap-3 items-center text-xs">
         <label>При находке:
           <select hx-patch="/defects/bindings/{{ b.binding_id }}"
-                  hx-target="#binding-{{ b.binding_id }}"
+                  hx-target="#binding-{{ b.binding_id }}-{{ b.feature_node_id }}"
                   hx-swap="outerHTML"
                   hx-vals='{"target_device_id": "{{ target_device_id }}"}'
                   name="defect_action"
@@ -25,7 +33,7 @@
         </label>
         <label>Если неясно:
           <select hx-patch="/defects/bindings/{{ b.binding_id }}"
-                  hx-target="#binding-{{ b.binding_id }}"
+                  hx-target="#binding-{{ b.binding_id }}-{{ b.feature_node_id }}"
                   hx-swap="outerHTML"
                   hx-vals='{"target_device_id": "{{ target_device_id }}"}'
                   name="unknown_action"
@@ -36,11 +44,26 @@
         </label>
       </div>
       <div class="mt-1 text-xs text-avito-text-soft">← задано здесь</div>
+    {% else %}
+      <div class="mt-1 text-xs">
+        При находке: <strong>{{ b.defect_action | severity_ru }}</strong>
+        · Если неясно: <strong>{{ b.unknown_action | severity_ru }}</strong>
+      </div>
+      <div class="mt-1 text-xs text-avito-text-soft">
+        {% if is_synthetic %}← по умолчанию из раздела{% else %}← унаследовано{% endif %}
+      </div>
     {% endif %}
   </div>
 
-  {% if b.inherited_from %}
-    <form hx-post="/defects/bindings" hx-target="#binding-{{ b.binding_id }}" hx-swap="outerHTML">
+  {% if is_own %}
+    <button hx-delete="/defects/bindings/{{ b.binding_id }}"
+            hx-target="#binding-{{ b.binding_id }}-{{ b.feature_node_id }}"
+            hx-swap="delete"
+            class="text-xs text-avito-text-soft hover:text-red-600">Удалить</button>
+  {% else %}
+    <form hx-post="/defects/bindings"
+          hx-target="#binding-{{ b.binding_id }}-{{ b.feature_node_id }}"
+          hx-swap="outerHTML">
       <input type="hidden" name="device_node_id"  value="{{ target_device_id }}">
       <input type="hidden" name="feature_node_id" value="{{ b.feature_node_id }}">
       <input type="hidden" name="defect_action"   value="{{ b.defect_action }}">
@@ -48,10 +71,5 @@
       <button type="submit"
               class="text-xs text-avito-text-soft hover:text-avito-green">Задать здесь</button>
     </form>
-  {% else %}
-    <button hx-delete="/defects/bindings/{{ b.binding_id }}"
-            hx-target="#binding-{{ b.binding_id }}"
-            hx-swap="delete"
-            class="text-xs text-avito-text-soft hover:text-red-600">Удалить</button>
   {% endif %}
 </div>
