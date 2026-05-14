@@ -418,6 +418,55 @@ def test_post_feature_returns_400_on_duplicate_slug(defects_client, monkeypatch)
     assert "уже существует" in resp.text.lower()
 
 
+def test_patch_device_returns_400_on_duplicate_slug(defects_client, monkeypatch):
+    """Reviewer Issue 1: PATCH /defects/devices/{id}/edit must catch IntegrityError
+    (uq_device_nodes_parent_slug) → 400 с русским сообщением, не 500."""
+    import uuid as _uuid
+    from sqlalchemy.exc import IntegrityError
+    from app.web import defects as defects_mod
+
+    async def _fake_update_dupe(session, nid, **kw):
+        raise IntegrityError("UPDATE ...", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(defects_mod, "update_device_node", _fake_update_dupe)
+    from tests.web.test_defects_routes import DefectFakeSession
+    async def _rb(self):
+        return None
+    monkeypatch.setattr(DefectFakeSession, "rollback", _rb, raising=False)
+
+    nid = _uuid.UUID("99999999-9999-9999-9999-999999999999")
+    resp = defects_client.patch(
+        f"/defects/devices/{nid}/edit",
+        data={"title": "iPhone 13", "slug": "iphone_13"},
+    )
+    assert resp.status_code == 400, resp.text[:300]
+    assert "уже существует" in resp.text.lower()
+
+
+def test_patch_feature_returns_400_on_duplicate_slug(defects_client, monkeypatch):
+    """Reviewer Issue 1 — симметрично для catalog PATCH."""
+    import uuid as _uuid
+    from sqlalchemy.exc import IntegrityError
+    from app.web import defects as defects_mod
+
+    async def _fake_update_dupe(session, nid, **kw):
+        raise IntegrityError("UPDATE ...", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(defects_mod, "update_feature_node", _fake_update_dupe)
+    from tests.web.test_defects_routes import DefectFakeSession
+    async def _rb(self):
+        return None
+    monkeypatch.setattr(DefectFakeSession, "rollback", _rb, raising=False)
+
+    nid = _uuid.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    resp = defects_client.patch(
+        f"/defects/catalog/{nid}/edit",
+        data={"title": "Дисплей", "slug": "display"},
+    )
+    assert resp.status_code == 400
+    assert "уже существует" in resp.text.lower()
+
+
 def test_post_device_rejects_unmappable_title(defects_client):
     """If title contains only special chars, derivation yields '' → 400 with Russian error."""
     resp = defects_client.post("/defects/devices", data={"title": "!@#$%", "slug": ""})

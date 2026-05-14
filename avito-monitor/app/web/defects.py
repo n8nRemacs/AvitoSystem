@@ -457,6 +457,12 @@ async def patch_device_endpoint(
         await update_device_node(session, device_id, title=title, slug=slug, parent_id=pid)
     except ValueError as e:
         return HTMLResponse(f'<div class="text-red-600 text-xs">{e}</div>', status_code=400)
+    except IntegrityError:
+        await session.rollback()
+        return HTMLResponse(
+            f'<div class="text-red-600 text-xs">Уже существует устройство с идентификатором «{slug}» на этом уровне. Выберите другой идентификатор.</div>',
+            status_code=400,
+        )
     tree = await _build_device_tree(session, parent_id=None)
     return templates.TemplateResponse(
         request, "defects/_partials/device_tree.html", {"tree": tree},
@@ -493,6 +499,12 @@ async def patch_feature_endpoint(
         )
     except ValueError as e:
         return HTMLResponse(f'<div class="text-red-600 text-xs">{e}</div>', status_code=400)
+    except IntegrityError:
+        await session.rollback()
+        return HTMLResponse(
+            f'<div class="text-red-600 text-xs">Уже существует признак с идентификатором «{slug}» на этом уровне. Выберите другой идентификатор.</div>',
+            status_code=400,
+        )
     tree = await _build_feature_tree(session, parent_id=None)
     return templates.TemplateResponse(
         request, "defects/_partials/feature_tree.html", {"tree": tree},
