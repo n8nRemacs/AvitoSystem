@@ -1,0 +1,16 @@
+{# app/web/templates/defects/catalog.html #}
+{% extends "defects/_layout.html" %}
+{% block defects_content %}
+<div class="bg-white rounded border border-avito-border-soft p-3">
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-xs uppercase text-avito-text-soft">Каталог признаков</div>
+    <button hx-get="/defects/catalog/new"
+            hx-target="#feature-form-mount" hx-swap="innerHTML"
+            class="text-xs text-avito-text-soft hover:text-avito-green">[+] Добавить корневой признак</button>
+  </div>
+  <div id="feature-form-mount"></div>
+  <div id="feature-tree" hx-get="/defects/catalog/tree" hx-trigger="load" hx-swap="innerHTML">
+    <div class="text-avito-text-soft">Загрузка…</div>
+  </div>
+</div>
+{% endblock %}

@@ -56,6 +56,9 @@ def create_app() -> FastAPI:
     app.include_router(health_full_api)
     app.include_router(web_router)
 
+    from app.web.defects import router as defects_router
+    app.include_router(defects_router)
+
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
         return {"status": "ok"}
