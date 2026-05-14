@@ -68,8 +68,29 @@ def kind_ru(value: str) -> str:
     return _KIND_RU.get(value, value)
 
 
+_SECTION_BLUE_BY_DEPTH = [
+    "text-blue-900",  # depth 0 — darkest
+    "text-blue-700",
+    "text-blue-500",
+    "text-blue-400",  # depth ≥3 — lightest
+]
+
+
+def node_color(kind: str, depth: int) -> str:
+    """Tailwind text-color class per feature_node kind + nesting depth.
+    Sections (node|section) get blue palette graduated darker→lighter by depth.
+    Defects always get slate-500 (light gray). Unknown kind → no color."""
+    if kind == "defect":
+        return "text-slate-500"
+    if kind in ("node", "section"):
+        idx = min(int(depth), len(_SECTION_BLUE_BY_DEPTH) - 1)
+        return _SECTION_BLUE_BY_DEPTH[idx]
+    return ""
+
+
 templates.env.filters["severity_ru"] = severity_ru
 templates.env.filters["kind_ru"] = kind_ru
+templates.env.globals["node_color"] = node_color
 
 router = APIRouter(prefix="/defects", tags=["defects"])
 

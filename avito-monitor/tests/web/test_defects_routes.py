@@ -542,6 +542,61 @@ def test_kind_ru_filter():
     assert kind_ru("") == ""
 
 
+def test_node_color_filter():
+    """Unit-test node_color(kind, depth) Jinja-filter.
+    Sections: blue palette graduated darker→lighter by depth.
+    Defects: slate (light gray) regardless of depth."""
+    from app.web.defects import node_color
+    # Defects — slate gray at any depth
+    assert node_color("defect", 0) == "text-slate-500"
+    assert node_color("defect", 3) == "text-slate-500"
+    # Sections (kind=node or section) — darker→lighter
+    assert node_color("node", 0)    == "text-blue-900"
+    assert node_color("section", 0) == "text-blue-900"
+    assert node_color("node", 1)    == "text-blue-700"
+    assert node_color("node", 2)    == "text-blue-500"
+    assert node_color("node", 3)    == "text-blue-400"
+    assert node_color("node", 10)   == "text-blue-400"  # clamped
+    # Unknown kind passes through with no color (defensive)
+    assert node_color("unknown", 0) == ""
+
+
+def test_feature_tree_applies_depth_aware_colors(defects_client, monkeypatch):
+    """Tree-render integration: root section row gets text-blue-900, nested defect
+    row gets text-slate-500 (light gray). Verifies recursive macro passes depth."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import FeatureNodeRow
+    from app.web import defects as defects_mod
+
+    root_id = _uuid.UUID("90000000-0000-0000-0000-000000000001")
+    child_id = _uuid.UUID("90000000-0000-0000-0000-000000000002")
+    root_section = FeatureNodeRow(
+        id=root_id, parent_id=None, kind="node", slug="display",
+        title="Дисплей", sort_order=0, prompt_hint=None,
+    )
+    child_defect = FeatureNodeRow(
+        id=child_id, parent_id=root_id, kind="defect", slug="cracked",
+        title="Разбит", sort_order=0, prompt_hint=None,
+    )
+
+    call_count = {"n": 0}
+
+    async def _fake_list_children(session, parent_id):
+        call_count["n"] += 1
+        if parent_id is None:
+            return [root_section]
+        if str(parent_id) == str(root_id):
+            return [child_defect]
+        return []
+
+    monkeypatch.setattr(defects_mod, "list_feature_children", _fake_list_children)
+
+    resp = defects_client.get("/defects/catalog/tree")
+    assert resp.status_code == 200
+    assert "text-blue-900" in resp.text   # root section
+    assert "text-slate-500" in resp.text  # nested defect
+
+
 def test_feature_tree_shows_russian_kind_label(defects_client, monkeypatch):
     """B-cosmetic: kind suffix in tree («[node]» рядом с «Дисплей») must
     render as «[Раздел]» / «[Дефект]» — no English «node» visible to user."""

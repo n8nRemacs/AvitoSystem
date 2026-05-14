@@ -1,6 +1,6 @@
-{% macro render(entry) %}
+{% macro render(entry, depth=0) %}
   <div class="ml-2">
-    <div class="flex items-center gap-1 py-1 text-sm rounded px-1 hover:bg-avito-elev">
+    <div class="flex items-center gap-1 py-1 text-sm rounded px-1 hover:bg-avito-elev {{ node_color(entry.node.kind, depth) }}">
       <span>{{ entry.node.title }}
         <span class="text-xs text-avito-text-soft">[{{ entry.node.kind | kind_ru }}]</span>
       </span>
@@ -20,9 +20,9 @@
     </div>
     {% if entry.children %}
       <div class="ml-3">
-        {% for child in entry.children %}{{ render(child) }}{% endfor %}
+        {% for child in entry.children %}{{ render(child, depth + 1) }}{% endfor %}
       </div>
     {% endif %}
   </div>
 {% endmacro %}
-{% for entry in tree %}{{ render(entry) }}{% endfor %}
+{% for entry in tree %}{{ render(entry, 0) }}{% endfor %}
