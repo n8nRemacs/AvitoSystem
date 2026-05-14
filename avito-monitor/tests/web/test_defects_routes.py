@@ -467,6 +467,80 @@ def test_patch_feature_returns_400_on_duplicate_slug(defects_client, monkeypatch
     assert "уже существует" in resp.text.lower()
 
 
+def test_feature_edit_form_shows_kind_dropdown_with_prefill(defects_client, monkeypatch):
+    """User feedback 2026-05-15: edit-форма дефекта/раздела должна позволять
+    менять Тип (Раздел/Дефект). Раньше dropdown был только в add-режиме."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import FeatureNodeRow
+    from app.web import defects as defects_mod
+
+    nid = _uuid.UUID("11111111-aaaa-bbbb-cccc-222222222222")
+    # Existing defect — kind dropdown should show «Дефект» selected
+    fake_defect = FeatureNodeRow(
+        id=nid, parent_id=None, kind="defect", slug="cracked",
+        title="Разбит", sort_order=0, prompt_hint=None,
+    )
+
+    async def _fake_get(session, _nid):
+        return fake_defect
+
+    monkeypatch.setattr(defects_mod, "get_feature_node", _fake_get)
+
+    resp = defects_client.get(f"/defects/catalog/{nid}/edit")
+    assert resp.status_code == 200
+    # Dropdown present in edit mode too
+    assert 'name="kind"' in resp.text
+    # «Дефект» preselected for this defect node
+    assert '<option value="defect" selected>' in resp.text or '<option value="defect"  selected' in resp.text
+
+
+def test_feature_edit_form_prefills_section_kind(defects_client, monkeypatch):
+    """Edit form for kind=node feature shows «Раздел» preselected."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import FeatureNodeRow
+    from app.web import defects as defects_mod
+
+    nid = _uuid.UUID("33333333-aaaa-bbbb-cccc-444444444444")
+    fake_section = FeatureNodeRow(
+        id=nid, parent_id=None, kind="node", slug="display",
+        title="Дисплей", sort_order=0, prompt_hint=None,
+    )
+
+    async def _fake_get(session, _nid):
+        return fake_section
+
+    monkeypatch.setattr(defects_mod, "get_feature_node", _fake_get)
+
+    resp = defects_client.get(f"/defects/catalog/{nid}/edit")
+    assert resp.status_code == 200
+    # Раздел selected (kind=node maps to «Раздел»)
+    assert '<option value="node" selected>' in resp.text
+
+
+def test_patch_feature_can_change_kind(defects_client, monkeypatch):
+    """PATCH /defects/catalog/{id}/edit propagates kind field to update_feature_node."""
+    captured: dict = {}
+
+    async def _fake_update(session, nid, **kw):
+        captured.update(kw)
+
+    async def _fake_list_children(session, parent_id):
+        return []
+
+    from app.web import defects as defects_mod
+    monkeypatch.setattr(defects_mod, "update_feature_node", _fake_update)
+    monkeypatch.setattr(defects_mod, "list_feature_children", _fake_list_children)
+
+    import uuid as _uuid
+    nid = _uuid.UUID("55555555-aaaa-bbbb-cccc-666666666666")
+    resp = defects_client.patch(
+        f"/defects/catalog/{nid}/edit",
+        data={"title": "Корпус", "slug": "case", "kind": "node"},
+    )
+    assert resp.status_code == 200, resp.text[:300]
+    assert captured.get("kind") == "node"
+
+
 def test_post_device_rejects_unmappable_title(defects_client):
     """If title contains only special chars, derivation yields '' → 400 with Russian error."""
     resp = defects_client.post("/defects/devices", data={"title": "!@#$%", "slug": ""})

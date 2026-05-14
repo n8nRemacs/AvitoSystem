@@ -31,11 +31,12 @@
     <input type="hidden" name="parent_id" value="{{ parent_id }}">
   {% endif %}
 
-  {% if kind == 'feature' and mode == 'add' %}
+  {% if kind == 'feature' %}
+    {% set current_kind = prefill.kind if prefill else 'defect' %}
     <label>Тип:
       <select name="kind" class="border rounded px-1">
-        <option value="node">Раздел</option>
-        <option value="defect" selected>Дефект</option>
+        <option value="node"{% if current_kind in ('node', 'section') %} selected{% endif %}>Раздел</option>
+        <option value="defect"{% if current_kind == 'defect' %} selected{% endif %}>Дефект</option>
       </select>
     </label>
   {% endif %}

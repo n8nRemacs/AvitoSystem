@@ -207,6 +207,7 @@ async def feature_form_edit(
             "prefill": {
                 "slug": feat.slug, "title": feat.title,
                 "prompt_hint": feat.prompt_hint or "",
+                "kind": feat.kind,
             },
         },
     )
@@ -492,10 +493,11 @@ async def patch_feature_endpoint(
     title: Annotated[str | None, Form()] = None,
     slug: Annotated[str | None, Form()] = None,
     prompt_hint: Annotated[str | None, Form()] = None,
+    kind: Annotated[str | None, Form()] = None,
 ) -> HTMLResponse:
     try:
         await update_feature_node(
-            session, feature_id, title=title, slug=slug, prompt_hint=prompt_hint,
+            session, feature_id, title=title, slug=slug, prompt_hint=prompt_hint, kind=kind,
         )
     except ValueError as e:
         return HTMLResponse(f'<div class="text-red-600 text-xs">{e}</div>', status_code=400)
