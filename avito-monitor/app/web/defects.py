@@ -23,6 +23,7 @@ from app.services.defect_catalog.repository import (
     get_binding,
     get_device_node,
     get_feature_node,
+    list_all_defect_leaves,
     list_device_children,
     list_feature_children,
     title_to_slug,
@@ -264,6 +265,28 @@ async def device_form_edit(
     )
 
 
+@router.get("/devices/{device_id}/bindings/new", response_class=HTMLResponse)
+async def binding_form_new(
+    device_id: uuid.UUID,
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+) -> HTMLResponse:
+    defects = await list_all_defect_leaves(session)
+    return templates.TemplateResponse(
+        request, "defects/_partials/binding_form.html",
+        {"device_id": str(device_id), "defects": defects},
+    )
+
+
+@router.get("/devices/{device_id}/bindings/cancel-form", response_class=HTMLResponse)
+async def binding_form_cancel(
+    device_id: uuid.UUID,
+    user: Annotated[User, Depends(require_user)],
+) -> HTMLResponse:
+    return HTMLResponse("")
+
+
 @router.get("/devices/{device_id}", response_class=HTMLResponse)
 async def device_detail(
     device_id: uuid.UUID,
@@ -273,7 +296,7 @@ async def device_detail(
 ) -> HTMLResponse:
     device = await get_device_node(session, device_id)
     if device is None:
-        return HTMLResponse("Device not found", status_code=404)
+        return HTMLResponse("Устройство не найдено", status_code=404)
     resolved = await resolve_applicable_defects(session, device_id)
     ctx = await _layout_context(user, session, active="defects")
     ctx["active_tab"] = "devices"
@@ -295,13 +318,22 @@ async def create_binding_endpoint(
     unknown_action: Annotated[str, Form()] = "ask",
 ) -> HTMLResponse:
     """Create an explicit override binding at the given device node."""
-    bid = await create_binding(
-        session,
-        device_node_id=uuid.UUID(device_node_id),
-        feature_node_id=uuid.UUID(feature_node_id),
-        defect_action=defect_action,
-        unknown_action=unknown_action,
-    )
+    try:
+        bid = await create_binding(
+            session,
+            device_node_id=uuid.UUID(device_node_id),
+            feature_node_id=uuid.UUID(feature_node_id),
+            defect_action=defect_action,
+            unknown_action=unknown_action,
+        )
+    except ValueError as e:
+        return HTMLResponse(f'<div class="text-red-600 text-xs">{e}</div>', status_code=400)
+    except IntegrityError:
+        await session.rollback()
+        return HTMLResponse(
+            '<div class="text-red-600 text-xs">Привязка для этого дефекта уже существует на данном устройстве.</div>',
+            status_code=400,
+        )
     b = await get_binding(session, bid)
     if b is None:
         return HTMLResponse("", status_code=500)

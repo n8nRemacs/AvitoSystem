@@ -141,6 +141,17 @@ async def get_feature_node(
     return _row_to_fn(row) if row else None
 
 
+async def list_all_defect_leaves(session: AsyncSession) -> list[FeatureNodeRow]:
+    """All feature_nodes with kind='defect', sorted by title.
+    Used by the «Добавить дефект» UI on /defects/devices/{id}."""
+    rows = (
+        await session.execute(
+            text("SELECT * FROM feature_nodes WHERE kind = 'defect' ORDER BY title")
+        )
+    ).all()
+    return [_row_to_fn(r) for r in rows]
+
+
 async def list_feature_children(
     session: AsyncSession, parent_id: uuid.UUID | None
 ) -> list[FeatureNodeRow]:

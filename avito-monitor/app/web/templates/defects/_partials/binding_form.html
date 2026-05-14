@@ -1,0 +1,41 @@
+{# Inline form for creating a new binding on a device_detail page.
+   Context:
+     device_id : UUID str
+     defects   : list[FeatureNodeRow] (kind='defect')
+#}
+<form hx-post="/defects/bindings"
+      hx-target="#bindings-list"
+      hx-swap="beforeend"
+      hx-on::htmx:after-request="if(event.detail.successful){this.remove();const e=document.getElementById('bindings-empty-state');if(e)e.remove();}"
+      class="my-2 p-3 bg-avito-elev rounded text-xs flex flex-wrap gap-2 items-center">
+  <input type="hidden" name="device_node_id" value="{{ device_id }}">
+
+  <label>Дефект:
+    <select name="feature_node_id" required class="border rounded px-1 max-w-xs">
+      {% for d in defects %}
+        <option value="{{ d.id }}">{{ d.title }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>При находке:
+    <select name="defect_action" class="border rounded px-1">
+      <option value="block" selected>{{ 'block' | severity_ru }}</option>
+      <option value="info">{{ 'info' | severity_ru }}</option>
+    </select>
+  </label>
+
+  <label>Если неясно:
+    <select name="unknown_action" class="border rounded px-1">
+      <option value="ask" selected>{{ 'ask' | severity_ru }}</option>
+      <option value="skip">{{ 'skip' | severity_ru }}</option>
+    </select>
+  </label>
+
+  <button type="submit"
+          class="px-2 py-0.5 bg-avito-brand text-white rounded">ОК</button>
+  <button type="button"
+          hx-get="/defects/devices/{{ device_id }}/bindings/cancel-form"
+          hx-target="closest form" hx-swap="outerHTML"
+          class="px-2 py-0.5 border rounded">Отмена</button>
+</form>

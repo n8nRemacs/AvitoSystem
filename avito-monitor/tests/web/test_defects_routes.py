@@ -467,6 +467,97 @@ def test_patch_feature_returns_400_on_duplicate_slug(defects_client, monkeypatch
     assert "уже существует" in resp.text.lower()
 
 
+def test_device_detail_has_add_binding_button(defects_client, monkeypatch):
+    """User feedback 2026-05-15: на странице устройства когда binding'ов нет —
+    некуда жать чтобы добавить. Должна быть кнопка «+ Добавить дефект» всегда."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import DeviceNodeRow
+    from app.web import defects as defects_mod
+
+    nid = _uuid.UUID("12121212-3434-5656-7878-989898989898")
+    fake_dev = DeviceNodeRow(
+        id=nid, parent_id=None, slug="phone", title="Phone",
+        kind=None, sort_order=0,
+    )
+
+    async def _fake_get(session, _nid):
+        return fake_dev
+
+    async def _fake_resolve(session, device_id):
+        return []  # empty bindings list
+
+    monkeypatch.setattr(defects_mod, "get_device_node", _fake_get)
+    monkeypatch.setattr(defects_mod, "resolve_applicable_defects", _fake_resolve)
+
+    resp = defects_client.get(f"/defects/devices/{nid}")
+    assert resp.status_code == 200
+    # Add button visible even on empty list
+    assert "Добавить дефект" in resp.text
+    assert f'hx-get="/defects/devices/{nid}/bindings/new"' in resp.text
+
+
+def test_binding_form_lists_defect_features(defects_client, monkeypatch):
+    """GET /defects/devices/{id}/bindings/new returns form with feature select.
+    Only kind=defect features should appear (bindings only point to defect leaves)."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import FeatureNodeRow
+    from app.web import defects as defects_mod
+
+    dev_id = _uuid.UUID("21212121-aaaa-bbbb-cccc-111111111111")
+    defect1 = FeatureNodeRow(
+        id=_uuid.UUID("31313131-aaaa-bbbb-cccc-222222222222"),
+        parent_id=None, kind="defect", slug="cracked",
+        title="Разбит", sort_order=0, prompt_hint=None,
+    )
+
+    async def _fake_list_defects(session):
+        return [defect1]
+
+    monkeypatch.setattr(defects_mod, "list_all_defect_leaves", _fake_list_defects)
+
+    resp = defects_client.get(f"/defects/devices/{dev_id}/bindings/new")
+    assert resp.status_code == 200
+    # Form posts to /defects/bindings with device_node_id hidden
+    assert 'hx-post="/defects/bindings"' in resp.text
+    assert f'value="{dev_id}"' in resp.text
+    # Feature dropdown with the defect option
+    assert 'name="feature_node_id"' in resp.text
+    assert str(defect1.id) in resp.text
+    assert "Разбит" in resp.text
+    # Severity defaults present
+    assert 'name="defect_action"' in resp.text
+    assert 'name="unknown_action"' in resp.text
+
+
+def test_create_binding_returns_400_on_duplicate(defects_client, monkeypatch):
+    """Reviewer Issue 4: POST /defects/bindings must catch IntegrityError
+    (uq_dfb_device_feature) → 400 с русским сообщением, не 500."""
+    import uuid as _uuid
+    from sqlalchemy.exc import IntegrityError
+    from app.web import defects as defects_mod
+
+    async def _fake_create_dupe(session, **kw):
+        raise IntegrityError("INSERT ...", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(defects_mod, "create_binding", _fake_create_dupe)
+    from tests.web.test_defects_routes import DefectFakeSession
+    async def _rb(self):
+        return None
+    monkeypatch.setattr(DefectFakeSession, "rollback", _rb, raising=False)
+
+    resp = defects_client.post(
+        "/defects/bindings",
+        data={
+            "device_node_id": str(_uuid.uuid4()),
+            "feature_node_id": str(_uuid.uuid4()),
+            "defect_action": "block",
+            "unknown_action": "ask",
+        },
+    )
+    assert resp.status_code == 400, resp.text[:300]
+    assert "уже существует" in resp.text.lower() or "уже задана" in resp.text.lower()
+
+
 def test_feature_edit_form_shows_kind_dropdown_with_prefill(defects_client, monkeypatch):
     """User feedback 2026-05-15: edit-форма дефекта/раздела должна позволять
     менять Тип (Раздел/Дефект). Раньше dropdown был только в add-режиме."""

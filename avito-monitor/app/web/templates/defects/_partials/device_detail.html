@@ -4,21 +4,27 @@
   <aside class="col-span-1 bg-white rounded border border-avito-border-soft p-3">
     <div class="text-xs uppercase text-avito-text-soft mb-2">Устройства</div>
     <div id="device-tree" hx-get="/defects/devices/tree" hx-trigger="load" hx-swap="innerHTML">
-      <div class="text-avito-text-soft">Loading…</div>
+      <div class="text-avito-text-soft">Загрузка…</div>
     </div>
   </aside>
   <section class="col-span-3 bg-white rounded border border-avito-border-soft p-3">
     <h2 class="text-lg font-medium mb-1">{{ device.title }}</h2>
-    <div class="text-xs text-avito-text-soft mb-3">
-      Применимые дефекты ({{ bindings | length }})
+    <div class="flex items-center justify-between mb-3">
+      <div class="text-xs text-avito-text-soft">
+        Применимые дефекты ({{ bindings | length }})
+      </div>
+      <button hx-get="/defects/devices/{{ device.id }}/bindings/new"
+              hx-target="#binding-form-mount" hx-swap="innerHTML"
+              class="text-xs text-avito-text-soft hover:text-avito-green">[+] Добавить дефект</button>
     </div>
+    <div id="binding-form-mount"></div>
     <div id="bindings-list" class="space-y-3">
       {% set target_device_id = device.id | string %}
       {% for b in bindings %}
         {% include "defects/_partials/binding_row.html" %}
       {% endfor %}
       {% if not bindings %}
-        <div class="text-avito-text-soft text-sm">Нет привязанных дефектов.</div>
+        <div id="bindings-empty-state" class="text-avito-text-soft text-sm">Нет привязанных дефектов.</div>
       {% endif %}
     </div>
   </section>
