@@ -90,9 +90,16 @@ def node_color(kind: str, depth: int) -> str:
     return ""
 
 
+def indent_for_path(path: list[str]) -> str:
+    """Non-breaking-space indent prefix for hierarchical dropdown options.
+    Depth 1 (root) → no indent; each level deeper adds two nbsp."""
+    return "  " * max(0, len(path) - 1)
+
+
 templates.env.filters["severity_ru"] = severity_ru
 templates.env.filters["kind_ru"] = kind_ru
 templates.env.globals["node_color"] = node_color
+templates.env.globals["indent_for_path"] = indent_for_path
 
 router = APIRouter(prefix="/defects", tags=["defects"])
 

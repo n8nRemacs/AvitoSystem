@@ -14,7 +14,7 @@
   <label>Признак:
     <select name="feature_node_id" required class="border rounded px-1 max-w-md">
       {% for node, path in features %}
-        <option value="{{ node.id }}">{{ path | join(' / ') }} [{{ node.kind | kind_ru }}]</option>
+        <option value="{{ node.id }}">{{ indent_for_path(path) }}{{ path[-1] }} [{{ node.kind | kind_ru }}]</option>
       {% endfor %}
     </select>
   </label>

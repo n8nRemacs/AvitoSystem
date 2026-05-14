@@ -178,7 +178,11 @@ async def list_all_features_with_path(
             out.insert(0, cur.title)
         return out
 
-    return [(_row_to_fn(r), path_for(r)) for r in rows]
+    out = [(_row_to_fn(r), path_for(r)) for r in rows]
+    # Depth-first ordering: tuple comparison naturally walks the tree
+    # (a parent path is a strict prefix of its children → sorts before them).
+    out.sort(key=lambda x: x[1])
+    return out
 
 
 async def list_feature_children(

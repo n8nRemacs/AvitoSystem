@@ -244,6 +244,31 @@ async def test_create_binding_on_defect(db_session, seeded):
 
 
 @pytest.mark.asyncio
+async def test_list_all_features_with_path_tree_ordered(db_session):
+    """list_all_features_with_path сортирует depth-first: каждый раздел и его
+    потомки сгруппированы вместе. User feedback 2026-05-15: «Камера раскинута»
+    — нужно чтобы дефекты раздела шли сразу под разделом, а не по алфавиту."""
+    from app.services.defect_catalog.repository import (
+        create_feature_node, list_all_features_with_path,
+    )
+    # «Камера» раздел с defect под ним; «Корпус» раздел рядом
+    kamera = await create_feature_node(
+        db_session, parent_id=None, kind="node", slug="kamera", title="Камера",
+    )
+    mutnaya = await create_feature_node(
+        db_session, parent_id=kamera, kind="defect", slug="mutnaya", title="Мутная",
+    )
+    korpus = await create_feature_node(
+        db_session, parent_id=None, kind="node", slug="korpus", title="Корпус",
+    )
+    items = await list_all_features_with_path(db_session)
+    # Извлекаем titles в порядке
+    titles = [path[-1] for (_node, path) in items]
+    # Камера и её defect Мутная должны идти СОСЕДНИМИ, ПЕРЕД Корпус
+    assert titles.index("Камера") < titles.index("Мутная") < titles.index("Корпус"), titles
+
+
+@pytest.mark.asyncio
 async def test_binding_on_section_kind_allowed(db_session, seeded):
     """Section-level bindings allowed (user feedback 2026-05-15): юзер хочет
     привязывать целые ветви catalog'а (Корпус, Дисплей) — не только листья.

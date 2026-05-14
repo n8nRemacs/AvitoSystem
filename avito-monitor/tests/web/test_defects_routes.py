@@ -533,11 +533,47 @@ def test_binding_form_lists_features_with_paths(defects_client, monkeypatch):
     assert 'name="feature_node_id"' in resp.text
     # Section IS included (user wants to bind whole branches)
     assert str(section.id) in resp.text
-    # Path is shown — defect option label = «Дисплей / Разбит»
-    assert "Дисплей / Разбит" in resp.text
+    # Indented dropdown shows root as «Дисплей», child as «  Разбит» (nbsp-indent)
+    assert "Дисплей" in resp.text
+    assert "Разбит" in resp.text
     # Severity defaults
     assert 'name="defect_action"' in resp.text
     assert 'name="unknown_action"' in resp.text
+
+
+def test_binding_form_dropdown_indents_by_depth(defects_client, monkeypatch):
+    """User feedback 2026-05-15: «табуляция по вхождению» — каждый уровень
+    глубины добавляет nbsp-отступ слева в опции, визуально показывая иерархию."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import FeatureNodeRow
+    from app.web import defects as defects_mod
+
+    dev_id = _uuid.UUID("99887766-aaaa-bbbb-cccc-dddddddddddd")
+    root = FeatureNodeRow(
+        id=_uuid.UUID("aaaa0000-0000-0000-0000-000000000001"),
+        parent_id=None, kind="node", slug="case", title="Корпус",
+        sort_order=0, prompt_hint=None,
+    )
+    deep = FeatureNodeRow(
+        id=_uuid.UUID("aaaa0000-0000-0000-0000-000000000002"),
+        parent_id=root.id, kind="defect", slug="midframe_bent", title="Midframe погнут",
+        sort_order=0, prompt_hint=None,
+    )
+
+    async def _fake_list(session):
+        return [
+            (root, ["Корпус"]),                          # depth 1 — no indent
+            (deep, ["Корпус", "Midframe погнут"]),       # depth 2 — 1 indent
+        ]
+
+    monkeypatch.setattr(defects_mod, "list_all_features_with_path", _fake_list)
+
+    resp = defects_client.get(f"/defects/devices/{dev_id}/bindings/new")
+    assert resp.status_code == 200
+    # Root option — no leading nbsp
+    assert "<option value=\"" + str(root.id) + "\">Корпус" in resp.text
+    # Child option — at least one leading nbsp (U+00A0)
+    assert "  Midframe погнут" in resp.text or " Midframe погнут" in resp.text
 
 
 def test_create_binding_returns_400_on_duplicate(defects_client, monkeypatch):
