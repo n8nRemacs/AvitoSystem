@@ -1,8 +1,8 @@
 {% macro render(entry) %}
   <div class="ml-2">
-    <div class="flex items-center gap-1 py-1 text-sm">
-      <span class="flex-1">{{ entry.node.title }}
-        <span class="text-xs text-avito-text-soft">[{{ entry.node.kind }}]</span>
+    <div class="flex items-center gap-1 py-1 text-sm rounded px-1 hover:bg-avito-elev">
+      <span>{{ entry.node.title }}
+        <span class="text-xs text-avito-text-soft">[{{ entry.node.kind | kind_ru }}]</span>
       </span>
       <button hx-get="/defects/catalog/{{ entry.node.id }}/new"
               hx-target="this" hx-swap="afterend"

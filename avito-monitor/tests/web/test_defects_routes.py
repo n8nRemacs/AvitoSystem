@@ -492,6 +492,111 @@ def test_device_tree_renders_action_icons(defects_client, monkeypatch):
     assert "Apple" in resp.text
 
 
+def test_feature_form_kind_dropdown_uses_node_value(defects_client):
+    """B1: dropdown «Раздел» must use value="node" (matches backend constraint
+    feature_nodes.kind IN ('node','defect')), not "section". Otherwise selecting
+    «Раздел» causes POST → 400 → silent HTMX fail."""
+    resp = defects_client.get("/defects/catalog/new")
+    assert resp.status_code == 200
+    assert '<option value="node"' in resp.text
+    assert '<option value="section"' not in resp.text
+    # Label "Раздел" still shown to user — only the internal value changes
+    assert "Раздел" in resp.text
+
+
+def test_form_cancel_targets_whole_form(defects_client):
+    """B2: «Отмена» must swap the whole form (not just the button itself).
+    With hx-target="this" hx-swap="outerHTML" only the button vanished, form persisted.
+    Fix: hx-target="closest form" replaces the entire form element."""
+    resp = defects_client.get("/defects/catalog/new")
+    assert resp.status_code == 200
+    # Cancel button must target the form, not itself
+    assert 'hx-target="closest form"' in resp.text
+    # And must NOT have the old buggy target
+    assert 'hx-target="this" hx-swap="outerHTML"' not in resp.text
+
+
+def test_form_clears_mount_after_successful_post(defects_client):
+    """B3: after successful POST the form must self-remove from #feature-form-mount /
+    #device-form-mount. Otherwise user sees no «saved» feedback (tree updates below
+    but form stays). Fix: hx-on::htmx:after-request listener that clears the parent
+    on successful response."""
+    resp = defects_client.get("/defects/catalog/new")
+    assert resp.status_code == 200
+    # Form has an after-request listener that clears its parent mount on success.
+    assert "htmx:after-request" in resp.text
+    assert "event.detail.successful" in resp.text
+
+
+def test_kind_ru_filter():
+    """Unit-test kind_ru filter — maps DB kind values to Russian display labels.
+    'node' (used in seed, schema accepts node|defect) → «Раздел».
+    'section' (spec value, future rename) → «Раздел» too for forward compat.
+    'defect' → «Дефект»."""
+    from app.web.defects import kind_ru
+    assert kind_ru("node") == "Раздел"
+    assert kind_ru("section") == "Раздел"
+    assert kind_ru("defect") == "Дефект"
+    # Unknown values pass through unchanged (defensive)
+    assert kind_ru("unknown") == "unknown"
+    assert kind_ru("") == ""
+
+
+def test_feature_tree_shows_russian_kind_label(defects_client, monkeypatch):
+    """B-cosmetic: kind suffix in tree («[node]» рядом с «Дисплей») must
+    render as «[Раздел]» / «[Дефект]» — no English «node» visible to user."""
+    import uuid as _uuid
+    from app.services.defect_catalog.repository import FeatureNodeRow
+    from app.web import defects as defects_mod
+
+    nid = _uuid.UUID("88888888-8888-8888-8888-888888888888")
+    fake_section = FeatureNodeRow(
+        id=nid, parent_id=None, kind="node", slug="display",
+        title="Дисплей", sort_order=0, prompt_hint=None,
+    )
+
+    call_count = {"n": 0}
+
+    async def _fake_list_children(session, parent_id):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return [fake_section]
+        return []
+
+    monkeypatch.setattr(defects_mod, "list_feature_children", _fake_list_children)
+
+    resp = defects_client.get("/defects/catalog/tree")
+    assert resp.status_code == 200
+    assert "[Раздел]" in resp.text
+    assert "[node]" not in resp.text
+
+
+def test_post_feature_accepts_kind_node(defects_client, monkeypatch):
+    """B1 integration: POST /defects/catalog with kind=node (from dropdown «Раздел»)
+    must succeed — backend already supports node, dropdown was the broken side."""
+    captured: dict = {}
+
+    async def _fake_create(session, *, parent_id, kind, slug, title, prompt_hint=None, sort_order=0):
+        captured["kind"] = kind
+        captured["slug"] = slug
+        return uuid.uuid4()
+
+    async def _fake_list_children(session, parent_id):
+        return []
+
+    from app.web import defects as defects_mod
+    monkeypatch.setattr(defects_mod, "create_feature_node", _fake_create)
+    monkeypatch.setattr(defects_mod, "list_feature_children", _fake_list_children)
+
+    resp = defects_client.post(
+        "/defects/catalog",
+        data={"title": "Камера", "slug": "", "kind": "node"},
+    )
+    assert resp.status_code == 200, resp.text[:300]
+    assert captured["kind"] == "node"
+    assert captured["slug"] == "kamera"
+
+
 def test_feature_tree_renders_action_icons(defects_client, monkeypatch):
     import uuid as _uuid
     from app.services.defect_catalog.repository import FeatureNodeRow

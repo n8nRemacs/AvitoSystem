@@ -1,8 +1,8 @@
 {% macro render(entry) %}
   <div class="ml-2">
-    <div class="flex items-center gap-1 py-1 text-sm">
+    <div class="flex items-center gap-1 py-1 text-sm rounded px-1 hover:bg-avito-elev">
       <a href="/defects/devices/{{ entry.node.id }}" hx-boost="false"
-         class="flex-1 hover:text-avito-green">{{ entry.node.title }}</a>
+         class="hover:text-avito-green">{{ entry.node.title }}</a>
       <button hx-get="/defects/devices/{{ entry.node.id }}/new"
               hx-target="this" hx-swap="afterend"
               class="text-xs text-avito-text-soft hover:text-avito-green px-1"

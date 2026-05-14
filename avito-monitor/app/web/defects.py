@@ -49,6 +49,12 @@ _SEVERITY_RU = {
     "skip": "пропустить",
 }
 
+_KIND_RU = {
+    "node": "Раздел",
+    "section": "Раздел",
+    "defect": "Дефект",
+}
+
 
 def severity_ru(value: str) -> str:
     """Translate DB severity values (block/info/ask/skip) to Russian UI labels.
@@ -56,7 +62,14 @@ def severity_ru(value: str) -> str:
     return _SEVERITY_RU.get(value, value)
 
 
+def kind_ru(value: str) -> str:
+    """Translate feature_node.kind DB values to Russian UI labels.
+    'node' (current seed) and 'section' (spec target rename) both map to «Раздел»."""
+    return _KIND_RU.get(value, value)
+
+
 templates.env.filters["severity_ru"] = severity_ru
+templates.env.filters["kind_ru"] = kind_ru
 
 router = APIRouter(prefix="/defects", tags=["defects"])
 

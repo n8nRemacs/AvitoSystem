@@ -25,6 +25,7 @@
       {{ hx_method }}="{{ hx_url }}"
       hx-target="{{ tree_target }}"
       hx-swap="innerHTML"
+      hx-on::htmx:after-request="if(event.detail.successful) this.remove()"
       class="ml-4 my-1 p-2 bg-avito-elev rounded text-xs flex flex-wrap gap-2 items-center">
   {% if mode == 'add' and parent_id %}
     <input type="hidden" name="parent_id" value="{{ parent_id }}">
@@ -33,7 +34,7 @@
   {% if kind == 'feature' and mode == 'add' %}
     <label>Тип:
       <select name="kind" class="border rounded px-1">
-        <option value="section">Раздел</option>
+        <option value="node">Раздел</option>
         <option value="defect" selected>Дефект</option>
       </select>
     </label>
@@ -65,6 +66,6 @@
           class="px-2 py-0.5 bg-avito-brand text-white rounded">ОК</button>
   <button type="button"
           hx-get="{{ '/defects/devices/cancel-form' if kind == 'device' else '/defects/catalog/cancel-form' }}"
-          hx-target="this" hx-swap="outerHTML"
+          hx-target="closest form" hx-swap="outerHTML"
           class="px-2 py-0.5 border rounded">Отмена</button>
 </form>
